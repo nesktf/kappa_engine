@@ -1,0 +1,15 @@
+[_PROJECT]
+env=["GTEST_COLOR=1"]
+run=""
+clean="rm -rf ./build"
+build="make -C build -j4"
+config="cmake -B build"
+target="skel_anim"
+target_config="debug"
+
+[skel_anim]
+run="mangohud --dlsym ./build/skel_anim"
+
+[skel_anim.configs]
+debug=["-DCMAKE_BUILD_TYPE=Debug"]
+release=["-DCMAKE_BUILD_TYPE=Release"]
