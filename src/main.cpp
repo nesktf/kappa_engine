@@ -41,12 +41,10 @@ void main() {
 )glsl";
 
 struct mesh_t {
-  size_t pos;
-  size_t norm;
-  size_t uv;
-  size_t ebo;
   u32 indices;
-  size_t tex;
+  u32 vert_offset;
+  u32 indx_offset;
+  u32 tex;
 };
 
 int main() {
@@ -109,11 +107,7 @@ int main() {
     .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
 
   std::vector<mesh_t> meshes;
-  std::vector<ntfr::vertex_buffer> vbos;
-  std::vector<ntfr::index_buffer> ebos;
   meshes.reserve(cirno_meshes.meshes.size());
-  vbos.reserve(cirno_meshes.meshes.size()*3u);
-  ebos.reserve(cirno_meshes.meshes.size());
 
   std::vector<ntfr::texture2d> texs;
   texs.reserve(cirno_materials.textures.size());
@@ -144,60 +138,60 @@ int main() {
     texs.emplace_back(std::move(tex));
   }
 
+  const ntf::span<vec3> pos_span{cirno_meshes.positions.data(), cirno_meshes.positions.size()};
+  const ntfr::buffer_data pos_data {
+    .data = pos_span.data(),
+    .size = pos_span.size_bytes(),
+    .offset = 0u,
+  };
+  auto pos_vbo = ntfr::vertex_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = pos_span.size_bytes(),
+    .data = pos_data,
+  }).value();
+
+  const ntf::span<vec3> norm_span{cirno_meshes.normals.data(), cirno_meshes.normals.size()};
+  const ntfr::buffer_data norm_data {
+    .data = norm_span.data(),
+    .size = norm_span.size_bytes(),
+    .offset = 0u,
+  };
+  auto norm_vbo = ntfr::vertex_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = norm_span.size_bytes(),
+    .data = norm_data,
+  }).value();
+
+  const ntf::span<vec2> uv_span{cirno_meshes.uvs.data(), cirno_meshes.uvs.size()};
+  const ntfr::buffer_data uv_data {
+    .data = uv_span.data(),
+    .size = uv_span.size_bytes(),
+    .offset = 0u,
+  };
+  auto uv_vbo = ntfr::vertex_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = uv_span.size_bytes(),
+    .data = uv_data,
+  }).value();
+
+  const ntf::span<u32> idx_span{cirno_meshes.indices.data(), cirno_meshes.indices.size()};
+  const ntfr::buffer_data idx_data {
+    .data = idx_span.data(),
+    .size = idx_span.size_bytes(),
+    .offset = 0u,
+  };
+  auto ebo = ntfr::index_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = idx_span.size_bytes(),
+    .data = idx_data,
+  }).value();
+
   for (const auto& mesh : cirno_meshes.meshes) {
-    size_t vbos_idx = vbos.size();
-    const auto pos_span = mesh.positions.to_cspan(cirno_meshes.positions.data());
-    const ntfr::buffer_data pos_data {
-      .data = pos_span.data(),
-      .size = pos_span.size_bytes(),
-      .offset = 0u,
-    };
-    auto pos_buff = ntfr::vertex_buffer::create(ctx, {
-      .flags = {},
-      .size = pos_span.size_bytes(),
-      .data = pos_data,
-    }).value();
-    vbos.emplace_back(std::move(pos_buff));
+    const u32 indx_count = mesh.indices.count;
+    const u32 indx_offset = mesh.indices.idx;
 
-    const auto norm_span = mesh.normals.to_cspan(cirno_meshes.normals.data());
-    const ntfr::buffer_data norm_data {
-      .data = norm_span.data(),
-      .size = norm_span.size_bytes(),
-      .offset = 0u,
-    };
-    auto norm_buff = ntfr::vertex_buffer::create(ctx, {
-      .flags = {},
-      .size = norm_span.size_bytes(),
-      .data = norm_data,
-    }).value();
-    vbos.emplace_back(std::move(norm_buff));
-
-    const auto uv_span = mesh.uvs.to_cspan(cirno_meshes.uvs.data());
-    const ntfr::buffer_data uv_data {
-      .data = uv_span.data(),
-      .size = uv_span.size_bytes(),
-      .offset = 0u,
-    };
-    auto uv_buff = ntfr::vertex_buffer::create(ctx, {
-      .flags = {},
-      .size = uv_span.size_bytes(),
-      .data = uv_data,
-    }).value();
-    vbos.emplace_back(std::move(uv_buff));
-
-    size_t ebo_idx = ebos.size();
-    const auto ind_span = mesh.indices.to_cspan(cirno_meshes.indices.data());
-    const ntfr::buffer_data ind_data {
-      .data = ind_span.data(),
-      .size = ind_span.size_bytes(),
-      .offset = 0u,
-    };
-    auto ind_buff = ntfr::index_buffer::create(ctx, {
-      .flags = {},
-      .size = ind_span.size_bytes(),
-      .data = ind_data,
-    }).value();
-    ebos.emplace_back(std::move(ind_buff));
+    // Assumes all meshes have the same vertex count in each attribute
+    const u32 vert_offset = mesh.positions.idx;
 
     const u32 mat_idx = cirno_materials.material_registry.find(mesh.material_name)->second;
     const auto& mat = cirno_materials.materials[mat_idx];
@@ -206,7 +200,7 @@ int main() {
       tex = cirno_materials.material_textures[mat.textures.idx];
     }
 
-    meshes.emplace_back(vbos_idx, vbos_idx+1, vbos_idx+2, ebo_idx, ind_span.size(), tex);
+    meshes.emplace_back(indx_count, vert_offset, indx_offset, tex);
   }
 
   float t = 0.f;
@@ -223,20 +217,21 @@ int main() {
         ntfr::format_uniform_const(u_view, view_mat),
         ntfr::format_uniform_const(u_sampler, sampler),
       };
+      const ntfr::vertex_binding binds[] = {
+        {.buffer = pos_vbo,  .layout = 0u},
+        {.buffer = norm_vbo, .layout = 1u},
+        {.buffer = uv_vbo,   .layout = 2u},
+      };
+      const ntfr::buffer_binding buff_bind {
+        .vertex = binds,
+        .index = ebo,
+        .shader = {},
+      };
       for (const auto& mesh : meshes) {
-        const ntfr::vertex_binding binds[] = {
-          {.buffer = vbos[mesh.pos],  .layout = 0u},
-          {.buffer = vbos[mesh.norm], .layout = 1u},
-          {.buffer = vbos[mesh.uv],   .layout = 2u},
-        };
-        const ntfr::buffer_binding buff_bind {
-          .vertex = binds,
-          .index = ebos[mesh.ebo],
-          .shader = {},
-        };
         const ntfr::render_opts opts {
           .vertex_count = mesh.indices,
-          .vertex_offset = 0,
+          .vertex_offset = mesh.vert_offset,
+          .index_offset = mesh.indx_offset,
           .instances = 0,
         };
         ctx.submit_render_command({
