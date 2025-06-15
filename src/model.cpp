@@ -397,9 +397,13 @@ void assimp_parser::_parse_bone_nodes(const bone_inv_map& bone_invs,
   const auto& [bone_name, inv_model] = *it;
 
   // Store meta info and transforms
-  data.bones.emplace_back(bone_name, parent);
+  auto& bone = data.bones.emplace_back(bone_name, parent);
   data.bone_locals.emplace_back(asscast(node->mTransformation));
   data.bone_inv_models.emplace_back(inv_model);
+
+  // Add bones to the registry
+  auto [_, empl] = data.bone_registry.try_emplace(bone.name, bone_count);
+  NTF_ASSERT(empl);
 
   // Parse children
   for (u32 i = 0; i < node->mNumChildren; ++i) {
@@ -441,7 +445,8 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
 
   // Create a bone tree from each root node
   u32 bone_count = 0u;
-  data.bones.reserve(bone_invs.size());
+  data.bones.reserve(bone_invs.size()); // Avoid invalidating bone string pointers!!!!
+  data.bone_registry.reserve(bone_invs.size());
   for (const aiNode* root : possible_roots) { 
     // Check for name dupes
     auto bone_it = data.bone_registry.find(root->mName.C_Str());
@@ -472,12 +477,6 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
     const vec_span armature_span{root_idx, bone_count-root_idx};
 
     data.armatures.emplace_back(armature_name, armature_span);
-  }
-
-  // Add bones to the registry
-  for (const auto& bone : data.bones) {
-    auto [_, empl] = data.bone_registry.try_emplace(bone.name, bone_count);
-    NTF_ASSERT(empl);
   }
 
   // We don't know the number of armatures before this so we reserve here

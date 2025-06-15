@@ -9,6 +9,8 @@ static std::string_view vert_src = R"glsl(
 layout (location = 0) in vec3 att_coords;
 layout (location = 1) in vec3 att_normals;
 layout (location = 2) in vec2 att_texcoords;
+layout (location = 3) in ivec4 att_bones;
+layout (location = 4) in vec4 att_weights;
 
 out vec2 tex_coord;
 
@@ -16,8 +18,26 @@ uniform mat4 u_model;
 uniform mat4 u_proj;
 uniform mat4 u_view;
 
+layout(std430, binding = 1) buffer bone_transforms {
+  mat4 bone_mat[];
+};
+
+const int MAX_BONE_INFLUENCE = 4;
+
 void main() {
-  gl_Position = u_proj*u_view*u_model*vec4(att_coords, 1.0f);
+  // vec4 total_pos = bone_mat[att_bones] * vec4(att_coords, 1.f);
+  vec4 total_pos = vec4(0.f);
+  for (int i = 0; i < MAX_BONE_INFLUENCE; ++i){
+    if (att_bones[i] == -1) {
+      continue;
+    }
+    vec4 local_pos = bone_mat[att_bones[i]] * vec4(att_coords, 1.f);
+    total_pos += local_pos * att_weights[i];
+    vec3 local_norm = mat3(bone_mat[att_bones[i]]) * att_normals;
+  }
+
+  // gl_Position = u_proj*u_view*u_model*vec4(att_coords, 1.0f);
+  gl_Position = u_proj*u_view*u_model*total_pos;
   tex_coord = att_texcoords;
 }
 )glsl";
@@ -32,7 +52,7 @@ uniform sampler2D u_sampler;
 void main() {
   vec4 out_color = texture(u_sampler, tex_coord);
 
-  if (out_color.a < 0.1) {
+  if (out_color.a < 0.2) {
     discard;
   }
 
@@ -62,6 +82,21 @@ int main() {
   model_mesh_data cirno_meshes;
   parser.parse_meshes(cirno_rigs, cirno_meshes);
 
+  // for (const auto& mesh : cirno_meshes.meshes) {
+  //   ntf::logger::info("MESH: {}", mesh.name);
+  //   const auto idx_span = mesh.bones.to_cspan(cirno_meshes.bones.data());
+  //   const auto wei_span = mesh.bones.to_cspan(cirno_meshes.weights.data());
+  //   for (u32 i = 0; i < idx_span.size(); ++i) {
+  //     ntf::logger::debug("- [{}, {}, {}, {}] -> [{}, {}, {}, {}]",
+  //                        idx_span[i][0], idx_span[i][1], idx_span[i][2], idx_span[i][3],
+  //                        wei_span[i][0], wei_span[i][1], wei_span[i][2], wei_span[i][3]);
+  //   }
+  // }
+
+  // for (const auto& [name, idx] : cirno_rigs.bone_registry) {
+  //   ntf::logger::info("BONE: {}, IDX: {}", name, idx);
+  // }
+
   auto [win, ctx] = ntfr::make_gl_ctx(1280, 720, "test", 1).value();
 
   auto fbo = ntfr::framebuffer::get_default(ctx);
@@ -79,7 +114,19 @@ int main() {
   auto vert_sh = ntfr::vertex_shader::create(ctx, {vert_src}).value();
   auto frag_sh = ntfr::fragment_shader::create(ctx, {frag_src}).value();
   const ntfr::shader_t pip_stages[] = {vert_sh, frag_sh};
-  const auto pip_attrib = ntfr::pnt_vertex::soa_binding(0);
+  // const auto pip_attrib = ntfr::pnt_vertex::soa_binding();
+  std::array<ntfr::attribute_binding, 5u> pip_attrib {{
+    {.type = ntfr::attribute_type::vec3,  .location = 0u, .offset = 0u, .stride = 0u},
+    {.type = ntfr::attribute_type::vec3,  .location = 1u, .offset = 0u, .stride = 0u},
+    {.type = ntfr::attribute_type::vec2,  .location = 2u, .offset = 0u, .stride = 0u},
+    {.type = ntfr::attribute_type::ivec4, .location = 3u, .offset = 0u, .stride = 0u},
+    {.type = ntfr::attribute_type::vec4,  .location = 4u, .offset = 0u, .stride = 0u},
+  }};
+
+  const ntfr::face_cull_opts cull {
+    .mode = ntfr::cull_mode::back,
+    .front_face = ntfr::cull_face::counter_clockwise,
+  };
   auto pipe = ntfr::pipeline::create(ctx, {
     .attributes = {pip_attrib.data(), pip_attrib.size()},
     .stages = pip_stages,
@@ -90,7 +137,7 @@ int main() {
       .stencil_test = nullptr,
       .depth_test = ntfr::def_depth_opts,
       .scissor_test = nullptr,
-      .face_culling = nullptr,
+      .face_culling = cull,
       .blending = ntfr::def_blending_opts,
     },
   }).value();
@@ -101,7 +148,7 @@ int main() {
   auto u_sampler = pipe.uniform("u_sampler");
 
   const auto fb_ratio = 1280.f/720.f;
-  auto proj_mat = glm::perspective(glm::radians(45.f), fb_ratio, .1f, 100.f);
+  auto proj_mat = glm::perspective(glm::radians(30.f), fb_ratio, .1f, 100.f);
   auto view_mat = glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f});
   auto transf = ntf::transform3d<f32>{}
     .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
@@ -174,6 +221,30 @@ int main() {
     .data = uv_data,
   }).value();
 
+  const ntf::span<model_mesh_data::vertex_bones> bone_span{cirno_meshes.bones.data(), cirno_meshes.bones.size()};
+  const ntfr::buffer_data bone_data {
+    .data = bone_span.data(),
+    .size = bone_span.size_bytes(),
+    .offset = 0u,
+  };
+  auto bone_vbo = ntfr::vertex_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = bone_span.size_bytes(),
+    .data = bone_data,
+  }).value();
+
+  const ntf::span<model_mesh_data::vertex_weights> weight_span{cirno_meshes.weights.data(), cirno_meshes.weights.size()};
+  const ntfr::buffer_data weight_data {
+    .data = weight_span.data(),
+    .size = weight_span.size_bytes(),
+    .offset = 0u,
+  };
+  auto weight_vbo = ntfr::vertex_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = weight_span.size_bytes(),
+    .data = weight_data,
+  }).value();
+
   const ntf::span<u32> idx_span{cirno_meshes.indices.data(), cirno_meshes.indices.size()};
   const ntfr::buffer_data idx_data {
     .data = idx_span.data(),
@@ -184,6 +255,20 @@ int main() {
     .flags = ntfr::buffer_flag::dynamic_storage,
     .size = idx_span.size_bytes(),
     .data = idx_data,
+  }).value();
+
+  std::vector<mat4> bone_shader_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
+  std::vector<mat4> bone_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
+
+  const ntfr::buffer_data bone_transf_data {
+    .data = bone_shader_transforms.data(),
+    .size = bone_shader_transforms.size()*sizeof(mat4),
+    .offset = 0u,
+  };
+  auto ssbo = ntfr::shader_storage_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = bone_shader_transforms.size()*sizeof(mat4),
+    .data = bone_transf_data,
   }).value();
 
   for (const auto& mesh : cirno_meshes.meshes) {
@@ -203,13 +288,37 @@ int main() {
     meshes.emplace_back(indx_count, vert_offset, indx_offset, tex);
   }
 
+  auto bone_transf = ntf::transform3d<f32>{}
+    .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+
   float t = 0.f;
   ntfr::render_loop(win, ctx, 60u, ntf::overload{
     [&](u32 fdt) {
       t += 1/(float)fdt;
       transf.rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
+      bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
+      bone_transforms[6] = bone_transf.world();
+
+      std::vector<mat4> local_transform(cirno_rigs.bones.size()-1, mat4{1.f});
+      std::vector<mat4> model_transform(cirno_rigs.bones.size()-1, mat4{1.f});
+
+      for (u32 i = 0; i < cirno_rigs.bones.size()-1; ++i) {
+        local_transform[i] = cirno_rigs.bone_locals[i]*bone_transforms[i];
+      }
+      model_transform[0] = local_transform[0];
+
+      for (u32 i = 1; i < cirno_rigs.bones.size()-1; ++i) {
+        u32 parent = cirno_rigs.bones[i].parent;
+        model_transform[i] = model_transform[parent] * local_transform[i];
+      }
+
+      for (u32 i = 0; i < cirno_rigs.bones.size()-1; ++i) {
+        bone_shader_transforms[i] = model_transform[i]*cirno_rigs.bone_inv_models[i];
+      }
     },
     [&](f32 dt, f32 alpha) {
+      ssbo.upload(bone_transf_data);
+
       const int32 sampler = 0;
       const ntfr::uniform_const unifs[] = {
         ntfr::format_uniform_const(u_model, transf.world()),
@@ -218,14 +327,19 @@ int main() {
         ntfr::format_uniform_const(u_sampler, sampler),
       };
       const ntfr::vertex_binding binds[] = {
-        {.buffer = pos_vbo,  .layout = 0u},
-        {.buffer = norm_vbo, .layout = 1u},
-        {.buffer = uv_vbo,   .layout = 2u},
+        {.buffer = pos_vbo,    .layout = 0u},
+        {.buffer = norm_vbo,   .layout = 1u},
+        {.buffer = uv_vbo,     .layout = 2u},
+        {.buffer = bone_vbo,   .layout = 3u},
+        {.buffer = weight_vbo, .layout = 4u},
+      };
+      const ntfr::shader_binding ssbo_bind {
+        .buffer = ssbo, .binding = 1u, .size = ssbo.size(), .offset = 0u,
       };
       const ntfr::buffer_binding buff_bind {
         .vertex = binds,
         .index = ebo,
-        .shader = {},
+        .shader = {ssbo_bind},
       };
       for (const auto& mesh : meshes) {
         const ntfr::render_opts opts {
