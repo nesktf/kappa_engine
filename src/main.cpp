@@ -1,4 +1,5 @@
 #include <shogle/boilerplate.hpp>
+#include "model_data.hpp"
 #include "model.hpp"
 
 using namespace ntf::numdefs;
@@ -9,8 +10,10 @@ static std::string_view vert_src = R"glsl(
 layout (location = 0) in vec3 att_coords;
 layout (location = 1) in vec3 att_normals;
 layout (location = 2) in vec2 att_texcoords;
-layout (location = 3) in ivec4 att_bones;
-layout (location = 4) in vec4 att_weights;
+layout (location = 3) in vec3 att_tangents;
+layout (location = 4) in vec3 att_bitangents;
+layout (location = 5) in ivec4 att_bones;
+layout (location = 6) in vec4 att_weights;
 
 out vec2 tex_coord;
 
@@ -60,13 +63,6 @@ void main() {
 }
 )glsl";
 
-struct mesh_t {
-  u32 indices;
-  u32 vert_offset;
-  u32 indx_offset;
-  u32 tex;
-};
-
 int main() {
   ntf::logger::set_level(ntf::log_level::debug);
 
@@ -114,13 +110,13 @@ int main() {
     .swap_interval = 0,
     .fb_msaa_level = 8,
     .fb_buffer = ntfr::fbo_buffer::depth24u_stencil8u,
-    .fb_use_alpha = true,
+    .fb_use_alpha = false,
   };
   auto win = ntfr::window::create({
     .width = win_width,
     .height = win_height,
     .title = "test",
-    .attrib = {},
+    .attrib = ntfr::win_attrib::decorate | ntfr::win_attrib::resizable,
     .renderer_api = ntfr::context_api::opengl,
     .platform_params = &x11,
     .renderer_params = &win_gl,
@@ -159,9 +155,6 @@ int main() {
     .pos(425.f, -175.f).scale(ntf::vec2{256.f, 256.f});
 
   auto fbo = ntfr::framebuffer::get_default(ctx);
-  fbo.clear_color({
-    .0f, .0f, .0f, 0.f
-  });
   bool do_things = true;
   win.set_viewport_callback([&](ntfr::window&, const ntf::extent2d& ext) {
     fbo.viewport({0, 0, ext.x, ext.y});
@@ -177,18 +170,15 @@ int main() {
     }
   });
 
+  std::vector<ntfr::attribute_binding> pip_attrib;
+  std::vector<mesh_render_data> model_render_data;
+  auto model = model_mesh_provider::create(ctx, cirno_meshes).value();
+  model.retrieve_bindings(pip_attrib);
+  model.retrieve_render_data(model_render_data);
+
   auto vert_sh = ntfr::vertex_shader::create(ctx, {vert_src}).value();
   auto frag_sh = ntfr::fragment_shader::create(ctx, {frag_src}).value();
   const ntfr::shader_t pip_stages[] = {vert_sh, frag_sh};
-  // const auto pip_attrib = ntfr::pnt_vertex::soa_binding();
-  std::array<ntfr::attribute_binding, 5u> pip_attrib {{
-    {.type = ntfr::attribute_type::vec3,  .location = 0u, .offset = 0u, .stride = 0u},
-    {.type = ntfr::attribute_type::vec3,  .location = 1u, .offset = 0u, .stride = 0u},
-    {.type = ntfr::attribute_type::vec2,  .location = 2u, .offset = 0u, .stride = 0u},
-    {.type = ntfr::attribute_type::ivec4, .location = 3u, .offset = 0u, .stride = 0u},
-    {.type = ntfr::attribute_type::vec4,  .location = 4u, .offset = 0u, .stride = 0u},
-  }};
-
   const ntfr::face_cull_opts cull {
     .mode = ntfr::cull_mode::back,
     .front_face = ntfr::cull_face::counter_clockwise,
@@ -219,8 +209,8 @@ int main() {
   auto transf = ntf::transform3d<f32>{}
     .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
 
-  std::vector<mesh_t> meshes;
-  meshes.reserve(cirno_meshes.meshes.size());
+  std::vector<u32> mesh_texs;
+  mesh_texs.reserve(cirno_meshes.meshes.size());
 
   std::vector<ntfr::texture2d> texs;
   texs.reserve(cirno_materials.textures.size());
@@ -251,78 +241,6 @@ int main() {
     texs.emplace_back(std::move(tex));
   }
 
-  const ntf::span<vec3> pos_span{cirno_meshes.positions.data(), cirno_meshes.positions.size()};
-  const ntfr::buffer_data pos_data {
-    .data = pos_span.data(),
-    .size = pos_span.size_bytes(),
-    .offset = 0u,
-  };
-  auto pos_vbo = ntfr::vertex_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = pos_span.size_bytes(),
-    .data = pos_data,
-  }).value();
-
-  const ntf::span<vec3> norm_span{cirno_meshes.normals.data(), cirno_meshes.normals.size()};
-  const ntfr::buffer_data norm_data {
-    .data = norm_span.data(),
-    .size = norm_span.size_bytes(),
-    .offset = 0u,
-  };
-  auto norm_vbo = ntfr::vertex_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = norm_span.size_bytes(),
-    .data = norm_data,
-  }).value();
-
-  const ntf::span<vec2> uv_span{cirno_meshes.uvs.data(), cirno_meshes.uvs.size()};
-  const ntfr::buffer_data uv_data {
-    .data = uv_span.data(),
-    .size = uv_span.size_bytes(),
-    .offset = 0u,
-  };
-  auto uv_vbo = ntfr::vertex_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = uv_span.size_bytes(),
-    .data = uv_data,
-  }).value();
-
-  const ntf::span<model_mesh_data::vertex_bones> bone_span{cirno_meshes.bones.data(), cirno_meshes.bones.size()};
-  const ntfr::buffer_data bone_data {
-    .data = bone_span.data(),
-    .size = bone_span.size_bytes(),
-    .offset = 0u,
-  };
-  auto bone_vbo = ntfr::vertex_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = bone_span.size_bytes(),
-    .data = bone_data,
-  }).value();
-
-  const ntf::span<model_mesh_data::vertex_weights> weight_span{cirno_meshes.weights.data(), cirno_meshes.weights.size()};
-  const ntfr::buffer_data weight_data {
-    .data = weight_span.data(),
-    .size = weight_span.size_bytes(),
-    .offset = 0u,
-  };
-  auto weight_vbo = ntfr::vertex_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = weight_span.size_bytes(),
-    .data = weight_data,
-  }).value();
-
-  const ntf::span<u32> idx_span{cirno_meshes.indices.data(), cirno_meshes.indices.size()};
-  const ntfr::buffer_data idx_data {
-    .data = idx_span.data(),
-    .size = idx_span.size_bytes(),
-    .offset = 0u,
-  };
-  auto ebo = ntfr::index_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = idx_span.size_bytes(),
-    .data = idx_data,
-  }).value();
-
   std::vector<mat4> bone_shader_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
   std::vector<mat4> bone_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
 
@@ -338,20 +256,13 @@ int main() {
   }).value();
 
   for (const auto& mesh : cirno_meshes.meshes) {
-    const u32 indx_count = mesh.indices.count;
-    const u32 indx_offset = mesh.indices.idx;
-
-    // Assumes all meshes have the same vertex count in each attribute
-    const u32 vert_offset = mesh.positions.idx;
-
     const u32 mat_idx = cirno_materials.material_registry.find(mesh.material_name)->second;
     const auto& mat = cirno_materials.materials[mat_idx];
     u32 tex = 0u;
     if (mat.textures.count == 1){
       tex = cirno_materials.material_textures[mat.textures.idx];
     }
-
-    meshes.emplace_back(indx_count, vert_offset, indx_offset, tex);
+    mesh_texs.emplace_back(tex);
   }
 
   auto bone_transf = ntf::transform3d<f32>{}
@@ -392,6 +303,7 @@ int main() {
       text_scale = 1.3f*std::abs(std::sin(t*M_PIf))+1.f;
     },
     [&](f32 dt, f32 alpha) {
+      NTF_UNUSED(alpha);
       t2 += dt;
       if (t2 > 0.016f) {
         fps[fps_counter] = 1/dt;
@@ -416,39 +328,36 @@ int main() {
         ntfr::format_uniform_const(u_view, view_mat),
         ntfr::format_uniform_const(u_sampler, sampler),
       };
-      const ntfr::vertex_binding binds[] = {
-        {.buffer = pos_vbo,    .layout = 0u},
-        {.buffer = norm_vbo,   .layout = 1u},
-        {.buffer = uv_vbo,     .layout = 2u},
-        {.buffer = bone_vbo,   .layout = 3u},
-        {.buffer = weight_vbo, .layout = 4u},
-      };
       const ntfr::shader_binding ssbo_bind {
         .buffer = ssbo, .binding = 1u, .size = ssbo.size(), .offset = 0u,
       };
-      const ntfr::buffer_binding buff_bind {
-        .vertex = binds,
-        .index = ebo,
-        .shader = {ssbo_bind},
-      };
-      for (const auto& mesh : meshes) {
+
+      for (size_t i = 0; i < model_render_data.size(); ++i) {
+        const auto& mesh = model_render_data[i];
+        const u32 tex = mesh_texs[i];
+        const ntfr::buffer_binding buff_bind {
+          .vertex = mesh.vertex_buffers,
+          .index = mesh.index_buffer,
+          .shader = {ssbo_bind},
+        };
         const ntfr::render_opts opts {
-          .vertex_count = mesh.indices,
-          .vertex_offset = mesh.vert_offset,
-          .index_offset = mesh.indx_offset,
+          .vertex_count = mesh.vertex_count,
+          .vertex_offset = mesh.vertex_offset,
+          .index_offset = mesh.index_offset,
           .instances = 0,
         };
         ctx.submit_render_command({
           .target = fbo,
           .pipeline = pipe,
           .buffers = buff_bind,
-          .textures = {texs[mesh.tex]},
+          .textures = {texs[tex]},
           .consts = unifs,
           .opts = opts,
           .sort_group = 0u,
           .render_callback = {},
         });
       }
+
       const ntfr::render_opts quad_opts {
         .vertex_count = 6,
         .vertex_offset = 0,

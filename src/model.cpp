@@ -1,561 +1,227 @@
 #include "model.hpp"
-#include <shogle/assets.hpp>
-#include <ntfstl/logger.hpp>
 
-#define RET_ERR(_msg) \
-  ntf::logger::error("{}", _msg); \
-  return unex_t{_msg}
-#define RET_ERR_IF(_cond, _msg) \
-  if (_cond) { RET_ERR(_msg); }
-
-assimp_parser::assimp_parser() {
-  _imp.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, true);
-  _imp.SetPropertyInteger(AI_CONFIG_PP_SBBC_MAX_BONES, model_mesh_data::VERTEX_BONE_COUNT);
+#define CHECK_ERR_BUFF(_buff) \
+if (!_buff) { \
+  ntf::logger::error("Failed to create vertex buffer, {}", _buff.error().what()); \
+  free_buffs(); \
+  return ntf::unexpected{std::move(_buff.error())}; \
 }
 
-auto assimp_parser::load(const std::string& path, uint32 assimp_flags) -> expect<void> {
-  auto dir = ntf::file_dir(path);
-  RET_ERR_IF(!dir, "Failed to parse directory path");
-
-  const aiScene* scene = _imp.ReadFile(path.c_str(), assimp_flags);
-  RET_ERR_IF(!scene, _imp.GetErrorString());
-
-  _dir = std::move(*dir);
-  _flags = assimp_flags;
-  return {};
-}
-
-static bool is_identity(const mat4& mat) {
-  constexpr mat4 id{1.f};
-  for (uint32 i = 0; i < 4; ++i) {
-    for (uint32 j = 0; j < 4; ++j) {
-      if (std::abs(mat[i][j] - id[i][j]) > glm::epsilon<float>()) {
-        return false;
-      }
+model_mesh_provider::model_mesh_provider(mesh_vert_buffs buffs,
+                                         ntfr::buffer_t index_buff,
+                                         std::vector<mesh_offset>&& mesh_offsets) noexcept :
+  _buffs{buffs}, _mesh_offsets{std::move(mesh_offsets)},
+  _index_buff{index_buff}, _active_layouts{0u}
+{
+  // Do not fill inactive attributes
+  for (u32 i = 0u; i < _buffs.size(); ++i) {
+    if (_buffs[i]) {
+      _binds[i].buffer = _buffs[i];
+      _binds[i].layout = i;
+      ++_active_layouts;
     }
   }
-  return true;
 }
 
-static mat4 asscast(const aiMatrix4x4& mat) {
-  mat4 out;
-  //the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
-  out[0][0] = mat.a1; out[1][0] = mat.a2; out[2][0] = mat.a3; out[3][0] = mat.a4;
-  out[0][1] = mat.b1; out[1][1] = mat.b2; out[2][1] = mat.b3; out[3][1] = mat.b4;
-  out[0][2] = mat.c1; out[1][2] = mat.c2; out[2][2] = mat.c3; out[3][2] = mat.c4;
-  out[0][3] = mat.d1; out[1][3] = mat.d2; out[2][3] = mat.d3; out[3][3] = mat.d4;
-  return out;
+model_mesh_provider::model_mesh_provider(model_mesh_provider&& other) noexcept :
+  _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
+  _mesh_offsets{std::move(other._mesh_offsets)}, _index_buff{std::move(other._index_buff)},
+  _active_layouts{std::move(other._active_layouts)}
+{
+  other._index_buff = nullptr;
 }
 
-static mat4 node_model(const aiNode* node) {
-  NTF_ASSERT(node);
-  if (node->mParent == nullptr) {
-    return asscast(node->mTransformation);
+model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other) noexcept {
+  _free_buffs();
+
+  _buffs = std::move(other._buffs);
+  _binds = std::move(other._binds);
+  _mesh_offsets = std::move(other._mesh_offsets);
+  _index_buff = std::move(other._index_buff);
+  _active_layouts = std::move(other._active_layouts);
+
+  other._index_buff = nullptr;
+
+  return *this;
+}
+
+model_mesh_provider::~model_mesh_provider() noexcept { _free_buffs(); }
+
+
+ntfr::expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view ctx,
+                                                              const model_mesh_data& meshes)
+
+{
+  // Assume all models have indices and positions in each mesh
+  if (meshes.positions.empty()) {
+    return ntf::unexpected{ntfr::render_error{"No position data"}};
   }
-  return node_model(node->mParent)*asscast(node->mTransformation);
-}
+  if (meshes.indices.empty()) {
+    return ntf::unexpected{ntfr::render_error{"No index data"}};
+  }
 
-static vec3 asscast(const aiVector3D& vec) {
-  return {vec.x, vec.y, vec.z};
-}
+  mesh_vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  ntfr::buffer_t ind{nullptr};
+  const size_t vertex_elements = meshes.positions.size();;
 
-static color4 asscast(const aiColor4D& col) {
-  return {col.r, col.g, col.b, col.a};
-}
-
-static quat asscast(const aiQuaternion& q) {
-  return {q.w, q.x, q.y, q.z};
-}
-
-auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
-  const aiScene* scene = _imp.GetScene();
-  RET_ERR_IF(!scene->HasMaterials(), "No materials found");
-
-  std::unordered_map<std::string, u32> parsed_tex;
-  const auto stb_flags = ntf::image_load_flags::flip_y;
-  ntf::stb_image_loader stb;
-
-  // auto copy_raw_bitmap = [&](span<uint8> bitmap, const aiTexture* tex) -> ntfr::image_format {
-  //   const size_t texel_count = tex->mWidth*tex->mHeight;
-  //   if (tex->CheckFormat("rgba8888")) {
-  //     for (size_t j = 0; j < texel_count; ++j) {
-  //       const auto& texel = tex->pcData[j];
-  //       const uint8 color[4] = {texel.r, texel.g, texel.b, texel.a};
-  //       std::memcpy(bitmap.data()+j, color, 4);
-  //     }
-  //     return ntfr::image_format::rgba8nu;
-  //   } else if (tex->CheckFormat("argb8888")) {
-  //     return ntfr::image_format::rgba8nu;
-  //   } else if (tex->CheckFormat("rgba5650")) {
-  //
-  //   } else if (tex->CheckFormat("rgba0010")) {
-  //
-  //   } else {
-  //     return ntfr::image_format::rgba8nu;
-  //   }
-  // };
-  //
-  // // Parse embeded images
-  // for (size_t i = 0; i < scene->mNumTextures; ++i) {
-  //   const aiTexture* ai_tex = scene->mTextures[i];
-  //   std::string tex_path = fmt::format("*{}", i);
-  //   const char* tex_name = ai_tex->mFilename.C_Str();
-  //
-  //   if (ai_tex->mHeight == 0) {
-  //     // Compressed image
-  //     ntf::cspan<uint8> data{reinterpret_cast<uint8*>(ai_tex->pcData), ai_tex->mWidth};
-  //     auto parsed = stb.load_image<uint8>(data, stb_flags, 0);
-  //     if (!parsed) {
-  //       ntf::logger::error("Failed to parse embeded texture: {}", parsed.error().what());
-  //       continue;
-  //     }
-  //     auto [data_ptr, byte_count] = parsed->texels.release();
-  //
-  //     mats.textures.emplace_back(tex_name, tex_path,
-  //                                ntf::unique_array<uint8>{byte_count, data_ptr},
-  //                                parsed->extent, parsed->format);
-  //   } else {
-  //     // Uncompressed image
-  //     const size_t byte_count = ai_tex->mWidth*ai_tex->mHeight*4u; // 4 channels
-  //     auto bitmap = ntf::unique_array<uint8>::from_size(ntf::uninitialized, byte_count);
-  //     auto format = copy_raw_bitmap({bitmap.data(), bitmap.size()}, ai_tex);
-  //
-  //     extent3d extent{ai_tex->mWidth, ai_tex->mHeight, 1u};
-  //
-  //     mats.textures.emplace_back(tex_name, tex_path, std::move(bitmap),
-  //                                extent, format);
-  //   }
-  //   auto [_, empl] = parsed_tex.try_emplace(std::move(tex_path), mats.textures.size()-1);
-  //   NTF_ASSERT(empl);
-  // }
-
-  auto load_textures = [&](u32& tex_count, const aiMaterial* ai_mat, aiTextureType type) {
-    for (size_t i = 0; i < ai_mat->GetTextureCount(type); ++i) {
-      aiString filename;
-      ai_mat->GetTexture(type, i, &filename);
-
-      size_t idx;
-      auto it = parsed_tex.find(filename.C_Str());
-      if (it == parsed_tex.end()) {
-        auto tex_path = fmt::format("{}/{}", _dir, filename.C_Str());
-        if (!std::filesystem::exists(tex_path)) {
-          ntf::logger::warning("Texture not found in \"{}\"!", tex_path);
-          continue;
-        }
-
-        auto file_data = ntf::file_data(tex_path);
-        if (!file_data) {
-          ntf::logger::warning("Failed to load texture \"{}\", {}",
-                               tex_path, file_data.error().what());
-          continue;
-        }
-        auto image = stb.load_image<uint8>({file_data->data(), file_data->size()}, stb_flags, 0u);
-        if (!image) {
-          ntf::logger::warning("Failed to parse texture \"{}\", {}",
-                               tex_path, image.error().what());
-          continue;
-        }
-        auto [data_ptr, byte_count] = image->texels.release();
-        mats.textures.emplace_back(filename.C_Str(), std::move(tex_path),
-                                   ntf::unique_array<uint8>{byte_count, data_ptr},
-                                   image->extent, image->format);
-        idx = mats.textures.size()-1;
-        parsed_tex.try_emplace(filename.C_Str(), idx);
-      } else {
-        idx = it->second;
+  auto free_buffs = [&]() {
+    for (ntfr::buffer_t buff : buffs) {
+      if (buff) {
+        ntfr::destroy_buffer(buff);
       }
-
-      mats.material_textures.emplace_back(idx);
-      ++tex_count;
     }
   };
 
-  for (size_t i = 0; i < scene->mNumMaterials; ++i) {
-    const aiMaterial* ai_mat = scene->mMaterials[i];
-    const auto mat_name = ai_mat->GetName();
+  auto make_vbuffer = [&](size_t sz) {
+    return ntfr::create_buffer(ctx, {
+      .type = ntfr::buffer_type::vertex,
+      .flags = ntfr::buffer_flag::dynamic_storage,
+      .size = vertex_elements*sz,
+      .data = nullptr,
+    });
+  };
 
-    u32 tex_count = 0u;
-    load_textures(tex_count, ai_mat, aiTextureType_DIFFUSE);
-    const u32 tex_idx = tex_count ? mats.material_textures.size()-1 : vec_span::INDEX_TOMB;
-    const vec_span tex_span{tex_idx, tex_count};
-
-    mats.materials.emplace_back(mat_name.C_Str(), tex_span);
-  }
-
-  mats.texture_registry.reserve(mats.textures.size());
-  for (size_t i = 0; const auto& tex : mats.textures) {
-    mats.texture_registry.try_emplace(tex.name, i++);
-  }
-  mats.material_registry.reserve(mats.materials.size());
-  for (size_t i = 0; const auto& mat : mats.materials) {
-    mats.material_registry.try_emplace(mat.name, i++);
-  }
-
-  return {};
-}
-
-auto assimp_parser::parse_meshes(const model_rig_data& rigs,
-                                 model_mesh_data& data) -> expect<void>
-{
-  const aiScene* scene = _imp.GetScene();
-
-  // Reserve space for all vertex data
-  u32 index_count = 0u;
-  u32 vertex_count = 0u;
-  u32 face_count = 0u;
+  // Prepare each vertex buffer, all of them with the same size
   {
-    size_t pos_count = 0u;
-    size_t norm_count = 0u;
-    size_t uv_count = 0u;
-    size_t tang_count = 0u;
-    size_t col_count = 0u;
-    size_t weigth_count = 0u;
-    for (size_t i = 0u; i < scene->mNumMeshes; ++i) {
-      const aiMesh* mesh = scene->mMeshes[i];
-      const size_t verts = mesh->mNumVertices;
+    auto buff = make_vbuffer(sizeof(vec3));
+    CHECK_ERR_BUFF(buff);
+    buffs[ATTRIB_POS] = *buff;
+  } 
+  if (!meshes.normals.empty()) {
+    auto buff = make_vbuffer(sizeof(vec3));
+    CHECK_ERR_BUFF(buff);
+    buffs[ATTRIB_NORM] = *buff;
+  }
+  if (!meshes.uvs.empty()) {
+    auto buff = make_vbuffer(sizeof(vec2));
+    CHECK_ERR_BUFF(buff);
+    buffs[ATTRIB_UVS] = *buff;
+  }
+  if (!meshes.tangents.empty()) {
+    NTF_ASSERT(!meshes.bitangents.empty());
 
-      if (mesh->HasPositions()) { 
-        pos_count += verts;
-      }
-      if (mesh->HasNormals()) {
-        norm_count += verts;
-      }
-      if (mesh->HasTextureCoords(0)) {
-        uv_count += verts;
-      }
-      if (mesh->HasTangentsAndBitangents()) {
-        tang_count += verts;
-      }
-      if (mesh->HasVertexColors(0)) {
-        col_count += verts;
-      }
+    auto tang_buff = make_vbuffer(sizeof(vec3));
+    CHECK_ERR_BUFF(tang_buff);
+    buffs[ATTRIB_TANG] = *tang_buff;
 
-      for (size_t j = 0; j < mesh->mNumFaces; ++j) {
-        index_count += mesh->mFaces[j].mNumIndices;
-      }
-      vertex_count += verts;
-    }
+    auto btang_buff = make_vbuffer(sizeof(vec3));
+    CHECK_ERR_BUFF(btang_buff);
+    buffs[ATTRIB_BITANG] = *btang_buff;
+  }
+  if (!meshes.bones.empty()) {
+    NTF_ASSERT(!meshes.weights.empty());
 
-    data.positions.reserve(pos_count);
-    data.normals.reserve(norm_count);
-    data.uvs.reserve(uv_count);
-    data.tangents.reserve(tang_count);
-    data.bitangents.reserve(tang_count);
-    data.colors.reserve(col_count);
-    data.bones.reserve(weigth_count);
-    data.weights.reserve(weigth_count);
+    auto bone_buff = make_vbuffer(sizeof(model_mesh_data::vertex_bones));
+    CHECK_ERR_BUFF(bone_buff);
+    buffs[ATTRIB_BONES] = *bone_buff;
 
-    data.indices.reserve(index_count);
+    auto weight_buff = make_vbuffer(sizeof(model_mesh_data::vertex_weights));
+    CHECK_ERR_BUFF(weight_buff);
+    buffs[ATTRIB_WEIGHTS] = *weight_buff;
   }
 
-  auto try_place_weight = [&](size_t mesh_start, size_t idx, const aiVertexWeight& weight) {
-    const size_t vertex_pos = mesh_start+weight.mVertexId;
-    auto& vertex_bone_indices = data.bones[vertex_pos];
-    auto& vertex_bone_weights = data.weights[vertex_pos];
-
-    NTF_ASSERT(vertex_pos < data.weights.size());
-    for (size_t i = 0; i < model_mesh_data::VERTEX_BONE_COUNT; ++i) {
-      if (weight.mWeight == 0.f) {
-        return;
-      }
-      if (vertex_bone_indices[i] == vec_span::INDEX_TOMB) {
-        vertex_bone_indices[i] = idx;
-        vertex_bone_weights[i] = weight.mWeight;
-        return;
-      }
+  // Prepare index buffer and upload indices
+  std::vector<mesh_offset> mesh_offsets;
+  mesh_offsets.reserve(meshes.meshes.size());
+  {
+    const ntfr::buffer_data idx_data {
+      .data = meshes.indices.data(),
+      .size = meshes.indices.size()*sizeof(u32),
+      .offset = 0u,
+    };
+    auto ind_buff = ntfr::create_buffer(ctx, {
+      .type = ntfr::buffer_type::index,
+      .flags = ntfr::buffer_flag::dynamic_storage,
+      .size = meshes.indices.size()*sizeof(u32),
+      .data = idx_data,
+    });
+    if (!ind_buff) {
+      ntf::logger::error("Failed to create index buffer, {}", ind_buff.error().what());
+      return ntf::unexpected{std::move(ind_buff.error())};
     }
-    ntf::logger::warning("Bone weigths out of range in vertex {}", vertex_pos);
+    ind = *ind_buff;
+
+    for (const auto& mesh : meshes.meshes) {
+      NTF_ASSERT(!mesh.indices.empty());
+      mesh_offsets.emplace_back(mesh.indices.idx, mesh.indices.count, 0u);
+    }
+  }
+
+  // Copy data
+  u32 offset = 0u;
+  for (size_t i = 0; i < meshes.meshes.size(); ++i) {
+    const auto& mesh = meshes.meshes[i];
+    NTF_ASSERT(!mesh.positions.empty());
+
+    auto upload_thing = [&](size_t idx, vec_span vspan, const auto& vec) {
+      const auto span = vspan.to_cspan(vec.data());
+      const ntfr::buffer_data data {
+        .data = span.data(),
+        .size = span.size_bytes(),
+        .offset = offset*sizeof(typename decltype(span)::value_type),
+      };
+      NTF_ASSERT(buffs[idx]);
+      [[maybe_unused]] auto ret = ntfr::buffer_upload(buffs[idx], data);
+      NTF_ASSERT(ret);
+    };
+
+    upload_thing(ATTRIB_POS, mesh.positions, meshes.positions);
+    mesh_offsets[i].vertex_offset = offset;
+
+    if (buffs[ATTRIB_NORM]) {
+      upload_thing(ATTRIB_NORM, mesh.normals, meshes.normals);
+    }
+
+    if (buffs[ATTRIB_UVS]) {
+      upload_thing(ATTRIB_UVS, mesh.uvs, meshes.uvs);
+    }
+
+    if (buffs[ATTRIB_TANG]) {
+      upload_thing(ATTRIB_TANG, mesh.tangents, meshes.tangents);
+      upload_thing(ATTRIB_BITANG, mesh.tangents, meshes.bitangents);
+    }
+
+    if (buffs[ATTRIB_BONES]) {
+      upload_thing(ATTRIB_BONES, mesh.bones, meshes.bones);
+      upload_thing(ATTRIB_WEIGHTS, mesh.bones, meshes.weights);
+    }
+
+    offset += mesh.positions.count;
+  }
+
+  return ntfr::expect<model_mesh_provider>{
+    ntf::in_place, buffs, ind, std::move(mesh_offsets)
   };
-
-  data.meshes.reserve(scene->mNumMeshes);
-  data.mesh_registry.reserve(scene->mNumMeshes);
-  for (size_t i = 0; i < scene->mNumMeshes; ++i) {
-    const aiMesh* mesh = scene->mMeshes[i];
-    const size_t nverts = mesh->mNumVertices;
-
-    // Positions
-    vec_span pos{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasPositions()) {
-      pos.idx = data.positions.size();
-      pos.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.positions.emplace_back(asscast(mesh->mVertices[j]));
-      }
-    }
-
-    // Normals
-    vec_span norm{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasNormals()) {
-      norm.idx = data.normals.size();
-      norm.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.normals.emplace_back(asscast(mesh->mNormals[j]));
-      }
-    }
-
-    // UVs
-    vec_span uv{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasTextureCoords(0)) {
-      uv.idx = data.uvs.size();
-      uv.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        const auto& uv_vec = mesh->mTextureCoords[0][j];
-        data.uvs.emplace_back(uv_vec.x, uv_vec.y);
-      }
-    }
-
-    // Tangents & bitangents
-    vec_span tang{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasTangentsAndBitangents()) {
-      tang.idx = data.tangents.size();
-      tang.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.tangents.emplace_back(asscast(mesh->mTangents[j]));
-        data.bitangents.emplace_back(asscast(mesh->mBitangents[j]));
-      }
-    }
-
-    // Colors
-    vec_span col{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasVertexColors(0)) {
-      col.idx = data.colors.size()-nverts;
-      col.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.colors.emplace_back(asscast(mesh->mColors[0][j]));
-      }
-    }
-
-    // Bone indices & weigths
-    vec_span bone{vec_span::INDEX_TOMB, 0u};
-    if (!rigs.bone_registry.empty() && mesh->HasBones()) {
-      const size_t mesh_start = data.weights.size();
-      bone.idx = data.weights.size();
-      bone.count = nverts;
-
-      // Fill with empty data
-      for (size_t i = 0; i < nverts; ++i) {
-        data.bones.emplace_back(model_mesh_data::EMPTY_BONE_INDEX);
-        data.weights.emplace_back(model_mesh_data::EMPTY_BONE_WEIGHT);
-      }
-
-      for (size_t i = 0; i < mesh->mNumBones; ++i) {
-        const aiBone* ai_bone = mesh->mBones[i];
-        NTF_ASSERT(rigs.bone_registry.find(ai_bone->mName.C_Str()) != rigs.bone_registry.end());
-
-        const size_t bone_idx = rigs.bone_registry.at(ai_bone->mName.C_Str());
-        for (size_t j = 0; j < ai_bone->mNumWeights; ++j) {
-          try_place_weight(mesh_start, bone_idx, ai_bone->mWeights[j]);
-        }
-      }
-    }
-
-    // Indices
-    vec_span indices{vec_span::INDEX_TOMB, 0u};
-    const u32 mesh_faces = mesh->mNumFaces;
-    if (mesh->HasFaces()) {
-      indices.idx = data.indices.size();
-      u32 idx_count = 0u;
-      for (size_t j = 0; j < mesh->mNumFaces; ++j) {
-        const aiFace& face = mesh->mFaces[j];
-        for (size_t k = 0; k < face.mNumIndices; ++k) {
-          data.indices.emplace_back(face.mIndices[k]);
-        }
-        idx_count += face.mNumIndices;
-      }
-      indices.count = idx_count;
-      face_count += mesh_faces;
-    }
-
-    const char* mesh_name = mesh->mName.C_Str();
-    aiString mat_name = scene->mMaterials[mesh->mMaterialIndex]->GetName();
-
-    data.meshes.emplace_back(pos, norm, uv, tang, col, bone,
-                             indices, mesh_name, mat_name.C_Str(), mesh_faces);
-  }
-
-  for (u32 i = 0; const auto& mesh : data.meshes) {
-    auto [_, empl] = data.mesh_registry.try_emplace(mesh.name, i++);
-    NTF_ASSERT(empl);
-  }
-
-  ntf::logger::debug("Parsed {} vertices, {} faces, {} indices, {} meshes",
-                     vertex_count, data.indices.size(), face_count, data.meshes.size());
-
-  return {};
 }
 
-void assimp_parser::_parse_bone_nodes(const bone_inv_map& bone_invs,
-                                      u32 parent, u32& bone_count,
-                                      const aiNode* node, model_rig_data& data)
-{
-  NTF_ASSERT(node);
-  u32 node_idx = bone_count;
-  ++bone_count;
-
-  auto it = bone_invs.find(node->mName.C_Str());
-  NTF_ASSERT(it != bone_invs.end());
-  const auto& [bone_name, inv_model] = *it;
-
-  // Store meta info and transforms
-  auto& bone = data.bones.emplace_back(bone_name, parent);
-  data.bone_locals.emplace_back(asscast(node->mTransformation));
-  data.bone_inv_models.emplace_back(inv_model);
-
-  // Add bones to the registry
-  auto [_, empl] = data.bone_registry.try_emplace(bone.name, bone_count);
-  NTF_ASSERT(empl);
-
-  // Parse children
-  for (u32 i = 0; i < node->mNumChildren; ++i) {
-    _parse_bone_nodes(bone_invs, node_idx, bone_count, node->mChildren[i], data);
+void model_mesh_provider::_free_buffs() noexcept {
+  if (!_index_buff) {
+    return;
+  }
+  ntfr::destroy_buffer(_index_buff);
+  for (ntfr::buffer_t buff : _buffs){
+    if (buff) {
+      ntfr::destroy_buffer(buff);
+    }
   }
 }
 
-auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
-  const aiScene* scene = _imp.GetScene();
-
-  // Store the inverse model matrix for each bone
-  bone_inv_map bone_invs;
-  for (size_t i = 0; i < scene->mNumMeshes; ++i) {
-    const aiMesh* mesh = scene->mMeshes[i];
-    for (size_t j = 0; j < mesh->mNumBones; ++j) {
-      const aiBone* bone = mesh->mBones[j];
-      if (bone_invs.find(bone->mName.C_Str()) != bone_invs.end()) {
-        continue;
-      }
-      auto [_, empl] = bone_invs.try_emplace(bone->mName.C_Str(), asscast(bone->mOffsetMatrix));
-      NTF_ASSERT(empl);
-    }
+u32 model_mesh_provider::retrieve_render_data(std::vector<mesh_render_data>& data) {
+  for (const auto& offset : _mesh_offsets) {
+    cspan<ntfr::vertex_binding> bindings{_binds.data(), _active_layouts};
+    data.emplace_back(bindings, _index_buff,
+                      offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
   }
-
-  // Map root bones to a node in the scene graph
-  const auto* scene_root = scene->mRootNode;
-  std::vector<const aiNode*> possible_roots;
-  for (const auto& [name, _] : bone_invs) {
-    const aiNode* bone_node = scene_root->FindNode(name.c_str());
-    // We assume the bone and the node have the same name
-    if (bone_invs.find(bone_node->mParent->mName.C_Str()) != bone_invs.end()) {
-      continue;
-    }
-    // Assume all bone nodes with a parent not present in the map is a root node
-    possible_roots.emplace_back(bone_node);
-  }
-
-  ntf::logger::debug("Found {} possible bone root(s)", possible_roots.size());
-
-  // Create a bone tree from each root node
-  u32 bone_count = 0u;
-  data.bones.reserve(bone_invs.size()); // Avoid invalidating bone string pointers!!!!
-  data.bone_registry.reserve(bone_invs.size());
-  for (const aiNode* root : possible_roots) { 
-    // Check for name dupes
-    auto bone_it = data.bone_registry.find(root->mName.C_Str());
-    if (bone_it != data.bone_registry.end()) {
-      const size_t bone_index = bone_it->second;
-      if (bone_index != vec_span::INDEX_TOMB) {
-        ntf::logger::warning("Bone root \"{}\" already parsed, possible node dupe",
-                             root->mName.C_Str());
-        continue;
-      }
-    }
-
-    if (root->mNumChildren == 0u) {
-
-    }
-
-    const char* armature_name = root->mParent->mName.C_Str();
-    u32 root_idx = bone_count;
-    // Will set INDEX_TOMB as the parent index for the root bone
-    _parse_bone_nodes(bone_invs, vec_span::INDEX_TOMB, bone_count, root, data);
-
-    // Make sure the root local transform is its node model transform
-    if (!is_identity(data.bone_locals[root_idx]*data.bone_inv_models[root_idx])) {
-      ntf::logger::warning("Malformed transform in root \"{}\", correction applied",
-                           root->mName.C_Str());
-      data.bone_locals[root_idx]= node_model(root->mParent)*data.bone_locals[root_idx];
-    }
-    const vec_span armature_span{root_idx, bone_count-root_idx};
-
-    data.armatures.emplace_back(armature_name, armature_span);
-  }
-
-  // We don't know the number of armatures before this so we reserve here
-  data.armature_registry.reserve(data.armatures.size());
-  for (u32 i = 0; auto& arm : data.armatures) {
-    auto [_, empl] = data.armature_registry.try_emplace(arm.name, i++);
-    if (!empl) {
-      ntf::logger::warning("Armature \"{}\" parsed twice, generating new name for dupe",
-                           arm.name);
-      arm.name.append("_bis");
-      data.armature_registry.try_emplace(arm.name, i);
-    }
-  }
-
-  ntf::logger::debug("Parsed {} armatures, {} bones", data.armatures.size(), data.bones.size());
-  return {};
+  return _mesh_offsets.size();
 }
 
-auto assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
-  const aiScene* scene = _imp.GetScene();
-  RET_ERR_IF(!scene->HasAnimations(), "No animations found");
-
-  // Reserve space
-  data.animations.reserve(scene->mNumAnimations);
-  data.animation_registry.reserve(scene->mNumAnimations);
-  for (size_t i = 0; i < scene->mNumAnimations; ++i) {
-    const aiAnimation* anim = scene->mAnimations[i];
-    const char* anim_name = anim->mName.C_Str();
-    const double anim_tps = anim->mTicksPerSecond;
-    const double anim_duration = anim->mDuration;
-
-    // Keyframes
-    const u32 kframe_count = anim->mNumChannels;
-    const u32 kframe_idx = kframe_count ? data.keyframes.size() : vec_span::INDEX_TOMB;
-    const vec_span kframe_span{kframe_idx, kframe_count};
-    for (size_t j = 0; j < anim->mNumChannels; ++j) {
-      const aiNodeAnim* node_anim = anim->mChannels[j];
-      const char* bone_name = node_anim->mNodeName.C_Str();
-
-      // Positions
-      const u32 pos_count = node_anim->mNumPositionKeys;
-      const u32 pos_idx = pos_count ? data.positions.size() : vec_span::INDEX_TOMB;
-      const vec_span pos_span{pos_idx, pos_count};
-      for (size_t k = 0; k < pos_count; ++k) {
-        const auto& key = node_anim->mPositionKeys[k];
-        data.positions.emplace_back(key.mTime, asscast(key.mValue));
-      }
-
-      // Rotations
-      const u32 rot_count = node_anim->mNumRotationKeys;
-      const u32 rot_idx = rot_count ? data.rotations.size() : vec_span::INDEX_TOMB;
-      const vec_span rot_span{rot_idx, rot_count};
-      for (size_t k = 0; k < rot_count; ++k) {
-        const auto& key = node_anim->mRotationKeys[k];
-        data.rotations.emplace_back(key.mTime, asscast(key.mValue));
-      }
-
-      // Scales
-      const u32 sca_count = node_anim->mNumScalingKeys;
-      const u32 sca_idx = sca_count ? data.scales.size() : vec_span::INDEX_TOMB;
-      const vec_span sca_span{sca_idx, sca_count};
-      for (size_t k = 0; k < sca_count; ++k) {
-        const auto& key = node_anim->mScalingKeys[k];
-        data.scales.emplace_back(key.mTime, asscast(key.mValue));
-      }
-
-      data.keyframes.emplace_back(bone_name, pos_span, rot_span, sca_span);
-    }
-
-    data.animations.emplace_back(anim_name, anim_duration, anim_tps, kframe_span);
-  }
-
-  for (u32 i = 0; const auto& anim : data.animations) {
-    auto [_, empl] = data.animation_registry.try_emplace(anim.name, i++);
-    NTF_ASSERT(empl);
-  }
-
-  ntf::logger::debug("Parsed {} animations, {} keyframes",
-                     data.animations.size(), data.keyframes.size());
-
-  return {};
+u32 model_mesh_provider::retrieve_bindings(std::vector<ntfr::attribute_binding>& bindings) {
+  bindings.emplace_back(ntfr::attribute_type::vec3,  0u, 0u, 0u); // positions
+  bindings.emplace_back(ntfr::attribute_type::vec3,  1u, 0u, 0u); // normals
+  bindings.emplace_back(ntfr::attribute_type::vec2,  2u, 0u, 0u); // uvs
+  bindings.emplace_back(ntfr::attribute_type::vec3,  3u, 0u, 0u); // tangents
+  bindings.emplace_back(ntfr::attribute_type::vec3,  4u, 0u, 0u); // bitangents
+  bindings.emplace_back(ntfr::attribute_type::ivec4, 5u, 0u, 0u); // bone indices
+  bindings.emplace_back(ntfr::attribute_type::vec4,  6u, 0u, 0u); // bone weights
+  return (u32)ATTRIB_COUNT;
 }
