@@ -1,6 +1,7 @@
 #include <shogle/boilerplate.hpp>
 #include "model_data.hpp"
 #include "model.hpp"
+#include <ranges>
 
 using namespace ntf::numdefs;
 
@@ -273,7 +274,7 @@ int main() {
       transf.rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
       bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
 
-      rigger.set_transform("Neck", bone_transf.world());
+      rigger.set_transform("Head", bone_transf.world());
       rigger.tick();
     },
     [&](f32 dt, f32 alpha) {

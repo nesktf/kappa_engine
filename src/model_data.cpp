@@ -402,10 +402,14 @@ void assimp_parser::_parse_bone_nodes(const bone_inv_map& bone_invs,
   data.bone_inv_models.emplace_back(inv_model);
 
   // Add bones to the registry
-  auto [_, empl] = data.bone_registry.try_emplace(bone.name, bone_count);
+  auto [_, empl] = data.bone_registry.try_emplace(bone.name, node_idx);
   NTF_ASSERT(empl);
 
   // Parse children
+  // ntf::logger::warning("BONE: [{},{}],  PARENT: {}", bone_name, node_idx, parent);
+  // for (u32 i = 0; i < node->mNumChildren; ++i) {
+  //   ntf::logger::warning("- {}", node->mChildren[i]->mName.C_Str());
+  // }
   for (u32 i = 0; i < node->mNumChildren; ++i) {
     _parse_bone_nodes(bone_invs, node_idx, bone_count, node->mChildren[i], data);
   }
