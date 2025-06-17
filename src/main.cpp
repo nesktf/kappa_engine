@@ -70,6 +70,11 @@ struct mesh_t {
 int main() {
   ntf::logger::set_level(ntf::log_level::debug);
 
+  auto cousine =
+    ntf::load_font_atlas<char>("./lib/shogle/demos/res/CousineNerdFont-Regular.ttf").value();
+
+  auto cirno_img = ntf::load_image<ntf::uint8>("./lib/shogle/demos/res/cirno_cpp.jpg").value();
+
   assimp_parser parser;
   parser.load("./res/chiruno/chiruno.gltf");
 
@@ -97,9 +102,67 @@ int main() {
   //   ntf::logger::info("BONE: {}, IDX: {}", name, idx);
   // }
 
-  auto [win, ctx] = ntfr::make_gl_ctx(1280, 720, "test", 1).value();
+  u32 win_width = 1280;
+  u32 win_height = 720;
+  const ntfr::win_x11_params x11 {
+    .class_name = "cino_anim",
+    .instance_name = "cino_anim",
+  };
+  const ntfr::win_gl_params win_gl {
+    .ver_major = 4,
+    .ver_minor = 6,
+    .swap_interval = 0,
+    .fb_msaa_level = 8,
+    .fb_buffer = ntfr::fbo_buffer::depth24u_stencil8u,
+    .fb_use_alpha = true,
+  };
+  auto win = ntfr::window::create({
+    .width = win_width,
+    .height = win_height,
+    .title = "test",
+    .attrib = {},
+    .renderer_api = ntfr::context_api::opengl,
+    .platform_params = &x11,
+    .renderer_params = &win_gl,
+  }).value();
+  auto ctx = ntfr::make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
+
+  ntf::mat4 cam_proj_fnt = glm::ortho(0.f, (float)win_width, 0.f, (float)win_height);
+  ntfr::text_buffer text_buffer;
+  auto frenderer = ntfr::font_renderer::create(ctx, cam_proj_fnt, std::move(cousine)).value();
+  auto sdf_rule = ntfr::sdf_text_rule::create(ctx,
+                                             ntf::color3{1.f, 1.f, 1.f}, 0.5f, 0.05f,
+                                             ntf::color3{0.f, 0.f, 0.f},
+                                             ntf::vec2{-0.005f, -0.005f},
+                                             0.62f, 0.05f).value();
+  auto quad = ntfr::quad_mesh::create(ctx).value();
+  auto cirno_tex = ntfr::make_texture2d(ctx, cirno_img,
+                                        ntfr::texture_sampler::nearest,
+                                        ntfr::texture_addressing::repeat).value();
+
+  auto vert_src_quad = ntf::file_contents("./lib/shogle/demos/res/shaders/vert_base.vs.glsl").value();
+  auto frag_tex_src = ntf::file_contents("./lib/shogle/demos/res/shaders/frag_tex.fs.glsl").value();
+
+  auto vertex = ntfr::vertex_shader::create(ctx, {vert_src_quad}).value();
+  auto fragment_tex = ntfr::fragment_shader::create(ctx, {frag_tex_src}).value();
+  auto pipe_tex = ntfr::make_pipeline<ntfr::pnt_vertex>(vertex, fragment_tex).value();
+
+  auto u_tex_model = pipe_tex.uniform("model");
+  auto u_tex_proj = pipe_tex.uniform("proj");
+  auto u_tex_view = pipe_tex.uniform("view");
+  auto u_tex_color = pipe_tex.uniform("color");
+  auto u_tex_sampler = pipe_tex.uniform("sampler0");
+
+  ntf::mat4 cam_view_quad = glm::translate(glm::mat4{1.f}, glm::vec3{640.f, 360.f, -3.f});
+  ntf::mat4 cam_proj_quad = glm::ortho(0.f, (float)win_width, 0.f, (float)win_height, .1f, 100.f);
+  auto transf_quad = ntf::transform2d<ntf::float32>{}
+    .pos(425.f, -175.f).scale(ntf::vec2{256.f, 256.f});
 
   auto fbo = ntfr::framebuffer::get_default(ctx);
+  fbo.clear_color({
+    .0f, .0f, .0f, 0.f
+  });
+  bool do_things = true;
   win.set_viewport_callback([&](ntfr::window&, const ntf::extent2d& ext) {
     fbo.viewport({0, 0, ext.x, ext.y});
   });
@@ -107,6 +170,9 @@ int main() {
     if (k.action == ntfr::win_action::press) {
       if (k.key == ntfr::win_key::escape) {
         win.close();
+      }
+      if (k.key == ntfr::win_key::space) {
+        do_things = !do_things;
       }
     }
   });
@@ -147,8 +213,8 @@ int main() {
   auto u_view = pipe.uniform("u_view");
   auto u_sampler = pipe.uniform("u_sampler");
 
-  const auto fb_ratio = 1280.f/720.f;
-  auto proj_mat = glm::perspective(glm::radians(30.f), fb_ratio, .1f, 100.f);
+  const auto fb_ratio = (float)win_width/(float)win_height;
+  auto proj_mat = glm::perspective(glm::radians(35.f), fb_ratio, .1f, 100.f);
   auto view_mat = glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f});
   auto transf = ntf::transform3d<f32>{}
     .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
@@ -291,12 +357,19 @@ int main() {
   auto bone_transf = ntf::transform3d<f32>{}
     .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
 
-  float t = 0.f;
+  float t = 0.f, t2 = 0.f;
+  double avg_fps{};
+  double fps[60] = {0};
+  u32 fps_counter{};
+
+  float text_scale = 1.f;
   ntfr::render_loop(win, ctx, 60u, ntf::overload{
     [&](u32 fdt) {
+      if (!do_things) {return;}
       t += 1/(float)fdt;
+      transf_quad.roll(t*M_PI*.5f);
       transf.rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
-      bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
+      // bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
       bone_transforms[6] = bone_transf.world();
 
       std::vector<mat4> local_transform(cirno_rigs.bones.size()-1, mat4{1.f});
@@ -315,8 +388,25 @@ int main() {
       for (u32 i = 0; i < cirno_rigs.bones.size()-1; ++i) {
         bone_shader_transforms[i] = model_transform[i]*cirno_rigs.bone_inv_models[i];
       }
+
+      text_scale = 1.3f*std::abs(std::sin(t*M_PIf))+1.f;
     },
     [&](f32 dt, f32 alpha) {
+      t2 += dt;
+      if (t2 > 0.016f) {
+        fps[fps_counter] = 1/dt;
+        fps_counter++;
+        t2 = 0.f;
+      }
+      if (fps_counter > 60) {
+        fps_counter = 0;
+        avg_fps = 0;
+        for (u32 i = 0; i < 60; ++i) {
+          avg_fps += fps[i];
+        }
+        avg_fps /= 60.f;
+      }
+
       ssbo.upload(bone_transf_data);
 
       const int32 sampler = 0;
@@ -359,6 +449,38 @@ int main() {
           .render_callback = {},
         });
       }
+      const ntfr::render_opts quad_opts {
+        .vertex_count = 6,
+        .vertex_offset = 0,
+        .index_offset = 0,
+        .instances = 0,
+      };
+      auto cino_tex_handle = cirno_tex.get();
+      const ntfr::uniform_const cino_unifs[] = {
+        ntfr::format_uniform_const(u_tex_model, transf_quad.world()),
+        ntfr::format_uniform_const(u_tex_proj, cam_proj_quad),
+        ntfr::format_uniform_const(u_tex_view, cam_view_quad),
+        ntfr::format_uniform_const(u_tex_color, ntf::color4{1.f, 1.f, 1.f, 1.f}),
+        ntfr::format_uniform_const(u_tex_sampler, sampler),
+      };
+      const auto quad_bbind = quad.bindings();
+      ctx.submit_render_command({
+        .target = fbo,
+        .pipeline = pipe_tex,
+        .buffers = quad_bbind,
+        .textures = {cino_tex_handle},
+        .consts = cino_unifs,
+        .opts = quad_opts,
+        .sort_group = 0u,
+        .render_callback = {},
+      });
+
+      text_buffer.clear();
+      text_buffer.append_fmt(frenderer.glyphs(), 40.f, 100.f, 1.f,
+                             "Hello World! ~ze\n{:.2f}fps - {:.2f}ms", avg_fps, 1000/avg_fps);
+      text_buffer.append_fmt(frenderer.glyphs(), 20.f, 400.f, text_scale, "(9) -->");
+      text_buffer.append_fmt(frenderer.glyphs(), 820.f, 400.f, text_scale, "<-- (9)");
+      frenderer.render(quad, fbo, sdf_rule, text_buffer, 1u);
     }
   });
 
