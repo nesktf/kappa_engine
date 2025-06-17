@@ -175,6 +175,8 @@ int main() {
   model.retrieve_bindings(pip_attrib);
   model.retrieve_render_data(model_render_data);
 
+  auto rigger = model_rigger::create(ctx, cirno_rigs, "model").value();
+
   auto vert_sh = ntfr::vertex_shader::create(ctx, {vert_src}).value();
   auto frag_sh = ntfr::fragment_shader::create(ctx, {frag_src}).value();
   const ntfr::shader_t pip_stages[] = {vert_sh, frag_sh};
@@ -202,20 +204,6 @@ int main() {
   auto u_view = pipe.uniform("u_view");
   auto u_sampler = pipe.uniform("u_sampler");
 
-  std::vector<mat4> bone_shader_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
-  std::vector<mat4> bone_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
-
-  const ntfr::buffer_data bone_transf_data {
-    .data = bone_shader_transforms.data(),
-    .size = bone_shader_transforms.size()*sizeof(mat4),
-    .offset = 0u,
-  };
-  auto ssbo = ntfr::shader_storage_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = bone_shader_transforms.size()*sizeof(mat4),
-    .data = bone_transf_data,
-  }).value();
-
   for (const auto& mesh : cirno_meshes.meshes) {
     const u32 mat_idx = cirno_materials.material_registry.find(mesh.material_name)->second;
     const auto& mat = cirno_materials.materials[mat_idx];
@@ -235,8 +223,12 @@ int main() {
   auto transf = ntf::transform3d<f32>{}
     .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
 
+  std::vector<ntfr::shader_binding> binds;
   auto render_cirno = [&]() {
-    ssbo.upload(bone_transf_data);
+    binds.clear();
+
+    u32 buff_count = rigger.retrieve_buffers(binds, 0u);
+    cspan<ntfr::shader_binding> buff_span{binds.data(), buff_count};
 
     const int32 sampler = 0;
     const ntfr::uniform_const unifs[] = {
@@ -245,9 +237,6 @@ int main() {
       ntfr::format_uniform_const(u_view, view_mat),
       ntfr::format_uniform_const(u_sampler, sampler),
     };
-    const ntfr::shader_binding ssbo_bind {
-      .buffer = ssbo, .binding = 1u, .size = ssbo.size(), .offset = 0u,
-    };
 
     for (size_t i = 0; i < model_render_data.size(); ++i) {
       const auto& mesh = model_render_data[i];
@@ -255,7 +244,7 @@ int main() {
       const ntfr::buffer_binding buff_bind {
         .vertex = mesh.vertex_buffers,
         .index = mesh.index_buffer,
-        .shader = {ssbo_bind},
+        .shader = buff_span,
       };
       const ntfr::render_opts opts {
         .vertex_count = mesh.vertex_count,
@@ -276,56 +265,20 @@ int main() {
     }
   };
 
-  float t = 0.f, t2 = 0.f;
-  double avg_fps{};
-  double fps[60] = {0};
-  u32 fps_counter{};
-
-  float text_scale = 1.f;
+  float t = 0.f;
   ntfr::render_loop(win, ctx, 60u, ntf::overload{
     [&](u32 fdt) {
       if (!do_things) {return;}
       t += 1/(float)fdt;
       transf.rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
       bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
-      bone_transforms[6] = bone_transf.world();
 
-      std::vector<mat4> local_transform(cirno_rigs.bones.size()-1, mat4{1.f});
-      std::vector<mat4> model_transform(cirno_rigs.bones.size()-1, mat4{1.f});
-
-      for (u32 i = 0; i < cirno_rigs.bones.size()-1; ++i) {
-        local_transform[i] = cirno_rigs.bone_locals[i]*bone_transforms[i];
-      }
-      model_transform[0] = local_transform[0];
-
-      for (u32 i = 1; i < cirno_rigs.bones.size()-1; ++i) {
-        u32 parent = cirno_rigs.bones[i].parent;
-        model_transform[i] = model_transform[parent] * local_transform[i];
-      }
-
-      for (u32 i = 0; i < cirno_rigs.bones.size()-1; ++i) {
-        bone_shader_transforms[i] = model_transform[i]*cirno_rigs.bone_inv_models[i];
-      }
-
-      text_scale = 1.3f*std::abs(std::sin(t*M_PIf))+1.f;
+      rigger.set_transform("Neck", bone_transf.world());
+      rigger.tick();
     },
     [&](f32 dt, f32 alpha) {
       NTF_UNUSED(alpha);
-      t2 += dt;
-      if (t2 > 0.016f) {
-        fps[fps_counter] = 1/dt;
-        fps_counter++;
-        t2 = 0.f;
-      }
-      if (fps_counter > 60) {
-        fps_counter = 0;
-        avg_fps = 0;
-        for (u32 i = 0; i < 60; ++i) {
-          avg_fps += fps[i];
-        }
-        avg_fps /= 60.f;
-      }
-
+      NTF_UNUSED(dt);
       render_cirno();
     }
   });

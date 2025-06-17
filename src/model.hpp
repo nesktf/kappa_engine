@@ -17,6 +17,10 @@ struct mesh_provider {
   virtual u32 retrieve_bindings(std::vector<ntfr::attribute_binding>& bindings) = 0;
 };
 
+struct shader_binding_provider {
+  virtual ~shader_binding_provider() = default;
+  virtual u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) = 0;
+};
 
 class model_mesh_provider : public mesh_provider {
 public:
@@ -72,4 +76,40 @@ private:
   std::vector<mesh_offset> _mesh_offsets;
   ntfr::buffer_t _index_buff;
   u32 _active_layouts;
+};
+
+class model_rigger : public shader_binding_provider {
+public:
+  struct bone_transform {
+    vec3 pos;
+    vec3 scale;
+    quat rot;
+  };
+
+public:
+  model_rigger(const model_rig_data& rigs, vec_span bones,
+               ntfr::shader_storage_buffer&& ssbo,
+               std::vector<mat4>&& transform_output, std::vector<mat4>&& bone_transforms,
+               std::vector<mat4>&& local_cache, std::vector<mat4>&& model_cache) noexcept;
+
+public:
+  static ntfr::expect<model_rigger> create(ntfr::context_view ctx, const model_rig_data& rigs,
+                                           std::string_view armature);
+
+public:
+  void set_transform(std::string_view bone, const bone_transform& transf);
+  void set_transform(std::string_view bone, const mat4& transf);
+  void tick();
+
+public:
+  u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) override;
+
+private:
+  const model_rig_data* _rigs;
+  vec_span _bones;
+  ntfr::shader_storage_buffer _ssbo;
+  std::vector<mat4> _transform_output;
+  std::vector<mat4> _bone_transforms;
+  std::vector<mat4> _local_cache;
+  std::vector<mat4> _model_cache;
 };

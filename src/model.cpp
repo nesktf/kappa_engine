@@ -225,3 +225,119 @@ u32 model_mesh_provider::retrieve_bindings(std::vector<ntfr::attribute_binding>&
   bindings.emplace_back(ntfr::attribute_type::vec4,  6u, 0u, 0u); // bone weights
   return (u32)ATTRIB_COUNT;
 }
+
+model_rigger::model_rigger(const model_rig_data& rigs, vec_span bones,
+                           ntfr::shader_storage_buffer&& ssbo,
+                           std::vector<mat4>&& transform_output,
+                           std::vector<mat4>&& bone_transforms,
+                           std::vector<mat4>&& local_cache,
+                           std::vector<mat4>&& model_cache) noexcept :
+  _rigs{&rigs}, _bones{bones},
+  _ssbo{std::move(ssbo)}, _transform_output{std::move(transform_output)},
+  _bone_transforms{std::move(bone_transforms)},
+  _local_cache{std::move(local_cache)}, _model_cache{std::move(model_cache)} {}
+
+ntfr::expect<model_rigger> model_rigger::create(ntfr::context_view ctx, const model_rig_data& rigs,
+                                                std::string_view armature)
+{
+  auto it = rigs.armature_registry.find(armature);
+  if (it == rigs.armature_registry.end()) {
+    return ntf::unexpected{ntfr::render_error{"Armature not found"}};
+  }
+  const u32 idx = it->second;
+  NTF_ASSERT(rigs.armatures.size() > idx);
+  const vec_span bones = rigs.armatures[idx].bones;
+
+  std::vector<mat4> transform_output;
+  std::vector<mat4> bone_transforms;
+  std::vector<mat4> local_cache;
+  std::vector<mat4> model_cache;
+
+  try {
+    const mat4 identity{1.f};
+    transform_output.assign(bones.count, identity);
+    bone_transforms.assign(bones.count, identity);
+    local_cache.assign(bones.count, identity);
+    model_cache.assign(bones.count, identity);
+  } catch (const std::bad_alloc&) {
+    return ntf::unexpected{ntfr::render_error{"Matrix allocation failure"}};
+  }
+
+  const ntfr::buffer_data initial_data {
+    .data = transform_output.data(),
+    .size = bones.count*sizeof(mat4),
+    .offset = 0u,
+  };
+  auto ssbo = ntfr::shader_storage_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = bones.count*sizeof(mat4),
+    .data = initial_data,
+  });
+  if (!ssbo) {
+    return ntf::unexpected{std::move(ssbo.error())};
+  }
+
+  return ntfr::expect<model_rigger> {
+    ntf::in_place, rigs, bones, std::move(*ssbo),
+    std::move(transform_output), std::move(bone_transforms),
+    std::move(local_cache), std::move(model_cache)
+  };
+}
+
+void model_rigger::tick() {
+  for (auto& local : _local_cache){
+    local = mat4{1.f};
+  }
+  for (auto& model : _model_cache) {
+    model = mat4{1.f};
+  }
+
+  // Populate bone local transforms
+  for (u32 i = 0; i < _bones.count; ++i) {
+    _local_cache[i] = _rigs->bone_locals[_bones.idx+i]*_bone_transforms[i];
+  }
+
+  // Populate bone model transforms
+  _model_cache[0] = _local_cache[0]; // Root transform
+  for (u32 i = 1; i < _bones.count; ++i) {
+    u32 parent = _rigs->bones[_bones.idx+i].parent;
+    _model_cache[i] = _model_cache[parent] * _local_cache[i];
+  }
+
+  // Prepare shader transform data
+  for (u32 i = 0; i < _bones.count; ++i){
+    _transform_output[i] = _model_cache[i]*_rigs->bone_inv_models[_bones.idx+i];
+  }
+}
+
+void model_rigger::set_transform(std::string_view bone, const bone_transform& transf) {
+  auto it = _rigs->bone_registry.find(bone);
+  NTF_ASSERT(it != _rigs->bone_registry.end());
+  u32 local_pos = it->second - _bones.idx;
+  NTF_ASSERT(local_pos < _bone_transforms.size());
+
+  constexpr vec3 pivot{0.f, 0.f, 0.f};
+  _bone_transforms[local_pos] = ntf::build_trs_matrix(transf.pos, transf.scale,
+                                                      pivot, transf.rot);
+}
+
+void model_rigger::set_transform(std::string_view bone, const mat4& transf) {
+  auto it = _rigs->bone_registry.find(bone);
+  NTF_ASSERT(it != _rigs->bone_registry.end());
+  u32 local_pos = it->second - _bones.idx;
+  NTF_ASSERT(local_pos < _bone_transforms.size());
+
+  _bone_transforms[local_pos] = transf;
+}
+
+u32 model_rigger::retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) {
+  const ntfr::buffer_data data {
+    .data = _transform_output.data(),
+    .size = _bones.count*sizeof(mat4),
+    .offset = 0u,
+  };
+  [[maybe_unused]] auto ret = _ssbo.upload(data);
+  NTF_ASSERT(ret);
+  binds.emplace_back(_ssbo.get(), bind_pos+1u, _ssbo.size(), 0u);
+  return 1u;
+}
