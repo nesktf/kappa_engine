@@ -69,8 +69,6 @@ int main() {
   auto cousine =
     ntf::load_font_atlas<char>("./lib/shogle/demos/res/CousineNerdFont-Regular.ttf").value();
 
-  auto cirno_img = ntf::load_image<ntf::uint8>("./lib/shogle/demos/res/cirno_cpp.jpg").value();
-
   assimp_parser parser;
   parser.load("./res/chiruno/chiruno.gltf");
 
@@ -123,37 +121,6 @@ int main() {
   }).value();
   auto ctx = ntfr::make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
 
-  ntf::mat4 cam_proj_fnt = glm::ortho(0.f, (float)win_width, 0.f, (float)win_height);
-  ntfr::text_buffer text_buffer;
-  auto frenderer = ntfr::font_renderer::create(ctx, cam_proj_fnt, std::move(cousine)).value();
-  auto sdf_rule = ntfr::sdf_text_rule::create(ctx,
-                                             ntf::color3{1.f, 1.f, 1.f}, 0.5f, 0.05f,
-                                             ntf::color3{0.f, 0.f, 0.f},
-                                             ntf::vec2{-0.005f, -0.005f},
-                                             0.62f, 0.05f).value();
-  auto quad = ntfr::quad_mesh::create(ctx).value();
-  auto cirno_tex = ntfr::make_texture2d(ctx, cirno_img,
-                                        ntfr::texture_sampler::nearest,
-                                        ntfr::texture_addressing::repeat).value();
-
-  auto vert_src_quad = ntf::file_contents("./lib/shogle/demos/res/shaders/vert_base.vs.glsl").value();
-  auto frag_tex_src = ntf::file_contents("./lib/shogle/demos/res/shaders/frag_tex.fs.glsl").value();
-
-  auto vertex = ntfr::vertex_shader::create(ctx, {vert_src_quad}).value();
-  auto fragment_tex = ntfr::fragment_shader::create(ctx, {frag_tex_src}).value();
-  auto pipe_tex = ntfr::make_pipeline<ntfr::pnt_vertex>(vertex, fragment_tex).value();
-
-  auto u_tex_model = pipe_tex.uniform("model");
-  auto u_tex_proj = pipe_tex.uniform("proj");
-  auto u_tex_view = pipe_tex.uniform("view");
-  auto u_tex_color = pipe_tex.uniform("color");
-  auto u_tex_sampler = pipe_tex.uniform("sampler0");
-
-  ntf::mat4 cam_view_quad = glm::translate(glm::mat4{1.f}, glm::vec3{640.f, 360.f, -3.f});
-  ntf::mat4 cam_proj_quad = glm::ortho(0.f, (float)win_width, 0.f, (float)win_height, .1f, 100.f);
-  auto transf_quad = ntf::transform2d<ntf::float32>{}
-    .pos(425.f, -175.f).scale(ntf::vec2{256.f, 256.f});
-
   auto fbo = ntfr::framebuffer::get_default(ctx);
   bool do_things = true;
   win.set_viewport_callback([&](ntfr::window&, const ntf::extent2d& ext) {
@@ -169,6 +136,38 @@ int main() {
       }
     }
   });
+
+  std::vector<u32> mesh_texs;
+  mesh_texs.reserve(cirno_meshes.meshes.size());
+
+  std::vector<ntfr::texture2d> texs;
+  texs.reserve(cirno_materials.textures.size());
+
+  for (const auto& texture : cirno_materials.textures){
+    const ntfr::image_data images {
+      .bitmap = texture.bitmap.data(),
+      .format = texture.format,
+      .alignment = 4u,
+      .extent = texture.extent,
+      .offset = {0, 0, 0},
+      .layer = 0u,
+      .level = 0u,
+    };
+    const ntfr::texture_data data {
+      .images = {images},
+      .generate_mipmaps = true,
+    };
+    auto tex = ntfr::texture2d::create(ctx, {
+      .format = ntfr::image_format::rgba8nu,
+      .sampler = ntfr::texture_sampler::linear,
+      .addressing = ntfr::texture_addressing::repeat,
+      .extent = texture.extent,
+      .layers = 1u,
+      .levels = 7u,
+      .data = data,
+    }).value();
+    texs.emplace_back(std::move(tex));
+  }
 
   std::vector<ntfr::attribute_binding> pip_attrib;
   std::vector<mesh_render_data> model_render_data;
@@ -203,44 +202,6 @@ int main() {
   auto u_view = pipe.uniform("u_view");
   auto u_sampler = pipe.uniform("u_sampler");
 
-  const auto fb_ratio = (float)win_width/(float)win_height;
-  auto proj_mat = glm::perspective(glm::radians(35.f), fb_ratio, .1f, 100.f);
-  auto view_mat = glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f});
-  auto transf = ntf::transform3d<f32>{}
-    .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
-
-  std::vector<u32> mesh_texs;
-  mesh_texs.reserve(cirno_meshes.meshes.size());
-
-  std::vector<ntfr::texture2d> texs;
-  texs.reserve(cirno_materials.textures.size());
-
-  for (const auto& texture : cirno_materials.textures){
-    const ntfr::image_data images {
-      .bitmap = texture.bitmap.data(),
-      .format = texture.format,
-      .alignment = 4u,
-      .extent = texture.extent,
-      .offset = {0, 0, 0},
-      .layer = 0u,
-      .level = 0u,
-    };
-    const ntfr::texture_data data {
-      .images = {images},
-      .generate_mipmaps = true,
-    };
-    auto tex = ntfr::texture2d::create(ctx, {
-      .format = ntfr::image_format::rgba8nu,
-      .sampler = ntfr::texture_sampler::linear,
-      .addressing = ntfr::texture_addressing::repeat,
-      .extent = texture.extent,
-      .layers = 1u,
-      .levels = 7u,
-      .data = data,
-    }).value();
-    texs.emplace_back(std::move(tex));
-  }
-
   std::vector<mat4> bone_shader_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
   std::vector<mat4> bone_transforms(cirno_rigs.bones.size()-1, mat4{1.f});
 
@@ -268,6 +229,53 @@ int main() {
   auto bone_transf = ntf::transform3d<f32>{}
     .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
 
+  const auto fb_ratio = (float)win_width/(float)win_height;
+  auto proj_mat = glm::perspective(glm::radians(35.f), fb_ratio, .1f, 100.f);
+  auto view_mat = glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f});
+  auto transf = ntf::transform3d<f32>{}
+    .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
+
+  auto render_cirno = [&]() {
+    ssbo.upload(bone_transf_data);
+
+    const int32 sampler = 0;
+    const ntfr::uniform_const unifs[] = {
+      ntfr::format_uniform_const(u_model, transf.world()),
+      ntfr::format_uniform_const(u_proj, proj_mat),
+      ntfr::format_uniform_const(u_view, view_mat),
+      ntfr::format_uniform_const(u_sampler, sampler),
+    };
+    const ntfr::shader_binding ssbo_bind {
+      .buffer = ssbo, .binding = 1u, .size = ssbo.size(), .offset = 0u,
+    };
+
+    for (size_t i = 0; i < model_render_data.size(); ++i) {
+      const auto& mesh = model_render_data[i];
+      const u32 tex = mesh_texs[i];
+      const ntfr::buffer_binding buff_bind {
+        .vertex = mesh.vertex_buffers,
+        .index = mesh.index_buffer,
+        .shader = {ssbo_bind},
+      };
+      const ntfr::render_opts opts {
+        .vertex_count = mesh.vertex_count,
+        .vertex_offset = mesh.vertex_offset,
+        .index_offset = mesh.index_offset,
+        .instances = 0,
+      };
+      ctx.submit_render_command({
+        .target = fbo,
+        .pipeline = pipe,
+        .buffers = buff_bind,
+        .textures = {texs[tex]},
+        .consts = unifs,
+        .opts = opts,
+        .sort_group = 0u,
+        .render_callback = {},
+      });
+    }
+  };
+
   float t = 0.f, t2 = 0.f;
   double avg_fps{};
   double fps[60] = {0};
@@ -278,9 +286,8 @@ int main() {
     [&](u32 fdt) {
       if (!do_things) {return;}
       t += 1/(float)fdt;
-      transf_quad.roll(t*M_PI*.5f);
       transf.rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
-      // bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
+      bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
       bone_transforms[6] = bone_transf.world();
 
       std::vector<mat4> local_transform(cirno_rigs.bones.size()-1, mat4{1.f});
@@ -319,77 +326,7 @@ int main() {
         avg_fps /= 60.f;
       }
 
-      ssbo.upload(bone_transf_data);
-
-      const int32 sampler = 0;
-      const ntfr::uniform_const unifs[] = {
-        ntfr::format_uniform_const(u_model, transf.world()),
-        ntfr::format_uniform_const(u_proj, proj_mat),
-        ntfr::format_uniform_const(u_view, view_mat),
-        ntfr::format_uniform_const(u_sampler, sampler),
-      };
-      const ntfr::shader_binding ssbo_bind {
-        .buffer = ssbo, .binding = 1u, .size = ssbo.size(), .offset = 0u,
-      };
-
-      for (size_t i = 0; i < model_render_data.size(); ++i) {
-        const auto& mesh = model_render_data[i];
-        const u32 tex = mesh_texs[i];
-        const ntfr::buffer_binding buff_bind {
-          .vertex = mesh.vertex_buffers,
-          .index = mesh.index_buffer,
-          .shader = {ssbo_bind},
-        };
-        const ntfr::render_opts opts {
-          .vertex_count = mesh.vertex_count,
-          .vertex_offset = mesh.vertex_offset,
-          .index_offset = mesh.index_offset,
-          .instances = 0,
-        };
-        ctx.submit_render_command({
-          .target = fbo,
-          .pipeline = pipe,
-          .buffers = buff_bind,
-          .textures = {texs[tex]},
-          .consts = unifs,
-          .opts = opts,
-          .sort_group = 0u,
-          .render_callback = {},
-        });
-      }
-
-      const ntfr::render_opts quad_opts {
-        .vertex_count = 6,
-        .vertex_offset = 0,
-        .index_offset = 0,
-        .instances = 0,
-      };
-      auto cino_tex_handle = cirno_tex.get();
-      const ntfr::uniform_const cino_unifs[] = {
-        ntfr::format_uniform_const(u_tex_model, transf_quad.world()),
-        ntfr::format_uniform_const(u_tex_proj, cam_proj_quad),
-        ntfr::format_uniform_const(u_tex_view, cam_view_quad),
-        ntfr::format_uniform_const(u_tex_color, ntf::color4{1.f, 1.f, 1.f, 1.f}),
-        ntfr::format_uniform_const(u_tex_sampler, sampler),
-      };
-      const auto quad_bbind = quad.bindings();
-      ctx.submit_render_command({
-        .target = fbo,
-        .pipeline = pipe_tex,
-        .buffers = quad_bbind,
-        .textures = {cino_tex_handle},
-        .consts = cino_unifs,
-        .opts = quad_opts,
-        .sort_group = 0u,
-        .render_callback = {},
-      });
-
-      text_buffer.clear();
-      text_buffer.append_fmt(frenderer.glyphs(), 40.f, 100.f, 1.f,
-                             "Hello World! ~ze\n{:.2f}fps - {:.2f}ms", avg_fps, 1000/avg_fps);
-      text_buffer.append_fmt(frenderer.glyphs(), 20.f, 400.f, text_scale, "(9) -->");
-      text_buffer.append_fmt(frenderer.glyphs(), 820.f, 400.f, text_scale, "<-- (9)");
-      frenderer.render(quad, fbo, sdf_rule, text_buffer, 1u);
+      render_cirno();
     }
   });
 
