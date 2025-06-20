@@ -23,6 +23,9 @@ using ntf::quat;
 using ntf::color4;
 using ntf::extent3d;
 
+template<typename T>
+using expect = ntf::expected<T, std::string_view>;
+
 struct vec_span {
   static constexpr u32 INDEX_TOMB = std::numeric_limits<u32>::max();
 
@@ -183,9 +186,6 @@ private:
   using bone_inv_map = std::unordered_map<std::string, mat4>;
 
 public:
-  template<typename T>
-  using expect = ntf::expected<T, std::string_view>;
-
   // lel
   static constexpr u32 DEFAULT_ASS_FLAGS = 
     aiProcess_Triangulate |

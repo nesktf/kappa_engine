@@ -1,101 +1,13 @@
 #include <shogle/boilerplate.hpp>
+#include "assets.hpp"
 #include "model_data.hpp"
 #include "model.hpp"
 #include <ranges>
 
 using namespace ntf::numdefs;
 
-static std::string_view vert_src = R"glsl(
-#version 460 core
-
-layout (location = 0) in vec3 att_coords;
-layout (location = 1) in vec3 att_normals;
-layout (location = 2) in vec2 att_texcoords;
-layout (location = 3) in vec3 att_tangents;
-layout (location = 4) in vec3 att_bitangents;
-layout (location = 5) in ivec4 att_bones;
-layout (location = 6) in vec4 att_weights;
-
-out vec2 tex_coord;
-
-uniform mat4 u_model;
-uniform mat4 u_proj;
-uniform mat4 u_view;
-
-layout(std430, binding = 1) buffer bone_transforms {
-  mat4 bone_mat[];
-};
-
-const int MAX_BONE_INFLUENCE = 4;
-
-void main() {
-  // vec4 total_pos = bone_mat[att_bones] * vec4(att_coords, 1.f);
-  vec4 total_pos = vec4(0.f);
-  for (int i = 0; i < MAX_BONE_INFLUENCE; ++i){
-    if (att_bones[i] == -1) {
-      continue;
-    }
-    vec4 local_pos = bone_mat[att_bones[i]] * vec4(att_coords, 1.f);
-    total_pos += local_pos * att_weights[i];
-    vec3 local_norm = mat3(bone_mat[att_bones[i]]) * att_normals;
-  }
-
-  // gl_Position = u_proj*u_view*u_model*vec4(att_coords, 1.0f);
-  gl_Position = u_proj*u_view*u_model*total_pos;
-  tex_coord = att_texcoords;
-}
-)glsl";
-
-static std::string_view frag_src = R"glsl(
-#version 460 core
-
-in vec2 tex_coord;
-out vec4 frag_color;
-uniform sampler2D u_sampler;
-
-void main() {
-  vec4 out_color = texture(u_sampler, tex_coord);
-
-  if (out_color.a < 0.2) {
-    discard;
-  }
-
-  frag_color = out_color;
-}
-)glsl";
-
 int main() {
   ntf::logger::set_level(ntf::log_level::debug);
-
-  auto cousine =
-    ntf::load_font_atlas<char>("./lib/shogle/demos/res/CousineNerdFont-Regular.ttf").value();
-
-  assimp_parser parser;
-  parser.load("./res/chiruno/chiruno.gltf");
-
-  model_rig_data cirno_rigs;
-  parser.parse_rigs(cirno_rigs);
-
-  model_material_data cirno_materials;
-  parser.parse_materials(cirno_materials);
-
-  model_mesh_data cirno_meshes;
-  parser.parse_meshes(cirno_rigs, cirno_meshes);
-
-  // for (const auto& mesh : cirno_meshes.meshes) {
-  //   ntf::logger::info("MESH: {}", mesh.name);
-  //   const auto idx_span = mesh.bones.to_cspan(cirno_meshes.bones.data());
-  //   const auto wei_span = mesh.bones.to_cspan(cirno_meshes.weights.data());
-  //   for (u32 i = 0; i < idx_span.size(); ++i) {
-  //     ntf::logger::debug("- [{}, {}, {}, {}] -> [{}, {}, {}, {}]",
-  //                        idx_span[i][0], idx_span[i][1], idx_span[i][2], idx_span[i][3],
-  //                        wei_span[i][0], wei_span[i][1], wei_span[i][2], wei_span[i][3]);
-  //   }
-  // }
-
-  // for (const auto& [name, idx] : cirno_rigs.bone_registry) {
-  //   ntf::logger::info("BONE: {}, IDX: {}", name, idx);
-  // }
 
   u32 win_width = 1280;
   u32 win_height = 720;
@@ -106,7 +18,7 @@ int main() {
   const ntfr::win_gl_params win_gl {
     .ver_major = 4,
     .ver_minor = 6,
-    .swap_interval = 0,
+    .swap_interval = 1,
     .fb_msaa_level = 8,
     .fb_buffer = ntfr::fbo_buffer::depth24u_stencil8u,
     .fb_use_alpha = false,
@@ -123,7 +35,7 @@ int main() {
   auto ctx = ntfr::make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
 
   auto fbo = ntfr::framebuffer::get_default(ctx);
-  bool do_things = true;
+  bool do_things = false;
   win.set_viewport_callback([&](ntfr::window&, const ntf::extent2d& ext) {
     fbo.viewport({0, 0, ext.x, ext.y});
   });
@@ -138,149 +50,74 @@ int main() {
     }
   });
 
-  std::vector<u32> mesh_texs;
-  mesh_texs.reserve(cirno_meshes.meshes.size());
-
-  std::vector<ntfr::texture2d> texs;
-  texs.reserve(cirno_materials.textures.size());
-
-  for (const auto& texture : cirno_materials.textures){
-    const ntfr::image_data images {
-      .bitmap = texture.bitmap.data(),
-      .format = texture.format,
-      .alignment = 4u,
-      .extent = texture.extent,
-      .offset = {0, 0, 0},
-      .layer = 0u,
-      .level = 0u,
-    };
-    const ntfr::texture_data data {
-      .images = {images},
-      .generate_mipmaps = true,
-    };
-    auto tex = ntfr::texture2d::create(ctx, {
-      .format = ntfr::image_format::rgba8nu,
-      .sampler = ntfr::texture_sampler::linear,
-      .addressing = ntfr::texture_addressing::repeat,
-      .extent = texture.extent,
-      .layers = 1u,
-      .levels = 7u,
-      .data = data,
-    }).value();
-    texs.emplace_back(std::move(tex));
-  }
-
-  std::vector<ntfr::attribute_binding> pip_attrib;
-  std::vector<mesh_render_data> model_render_data;
-  auto model = model_mesh_provider::create(ctx, cirno_meshes).value();
-  model.retrieve_bindings(pip_attrib);
-  model.retrieve_render_data(model_render_data);
-
-  auto rigger = model_rigger::create(ctx, cirno_rigs, "model").value();
-
-  auto vert_sh = ntfr::vertex_shader::create(ctx, {vert_src}).value();
-  auto frag_sh = ntfr::fragment_shader::create(ctx, {frag_src}).value();
-  const ntfr::shader_t pip_stages[] = {vert_sh, frag_sh};
-  const ntfr::face_cull_opts cull {
-    .mode = ntfr::cull_mode::back,
-    .front_face = ntfr::cull_face::counter_clockwise,
+  asset_bundle bundle{ctx};
+  asset_loader loader;
+  const asset_loader::model_opts cirno_opts {
+    .flags = assimp_parser::DEFAULT_ASS_FLAGS,
+    .armature = "model",
   };
-  auto pipe = ntfr::pipeline::create(ctx, {
-    .attributes = {pip_attrib.data(), pip_attrib.size()},
-    .stages = pip_stages,
-    .primitive = ntfr::primitive_mode::triangles,
-    .poly_mode = ntfr::polygon_mode::fill,
-    .poly_width = 1.f,
-    .tests = {
-      .stencil_test = nullptr,
-      .depth_test = ntfr::def_depth_opts,
-      .scissor_test = nullptr,
-      .face_culling = cull,
-      .blending = ntfr::def_blending_opts,
-    },
-  }).value();
 
-  auto u_model = pipe.uniform("u_model");
-  auto u_proj = pipe.uniform("u_proj");
-  auto u_view = pipe.uniform("u_view");
-  auto u_sampler = pipe.uniform("u_sampler");
-
-  for (const auto& mesh : cirno_meshes.meshes) {
-    const u32 mat_idx = cirno_materials.material_registry.find(mesh.material_name)->second;
-    const auto& mat = cirno_materials.materials[mat_idx];
-    u32 tex = 0u;
-    if (mat.textures.count == 1){
-      tex = cirno_materials.material_textures[mat.textures.idx];
+  std::vector<asset_bundle::rmodel_idx> rmodels;
+  auto model_callback = [&rmodels](expect<u32> idx, asset_bundle& bundle) {
+    if (!idx) {
+      ntf::logger::error("Can't load model, {}", idx.error());
+      return;
     }
-    mesh_texs.emplace_back(tex);
-  }
 
-  auto bone_transf = ntf::transform3d<f32>{}
-    .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+    auto model = rmodels.emplace_back(static_cast<asset_bundle::rmodel_idx>(*idx));
+    auto& m = bundle.get_rmodel(model);
+    if (m.name() == "koishi") {
+      m.transform().pos(.5f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+    } else {
+      m.transform().pos(-.5f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+    }
+  };
+  
+  loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "chiruno",
+                        cirno_opts, model_callback);
+  loader.request_rmodel(bundle, "./res/koosh/koosh.gltf", "koishi",
+                        cirno_opts, model_callback);
+  // loader.request_rmodel(bundle, "./lib/shogle/demos/res/cirno_fumo/cirno_fumo.obj", "fumo",
+  //                       cirno_opts, model_callback);
 
   const auto fb_ratio = (float)win_width/(float)win_height;
   auto proj_mat = glm::perspective(glm::radians(35.f), fb_ratio, .1f, 100.f);
   auto view_mat = glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f});
-  auto transf = ntf::transform3d<f32>{}
-    .pos(0.f, -1.f, 0.f).scale(1.5f, 1.5f, 1.5f);
-
-  std::vector<ntfr::shader_binding> binds;
-  auto render_cirno = [&]() {
-    binds.clear();
-
-    u32 buff_count = rigger.retrieve_buffers(binds, 0u);
-    cspan<ntfr::shader_binding> buff_span{binds.data(), buff_count};
-
-    const int32 sampler = 0;
-    const ntfr::uniform_const unifs[] = {
-      ntfr::format_uniform_const(u_model, transf.world()),
-      ntfr::format_uniform_const(u_proj, proj_mat),
-      ntfr::format_uniform_const(u_view, view_mat),
-      ntfr::format_uniform_const(u_sampler, sampler),
-    };
-
-    for (size_t i = 0; i < model_render_data.size(); ++i) {
-      const auto& mesh = model_render_data[i];
-      const u32 tex = mesh_texs[i];
-      const ntfr::buffer_binding buff_bind {
-        .vertex = mesh.vertex_buffers,
-        .index = mesh.index_buffer,
-        .shader = buff_span,
-      };
-      const ntfr::render_opts opts {
-        .vertex_count = mesh.vertex_count,
-        .vertex_offset = mesh.vertex_offset,
-        .index_offset = mesh.index_offset,
-        .instances = 0,
-      };
-      ctx.submit_render_command({
-        .target = fbo,
-        .pipeline = pipe,
-        .buffers = buff_bind,
-        .textures = {texs[tex]},
-        .consts = unifs,
-        .opts = opts,
-        .sort_group = 0u,
-        .render_callback = {},
-      });
-    }
-  };
+  
+  auto bone_transform = ntf::transform3d<f32>{}
+    .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
 
   float t = 0.f;
   ntfr::render_loop(win, ctx, 60u, ntf::overload{
     [&](u32 fdt) {
-      if (!do_things) {return;}
-      t += 1/(float)fdt;
-      transf.rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
-      bone_transf.rot(ntf::vec3{-t*.5f*M_PIf, 0.f, 0.f});
+      loader.handle_requests();
 
-      rigger.set_transform("Head", bone_transf.world());
-      rigger.tick();
+      if (!do_things) {
+        return;
+      }
+
+      t += 1/(float)fdt;
+      bone_transform.rot(ntf::vec3{-t*M_PIf*.5f, 0.f, 0.f});
+
+      for (auto idx : rmodels) {
+        auto& model = bundle.get_rmodel(idx);
+        model.transform().rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
+        model.set_bone_transform("Head", bone_transform);
+        model.tick();
+      }
     },
     [&](f32 dt, f32 alpha) {
-      NTF_UNUSED(alpha);
-      NTF_UNUSED(dt);
-      render_cirno();
+      const game_frame r {
+        .ctx = ctx,
+        .fbo = fbo,
+        .view = view_mat,
+        .proj = proj_mat,
+        .dt = dt,
+        .alpha = alpha,
+      };
+      for (auto idx : rmodels) {
+        bundle.get_rmodel(idx).render(r);
+      }
     }
   });
 

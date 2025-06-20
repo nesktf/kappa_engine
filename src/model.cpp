@@ -4,7 +4,7 @@
 if (!_buff) { \
   ntf::logger::error("Failed to create vertex buffer, {}", _buff.error().what()); \
   free_buffs(); \
-  return ntf::unexpected{std::move(_buff.error())}; \
+  return ntf::unexpected{std::string_view{"Failed to create vertex buffer"}}; \
 }
 
 model_mesh_provider::model_mesh_provider(mesh_vert_buffs buffs,
@@ -48,16 +48,16 @@ model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other)
 model_mesh_provider::~model_mesh_provider() noexcept { _free_buffs(); }
 
 
-ntfr::expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view ctx,
-                                                              const model_mesh_data& meshes)
+expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view ctx,
+                                                        const model_mesh_data& meshes)
 
 {
   // Assume all models have indices and positions in each mesh
   if (meshes.positions.empty()) {
-    return ntf::unexpected{ntfr::render_error{"No position data"}};
+    return ntf::unexpected{std::string_view{"No position data"}};
   }
   if (meshes.indices.empty()) {
-    return ntf::unexpected{ntfr::render_error{"No index data"}};
+    return ntf::unexpected{std::string_view{"No index data"}};
   }
 
   mesh_vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
@@ -137,7 +137,7 @@ ntfr::expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view
     });
     if (!ind_buff) {
       ntf::logger::error("Failed to create index buffer, {}", ind_buff.error().what());
-      return ntf::unexpected{std::move(ind_buff.error())};
+      return ntf::unexpected{std::string_view{"Failed to create index buffer"}};
     }
     ind = *ind_buff;
 
@@ -189,7 +189,7 @@ ntfr::expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view
     offset += mesh.positions.count;
   }
 
-  return ntfr::expect<model_mesh_provider>{
+  return expect<model_mesh_provider>{
     ntf::in_place, buffs, ind, std::move(mesh_offsets)
   };
 }
@@ -226,23 +226,23 @@ u32 model_mesh_provider::retrieve_bindings(std::vector<ntfr::attribute_binding>&
   return (u32)ATTRIB_COUNT;
 }
 
-model_rigger::model_rigger(const model_rig_data& rigs, vec_span bones,
+model_rigger::model_rigger(vec_span bones,
                            ntfr::shader_storage_buffer&& ssbo,
                            std::vector<mat4>&& transform_output,
                            std::vector<mat4>&& bone_transforms,
                            std::vector<mat4>&& local_cache,
                            std::vector<mat4>&& model_cache) noexcept :
-  _rigs{&rigs}, _bones{bones},
+  _bones{bones},
   _ssbo{std::move(ssbo)}, _transform_output{std::move(transform_output)},
   _bone_transforms{std::move(bone_transforms)},
   _local_cache{std::move(local_cache)}, _model_cache{std::move(model_cache)} {}
 
-ntfr::expect<model_rigger> model_rigger::create(ntfr::context_view ctx, const model_rig_data& rigs,
-                                                std::string_view armature)
+expect<model_rigger> model_rigger::create(ntfr::context_view ctx, const model_rig_data& rigs,
+                                          std::string_view armature)
 {
   auto it = rigs.armature_registry.find(armature);
   if (it == rigs.armature_registry.end()) {
-    return ntf::unexpected{ntfr::render_error{"Armature not found"}};
+    return ntf::unexpected{std::string_view{"Armature not found"}};
   }
   const u32 idx = it->second;
   NTF_ASSERT(rigs.armatures.size() > idx);
@@ -260,7 +260,7 @@ ntfr::expect<model_rigger> model_rigger::create(ntfr::context_view ctx, const mo
     local_cache.assign(bones.count, identity);
     model_cache.assign(bones.count, identity);
   } catch (const std::bad_alloc&) {
-    return ntf::unexpected{ntfr::render_error{"Matrix allocation failure"}};
+    return ntf::unexpected{std::string_view{"Matrix allocation failure"}};
   }
 
   const ntfr::buffer_data initial_data {
@@ -274,17 +274,17 @@ ntfr::expect<model_rigger> model_rigger::create(ntfr::context_view ctx, const mo
     .data = initial_data,
   });
   if (!ssbo) {
-    return ntf::unexpected{std::move(ssbo.error())};
+    return ntf::unexpected{std::string_view{"Failed to create ssbo"}};
   }
 
-  return ntfr::expect<model_rigger> {
-    ntf::in_place, rigs, bones, std::move(*ssbo),
+  return expect<model_rigger> {
+    ntf::in_place, bones, std::move(*ssbo),
     std::move(transform_output), std::move(bone_transforms),
     std::move(local_cache), std::move(model_cache)
   };
 }
 
-void model_rigger::tick() {
+void model_rigger::tick(const model_rig_data& rigs) {
   for (auto& local : _local_cache){
     local = mat4{1.f};
   }
@@ -294,25 +294,27 @@ void model_rigger::tick() {
 
   // Populate bone local transforms
   for (u32 i = 0; i < _bones.count; ++i) {
-    _local_cache[i] = _rigs->bone_locals[_bones.idx+i]*_bone_transforms[i];
+    _local_cache[i] = rigs.bone_locals[_bones.idx+i]*_bone_transforms[i];
   }
 
   // Populate bone model transforms
   _model_cache[0] = _local_cache[0]; // Root transform
   for (u32 i = 1; i < _bones.count; ++i) {
-    u32 parent = _rigs->bones[_bones.idx+i].parent;
+    u32 parent = rigs.bones[_bones.idx+i].parent;
     _model_cache[i] = _model_cache[parent] * _local_cache[i];
   }
 
   // Prepare shader transform data
   for (u32 i = 0; i < _bones.count; ++i){
-    _transform_output[i] = _model_cache[i]*_rigs->bone_inv_models[_bones.idx+i];
+    _transform_output[i] = _model_cache[i]*rigs.bone_inv_models[_bones.idx+i];
   }
 }
 
-void model_rigger::set_transform(std::string_view bone, const bone_transform& transf) {
-  auto it = _rigs->bone_registry.find(bone);
-  NTF_ASSERT(it != _rigs->bone_registry.end());
+void model_rigger::set_transform(const model_rig_data& rigs,
+                                 std::string_view bone, const bone_transform& transf)
+{
+  auto it = rigs.bone_registry.find(bone);
+  NTF_ASSERT(it != rigs.bone_registry.end());
   u32 local_pos = it->second - _bones.idx;
   NTF_ASSERT(local_pos < _bone_transforms.size());
 
@@ -321,9 +323,11 @@ void model_rigger::set_transform(std::string_view bone, const bone_transform& tr
                                                       pivot, transf.rot);
 }
 
-void model_rigger::set_transform(std::string_view bone, const mat4& transf) {
-  auto it = _rigs->bone_registry.find(bone);
-  NTF_ASSERT(it != _rigs->bone_registry.end());
+void model_rigger::set_transform(const model_rig_data& rigs,
+                                 std::string_view bone, const mat4& transf)
+{
+  auto it = rigs.bone_registry.find(bone);
+  NTF_ASSERT(it != rigs.bone_registry.end());
   u32 local_pos = it->second - _bones.idx;
   NTF_ASSERT(local_pos < _bone_transforms.size());
 

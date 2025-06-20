@@ -130,7 +130,8 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
   // }
 
   auto load_textures = [&](u32& tex_count, const aiMaterial* ai_mat, aiTextureType type) {
-    for (size_t i = 0; i < ai_mat->GetTextureCount(type); ++i) {
+    size_t count = ai_mat->GetTextureCount(type);
+    for (size_t i = 0; i < count; ++i) {
       aiString filename;
       ai_mat->GetTexture(type, i, &filename);
 
@@ -168,6 +169,7 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
       mats.material_textures.emplace_back(idx);
       ++tex_count;
     }
+    return count;
   };
 
   for (size_t i = 0; i < scene->mNumMaterials; ++i) {
@@ -175,7 +177,9 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
     const auto mat_name = ai_mat->GetName();
 
     u32 tex_count = 0u;
-    load_textures(tex_count, ai_mat, aiTextureType_DIFFUSE);
+    u32 diff_count = load_textures(tex_count, ai_mat, aiTextureType_DIFFUSE);
+    ntf::logger::verbose("{} diffuse texture(s) found in material {}",
+                         diff_count, mat_name.C_Str());
     const u32 tex_idx = tex_count ? mats.material_textures.size()-1 : vec_span::INDEX_TOMB;
     const vec_span tex_span{tex_idx, tex_count};
 
@@ -190,6 +194,9 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
   for (size_t i = 0; const auto& mat : mats.materials) {
     mats.material_registry.try_emplace(mat.name, i++);
   }
+
+  ntf::logger::debug("Parsed {} materials, {} textures",
+                     mats.materials.size(), mats.textures.size());
 
   return {};
 }

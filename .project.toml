@@ -4,12 +4,12 @@ run=""
 clean="rm -rf ./build"
 build="make -C build -j4"
 config="cmake -B build"
-target="skel_anim"
+target="game_test"
 target_config="debug"
 
-[skel_anim]
-run="mangohud --dlsym ./build/skel_anim"
+[game_test]
+run="mangohud --dlsym ./build/game_test"
 
-[skel_anim.configs]
+[game_test.configs]
 debug=["-DCMAKE_BUILD_TYPE=Debug"]
 release=["-DCMAKE_BUILD_TYPE=Release"]

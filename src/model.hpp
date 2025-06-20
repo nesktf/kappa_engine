@@ -60,8 +60,8 @@ public:
   model_mesh_provider& operator=(model_mesh_provider&&) noexcept;
 
 public:
-  static ntfr::expect<model_mesh_provider> create(ntfr::context_view ctx,
-                                                  const model_mesh_data& meshes);
+  static expect<model_mesh_provider> create(ntfr::context_view ctx,
+                                            const model_mesh_data& meshes);
 
 public:
   u32 retrieve_render_data(std::vector<mesh_render_data>& data) override;
@@ -87,25 +87,26 @@ public:
   };
 
 public:
-  model_rigger(const model_rig_data& rigs, vec_span bones,
+  model_rigger(vec_span bones,
                ntfr::shader_storage_buffer&& ssbo,
                std::vector<mat4>&& transform_output, std::vector<mat4>&& bone_transforms,
                std::vector<mat4>&& local_cache, std::vector<mat4>&& model_cache) noexcept;
 
 public:
-  static ntfr::expect<model_rigger> create(ntfr::context_view ctx, const model_rig_data& rigs,
-                                           std::string_view armature);
+  static expect<model_rigger> create(ntfr::context_view ctx, const model_rig_data& rigs,
+                                     std::string_view armature);
 
 public:
-  void set_transform(std::string_view bone, const bone_transform& transf);
-  void set_transform(std::string_view bone, const mat4& transf);
-  void tick();
+  void set_transform(const model_rig_data& rigs,
+                     std::string_view bone, const bone_transform& transf);
+  void set_transform(const model_rig_data& rigs,
+                     std::string_view bone, const mat4& transf);
+  void tick(const model_rig_data& rigs);
 
 public:
   u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) override;
 
 private:
-  const model_rig_data* _rigs;
   vec_span _bones;
   ntfr::shader_storage_buffer _ssbo;
   std::vector<mat4> _transform_output;
