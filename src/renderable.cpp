@@ -1,57 +1,24 @@
 #include "renderable.hpp"
+#include "renderer.hpp"
 
 #include <shogle/boilerplate.hpp>
-
-static std::string_view model_vert_src = R"glsl(
-#version 460 core
-
-layout (location = 0) in vec3 att_coords;
-layout (location = 1) in vec3 att_normals;
-layout (location = 2) in vec2 att_texcoords;
-layout (location = 3) in vec3 att_tangents;
-layout (location = 4) in vec3 att_bitangents;
-layout (location = 5) in ivec4 att_bones;
-layout (location = 6) in vec4 att_weights;
-
-out vec2 tex_coord;
-
-uniform mat4 u_model;
-uniform mat4 u_proj;
-uniform mat4 u_view;
-
-layout(std430, binding = 1) buffer bone_transforms {
-  mat4 bone_mat[];
-};
-
-const int MAX_BONE_INFLUENCE = 4;
-
-void main() {
-  // vec4 total_pos = bone_mat[att_bones] * vec4(att_coords, 1.f);
-  vec4 total_pos = vec4(0.f);
-  for (int i = 0; i < MAX_BONE_INFLUENCE; ++i){
-    if (att_bones[i] == -1) {
-      continue;
-    }
-    vec4 local_pos = bone_mat[att_bones[i]] * vec4(att_coords, 1.f);
-    total_pos += local_pos * att_weights[i];
-    vec3 local_norm = mat3(bone_mat[att_bones[i]]) * att_normals;
-  }
-
-  // gl_Position = u_proj*u_view*u_model*vec4(att_coords, 1.0f);
-  gl_Position = u_proj*u_view*u_model*total_pos;
-  tex_coord = att_texcoords;
-}
-)glsl";
 
 static std::string_view model_frag_src = R"glsl(
 #version 460 core
 
-in vec2 tex_coord;
+in VS_OUT {
+  vec3 normals;
+  vec2 uvs;
+  vec3 tangents;
+  vec3 bitangents;
+} fs_in;
+
 out vec4 frag_color;
+
 uniform sampler2D u_sampler;
 
 void main() {
-  vec4 out_color = texture(u_sampler, tex_coord);
+  vec4 out_color = texture(u_sampler, fs_in.uvs);
 
   if (out_color.a < 0.2) {
     discard;
@@ -62,10 +29,10 @@ void main() {
 )glsl";
 
 rigged_model3d::rigged_model3d(std::string&& name,
-                 material_meta&& materials,
-                 armature_meta&& armature,
-                 render_meta&& rendering,
-                 ntf::transform3d<f32> transf) :
+                               material_meta&& materials,
+                               armature_meta&& armature,
+                               render_meta&& rendering,
+                               ntf::transform3d<f32> transf) :
   _name{std::move(name)}, _materials{std::move(materials)},
   _armature{std::move(armature)}, _rendering{std::move(rendering)},
   _transf{transf} {}
@@ -147,9 +114,9 @@ expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& d
     }
   }
 
-  auto vert_sh = ntfr::vertex_shader::create(ctx, {model_vert_src}).value();
+  auto vert = renderer::instance().make_vert_stage(pipeline_provider::VERT_RIGGED_MODEL);
   auto frag_sh = ntfr::fragment_shader::create(ctx, {model_frag_src}).value();
-  const ntfr::shader_t pip_stages[] = {vert_sh, frag_sh};
+  const ntfr::shader_t pip_stages[] = {vert.shader, frag_sh};
   const ntfr::face_cull_opts cull {
     .mode = ntfr::cull_mode::back,
     .front_face = ntfr::cull_face::counter_clockwise,
@@ -169,17 +136,11 @@ expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& d
     },
   });
 
-  auto u_model = pip->uniform("u_model");
-  auto u_proj = pip->uniform("u_proj");
-  auto u_view = pip->uniform("u_view");
   auto u_sampler = pip->uniform("u_sampler");
 
   render_meta rendering {
     .pip = std::move(*pip),
     .meshes = std::move(*meshes),
-    .u_model = u_model,
-    .u_view = u_view,
-    .u_proj = u_proj,
     .u_sampler = u_sampler,
     .render_data = {},
     .binds = {},
@@ -194,6 +155,7 @@ expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& d
 }
 
 void rigged_model3d::tick() {
+  _armature.rigger.set_root_transform(_transf.world());
   _armature.rigger.tick(_armature.rigs);
 }
 
@@ -217,14 +179,11 @@ void rigged_model3d::render(const game_frame& frame) {
 
   _rendering.meshes.retrieve_render_data(_rendering.render_data);
 
-  u32 buff_count = _armature.rigger.retrieve_buffers(_rendering.binds, 0u);
+  u32 buff_count = _armature.rigger.retrieve_buffers(_rendering.binds, frame.stransf);
   cspan<ntfr::shader_binding> buff_span{_rendering.binds.data(), buff_count};
 
   const int32 sampler = 0;
   const ntfr::uniform_const unifs[] = {
-    ntfr::format_uniform_const(_rendering.u_model, _transf.world()),
-    ntfr::format_uniform_const(_rendering.u_proj, frame.proj),
-    ntfr::format_uniform_const(_rendering.u_view, frame.view),
     ntfr::format_uniform_const(_rendering.u_sampler, sampler),
   };
 

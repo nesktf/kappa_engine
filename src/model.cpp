@@ -310,6 +310,10 @@ void model_rigger::tick(const model_rig_data& rigs) {
   }
 }
 
+void model_rigger::set_root_transform(const mat4& transf) {
+  _bone_transforms[0u] = transf;
+}
+
 void model_rigger::set_transform(const model_rig_data& rigs,
                                  std::string_view bone, const bone_transform& transf)
 {
@@ -334,7 +338,8 @@ void model_rigger::set_transform(const model_rig_data& rigs,
   _bone_transforms[local_pos] = transf;
 }
 
-u32 model_rigger::retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) {
+u32 model_rigger::retrieve_buffers(std::vector<ntfr::shader_binding>& binds,
+                                   ntfr::uniform_buffer_view stransf) {
   const ntfr::buffer_data data {
     .data = _transform_output.data(),
     .size = _bones.count*sizeof(mat4),
@@ -342,6 +347,8 @@ u32 model_rigger::retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32
   };
   [[maybe_unused]] auto ret = _ssbo.upload(data);
   NTF_ASSERT(ret);
-  binds.emplace_back(_ssbo.get(), bind_pos+1u, _ssbo.size(), 0u);
-  return 1u;
+  NTF_ASSERT(!stransf.empty());
+  binds.emplace_back(_ssbo.get(), 1u, _ssbo.size(), 0u);
+  binds.emplace_back(stransf.get(), 2u, 2*sizeof(mat4), 0u);
+  return 2u;
 }

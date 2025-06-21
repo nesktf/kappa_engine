@@ -1,4 +1,4 @@
-#include <shogle/boilerplate.hpp>
+#include "renderer.hpp"
 #include "assets.hpp"
 #include "model_data.hpp"
 #include "model.hpp"
@@ -8,38 +8,15 @@ using namespace ntf::numdefs;
 
 int main() {
   ntf::logger::set_level(ntf::log_level::debug);
+  auto rh__ = renderer::construct();
 
-  u32 win_width = 1280;
-  u32 win_height = 720;
-  const ntfr::win_x11_params x11 {
-    .class_name = "cino_anim",
-    .instance_name = "cino_anim",
-  };
-  const ntfr::win_gl_params win_gl {
-    .ver_major = 4,
-    .ver_minor = 6,
-    .swap_interval = 1,
-    .fb_msaa_level = 8,
-    .fb_buffer = ntfr::fbo_buffer::depth24u_stencil8u,
-    .fb_use_alpha = false,
-  };
-  auto win = ntfr::window::create({
-    .width = win_width,
-    .height = win_height,
-    .title = "test",
-    .attrib = ntfr::win_attrib::decorate | ntfr::win_attrib::resizable,
-    .renderer_api = ntfr::context_api::opengl,
-    .platform_params = &x11,
-    .renderer_params = &win_gl,
-  }).value();
-  auto ctx = ntfr::make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
+  auto& r = renderer::instance();
+  auto fbo = ntfr::framebuffer::get_default(r.ctx());
 
-  auto fbo = ntfr::framebuffer::get_default(ctx);
   bool do_things = false;
-  win.set_viewport_callback([&](ntfr::window&, const ntf::extent2d& ext) {
+  r.win().set_viewport_callback([&](ntfr::window&, const ntf::extent2d& ext) {
     fbo.viewport({0, 0, ext.x, ext.y});
-  });
-  win.set_key_press_callback([&](ntfr::window& win, const ntfr::win_key_data& k) {
+  }).set_key_press_callback([&](ntfr::window& win, const ntfr::win_key_data& k) {
     if (k.action == ntfr::win_action::press) {
       if (k.key == ntfr::win_key::escape) {
         win.close();
@@ -50,7 +27,7 @@ int main() {
     }
   });
 
-  asset_bundle bundle{ctx};
+  asset_bundle bundle{r.ctx()};
   asset_loader loader;
   const asset_loader::model_opts cirno_opts {
     .flags = assimp_parser::DEFAULT_ASS_FLAGS,
@@ -67,9 +44,11 @@ int main() {
     auto model = rmodels.emplace_back(static_cast<asset_bundle::rmodel_idx>(*idx));
     auto& m = bundle.get_rmodel(model);
     if (m.name() == "koishi") {
-      m.transform().pos(.5f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+      m.transform().pos(.9f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+    } else if (m.name() == "chiruno") {
+      m.transform().pos(-.9f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
     } else {
-      m.transform().pos(-.5f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+      m.transform().pos(0.f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
     }
   };
   
@@ -77,18 +56,33 @@ int main() {
                         cirno_opts, model_callback);
   loader.request_rmodel(bundle, "./res/koosh/koosh.gltf", "koishi",
                         cirno_opts, model_callback);
+  loader.request_rmodel(bundle, "./res/mari/mari.gltf", "marisa",
+                        cirno_opts, model_callback);
   // loader.request_rmodel(bundle, "./lib/shogle/demos/res/cirno_fumo/cirno_fumo.obj", "fumo",
   //                       cirno_opts, model_callback);
 
-  const auto fb_ratio = (float)win_width/(float)win_height;
-  auto proj_mat = glm::perspective(glm::radians(35.f), fb_ratio, .1f, 100.f);
-  auto view_mat = glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f});
+  const auto fb_ratio = (float)1280/(float)720;
   
   auto bone_transform = ntf::transform3d<f32>{}
     .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
 
+  mat4 transf_mats[2u] = {
+    glm::perspective(glm::radians(35.f), fb_ratio, .1f, 100.f), // proj
+    glm::translate(glm::mat4{1.f}, glm::vec3{0.f, 0.f, -3.f}), // view
+  };
+  const ntfr::buffer_data scene_transf_data {
+    .data = transf_mats,
+    .size = sizeof(transf_mats),
+    .offset = 0u,
+  };
+  auto scene_transf = ntfr::uniform_buffer::create(r.ctx(),{
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = sizeof(transf_mats),
+    .data = scene_transf_data,
+  }).value();
+
   float t = 0.f;
-  ntfr::render_loop(win, ctx, 60u, ntf::overload{
+  r.render_loop(ntf::overload{
     [&](u32 fdt) {
       loader.handle_requests();
 
@@ -108,10 +102,9 @@ int main() {
     },
     [&](f32 dt, f32 alpha) {
       const game_frame r {
-        .ctx = ctx,
+        .ctx = renderer::instance().ctx(),
         .fbo = fbo,
-        .view = view_mat,
-        .proj = proj_mat,
+        .stransf = scene_transf,
         .dt = dt,
         .alpha = alpha,
       };

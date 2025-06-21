@@ -1,15 +1,17 @@
 [_PROJECT]
-env=["GTEST_COLOR=1"]
-run=""
-clean="rm -rf ./build"
-build="make -C build -j4"
-config="cmake -B build"
-target="game_test"
-target_config="debug"
+build = "make -C build -j4"
+clean = "rm -rf ./build"
+config = "cmake -B build"
+run = ""
+target = "game_test"
+target_config = "debug"
+target_configs = [ "debug", "release" ]
+term_dir = "vertical"
+test = ""
 
 [game_test]
-run="mangohud --dlsym ./build/game_test"
+run = "mangohud --dlsym ./build/game_test"
 
-[game_test.configs]
-debug=["-DCMAKE_BUILD_TYPE=Debug"]
-release=["-DCMAKE_BUILD_TYPE=Release"]
+    [game_test.config]
+    debug = [ "-DCMAKE_BUILD_TYPE=Debug" ]
+    release = [ "-DCMAKE_BUILD_TYPE=Release" ]

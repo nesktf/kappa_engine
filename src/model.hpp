@@ -19,7 +19,8 @@ struct mesh_provider {
 
 struct shader_binding_provider {
   virtual ~shader_binding_provider() = default;
-  virtual u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) = 0;
+  virtual u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds,
+                               ntfr::uniform_buffer_view stransf) = 0;
 };
 
 class model_mesh_provider : public mesh_provider {
@@ -97,6 +98,7 @@ public:
                                      std::string_view armature);
 
 public:
+  void set_root_transform(const mat4& transf);
   void set_transform(const model_rig_data& rigs,
                      std::string_view bone, const bone_transform& transf);
   void set_transform(const model_rig_data& rigs,
@@ -104,7 +106,8 @@ public:
   void tick(const model_rig_data& rigs);
 
 public:
-  u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds, u32 bind_pos) override;
+  u32 retrieve_buffers(std::vector<ntfr::shader_binding>& binds,
+                       ntfr::uniform_buffer_view stransf) override;
 
 private:
   vec_span _bones;

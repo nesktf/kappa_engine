@@ -6,8 +6,7 @@
 struct game_frame {
   ntfr::context_view ctx;
   ntfr::framebuffer_view fbo;
-  mat4 view;
-  mat4 proj;
+  ntfr::uniform_buffer_view stransf;
   float dt;
   float alpha;
 };
@@ -51,7 +50,7 @@ public:
   struct render_meta {
     ntfr::pipeline pip;
     model_mesh_provider meshes;
-    ntfr::uniform_view u_model, u_view, u_proj, u_sampler;
+    ntfr::uniform_view u_sampler;
     std::vector<mesh_render_data> render_data;
     std::vector<ntfr::shader_binding> binds;
     std::vector<u32> mesh_texs;
@@ -59,10 +58,10 @@ public:
 
 public:
   rigged_model3d(std::string&& name,
-          material_meta&& materials,
-          armature_meta&& armature,
-          render_meta&& rendering,
-          ntf::transform3d<f32> transf);
+                 material_meta&& materials,
+                 armature_meta&& armature,
+                 render_meta&& rendering,
+                 ntf::transform3d<f32> transf);
 
 public:
   static expect<rigged_model3d> create(ntfr::context_view ctx, data_t&& data);
