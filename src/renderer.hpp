@@ -1,5 +1,6 @@
 #pragma once
 
+#define SHOGLE_EXPOSE_GLFW 1
 #include "common.hpp"
 #include <shogle/boilerplate.hpp>
 
@@ -21,17 +22,6 @@ enum frag_shader_type {
   FRAG_SHADER_RAW_ALBEDO = 0,
 
   FRAG_SHADER_COUNT,
-};
-
-struct vertex_stage_props {
-  std::vector<ntfr::attribute_binding> att_bindings;
-  ntfr::vertex_shader_view shader;
-  u32 flags;
-};
-
-struct frag_stage_props {
-  ntfr::fragment_shader shader;
-  u32 flags;
 };
 
 struct pipeline_opts {

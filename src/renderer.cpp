@@ -63,7 +63,6 @@ renderer::handle_t renderer::construct() {
   }).value();
   auto ctx = ntfr::make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
 
-
   auto vert_rigged = *ntfr::vertex_shader::create(ctx, {vert_rigged_model_src});
   auto vert_static = *ntfr::vertex_shader::create(ctx, {vert_static_model_src});
   auto vert_generic = *ntfr::vertex_shader::create(ctx, {vert_generic_model_src});
