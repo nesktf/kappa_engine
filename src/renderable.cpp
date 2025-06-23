@@ -3,31 +3,6 @@
 
 #include <shogle/boilerplate.hpp>
 
-static std::string_view model_frag_src = R"glsl(
-#version 460 core
-
-in VS_OUT {
-  vec3 normals;
-  vec2 uvs;
-  vec3 tangents;
-  vec3 bitangents;
-} fs_in;
-
-out vec4 frag_color;
-
-uniform sampler2D u_sampler;
-
-void main() {
-  vec4 out_color = texture(u_sampler, fs_in.uvs);
-
-  if (out_color.a < 0.2) {
-    discard;
-  }
-
-  frag_color = out_color;
-}
-)glsl";
-
 rigged_model3d::rigged_model3d(std::string&& name,
                                material_meta&& materials,
                                armature_meta&& armature,
@@ -37,8 +12,11 @@ rigged_model3d::rigged_model3d(std::string&& name,
   _armature{std::move(armature)}, _rendering{std::move(rendering)},
   _transf{transf} {}
 
-expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& data) {
-  auto rigger = model_rigger::create(ctx, data.rigs, data.armature);
+expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
+  auto& r = renderer::instance();
+  auto ctx = r.ctx();
+
+  auto rigger = model_rigger::create(data.rigs, data.armature);
   if (!rigger) {
     return ntf::unexpected{std::move(rigger.error())};
   }
@@ -91,7 +69,7 @@ expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& d
     .material_textures = std::move(data.mats.material_textures),
   };
 
-  auto meshes = model_mesh_provider::create(ctx, data.meshes);
+  auto meshes = model_mesh_provider::create(data.meshes);
   if (!meshes) {
     return ntf::unexpected{std::move(meshes.error())};
   }
@@ -114,19 +92,12 @@ expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& d
     }
   }
 
-  auto vert = renderer::instance().make_vert_stage(pipeline_provider::VERT_RIGGED_MODEL);
-  auto frag_sh = ntfr::fragment_shader::create(ctx, {model_frag_src}).value();
-  const ntfr::shader_t pip_stages[] = {vert.shader, frag_sh};
+  std::vector<ntfr::attribute_binding> att_binds;
   const ntfr::face_cull_opts cull {
     .mode = ntfr::cull_mode::back,
     .front_face = ntfr::cull_face::counter_clockwise,
   };
-  auto pip = ntfr::pipeline::create(ctx, {
-    .attributes = {pip_attrib.data(), pip_attrib.size()},
-    .stages = pip_stages,
-    .primitive = ntfr::primitive_mode::triangles,
-    .poly_mode = ntfr::polygon_mode::fill,
-    .poly_width = 1.f,
+  const pipeline_opts pip_opts {
     .tests = {
       .stencil_test = nullptr,
       .depth_test = ntfr::def_depth_opts,
@@ -134,14 +105,15 @@ expect<rigged_model3d> rigged_model3d::create(ntfr::context_view ctx, data_t&& d
       .face_culling = cull,
       .blending = ntfr::def_blending_opts,
     },
-  });
-
-  auto u_sampler = pip->uniform("u_sampler");
+    .primitive = ntfr::primitive_mode::triangles,
+    .use_aos_bindings = false,
+  };
+  auto pip = r.make_pipeline(VERT_SHADER_RIGGED_MODEL, FRAG_SHADER_RAW_ALBEDO,
+                             att_binds, pip_opts);
 
   render_meta rendering {
     .pip = std::move(*pip),
     .meshes = std::move(*meshes),
-    .u_sampler = u_sampler,
     .render_data = {},
     .binds = {},
     .mesh_texs = std::move(mesh_texs),
@@ -174,6 +146,8 @@ void rigged_model3d::set_bone_transform(std::string_view name, ntf::transform3d<
 }
 
 void rigged_model3d::render(const game_frame& frame) {
+  auto ctx = renderer::instance().ctx();
+
   _rendering.render_data.clear();
   _rendering.binds.clear();
 
@@ -183,9 +157,11 @@ void rigged_model3d::render(const game_frame& frame) {
   cspan<ntfr::shader_binding> buff_span{_rendering.binds.data(), buff_count};
 
   const int32 sampler = 0;
+  const u32 u_albedo = 8u;
   const ntfr::uniform_const unifs[] = {
-    ntfr::format_uniform_const(_rendering.u_sampler, sampler),
+    ntfr::format_uniform_const(u_albedo, sampler),
   };
+
 
   for (u32 i = 0; i < _rendering.render_data.size(); ++i) {
     const auto& mesh = _rendering.render_data[i];
@@ -201,7 +177,7 @@ void rigged_model3d::render(const game_frame& frame) {
       .index_offset = mesh.index_offset,
       .instances = 0,
     };
-    frame.ctx.submit_render_command({
+    ctx.submit_render_command({
       .target = frame.fbo,
       .pipeline = _rendering.pip,
       .buffers = buff_bind,

@@ -1,4 +1,5 @@
 #include "model.hpp"
+#include "renderer.hpp"
 
 #define CHECK_ERR_BUFF(_buff) \
 if (!_buff) { \
@@ -48,8 +49,7 @@ model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other)
 model_mesh_provider::~model_mesh_provider() noexcept { _free_buffs(); }
 
 
-expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view ctx,
-                                                        const model_mesh_data& meshes)
+expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& meshes)
 
 {
   // Assume all models have indices and positions in each mesh
@@ -59,6 +59,8 @@ expect<model_mesh_provider> model_mesh_provider::create(ntfr::context_view ctx,
   if (meshes.indices.empty()) {
     return ntf::unexpected{std::string_view{"No index data"}};
   }
+
+  auto ctx = renderer::instance().ctx();
 
   mesh_vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   ntfr::buffer_t ind{nullptr};
@@ -237,13 +239,14 @@ model_rigger::model_rigger(vec_span bones,
   _bone_transforms{std::move(bone_transforms)},
   _local_cache{std::move(local_cache)}, _model_cache{std::move(model_cache)} {}
 
-expect<model_rigger> model_rigger::create(ntfr::context_view ctx, const model_rig_data& rigs,
-                                          std::string_view armature)
+expect<model_rigger> model_rigger::create(const model_rig_data& rigs, std::string_view armature)
 {
   auto it = rigs.armature_registry.find(armature);
   if (it == rigs.armature_registry.end()) {
     return ntf::unexpected{std::string_view{"Armature not found"}};
   }
+  auto ctx = renderer::instance().ctx();
+
   const u32 idx = it->second;
   NTF_ASSERT(rigs.armatures.size() > idx);
   const vec_span bones = rigs.armatures[idx].bones;

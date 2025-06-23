@@ -4,7 +4,6 @@
 #include <shogle/scene.hpp>
 
 struct game_frame {
-  ntfr::context_view ctx;
   ntfr::framebuffer_view fbo;
   ntfr::uniform_buffer_view stransf;
   float dt;
@@ -50,7 +49,6 @@ public:
   struct render_meta {
     ntfr::pipeline pip;
     model_mesh_provider meshes;
-    ntfr::uniform_view u_sampler;
     std::vector<mesh_render_data> render_data;
     std::vector<ntfr::shader_binding> binds;
     std::vector<u32> mesh_texs;
@@ -64,7 +62,7 @@ public:
                  ntf::transform3d<f32> transf);
 
 public:
-  static expect<rigged_model3d> create(ntfr::context_view ctx, data_t&& data);
+  static expect<rigged_model3d> create(data_t&& data);
 
 public:
   void tick() override;

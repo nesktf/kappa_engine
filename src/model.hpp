@@ -48,8 +48,8 @@ private:
   };
 
 public:
-  model_mesh_provider(mesh_vert_buffs buffs,
-                      ntfr::buffer_t index_buff, std::vector<mesh_offset>&& mesh_offsets) noexcept;
+  model_mesh_provider(mesh_vert_buffs buffs, ntfr::buffer_t index_buff,
+                      std::vector<mesh_offset>&& mesh_offsets) noexcept;
 
   ~model_mesh_provider() noexcept;
 
@@ -61,8 +61,7 @@ public:
   model_mesh_provider& operator=(model_mesh_provider&&) noexcept;
 
 public:
-  static expect<model_mesh_provider> create(ntfr::context_view ctx,
-                                            const model_mesh_data& meshes);
+  static expect<model_mesh_provider> create(const model_mesh_data& meshes);
 
 public:
   u32 retrieve_render_data(std::vector<mesh_render_data>& data) override;
@@ -94,8 +93,7 @@ public:
                std::vector<mat4>&& local_cache, std::vector<mat4>&& model_cache) noexcept;
 
 public:
-  static expect<model_rigger> create(ntfr::context_view ctx, const model_rig_data& rigs,
-                                     std::string_view armature);
+  static expect<model_rigger> create(const model_rig_data& rigs, std::string_view armature);
 
 public:
   void set_root_transform(const mat4& transf);

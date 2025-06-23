@@ -27,7 +27,7 @@ int main() {
     }
   });
 
-  asset_bundle bundle{r.ctx()};
+  asset_bundle bundle;
   asset_loader loader;
   const asset_loader::model_opts cirno_opts {
     .flags = assimp_parser::DEFAULT_ASS_FLAGS,
@@ -102,7 +102,6 @@ int main() {
     },
     [&](f32 dt, f32 alpha) {
       const game_frame r {
-        .ctx = renderer::instance().ctx(),
         .fbo = fbo,
         .stransf = scene_transf,
         .dt = dt,

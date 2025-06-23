@@ -13,7 +13,7 @@ public:
   enum class rmodel_idx : u32 {};
 
 public:
-  asset_bundle(ntfr::context_view render_ctx);
+  asset_bundle() = default;
 
 public:
   expect<rmodel_idx> put_rmodel(rigged_model3d::data_t&& model_data);
@@ -24,11 +24,7 @@ public:
   rigged_model3d& get_rmodel(rmodel_idx model);
   const rigged_model3d& get_rmodel(rmodel_idx model) const;
 
-public:
-  ntfr::context_view context() const { return _render_ctx; }
-
 private:
-  ntfr::context_view _render_ctx;
   std::vector<rigged_model3d> _models;
   std::unordered_map<std::string, u32> _model_map;
 };

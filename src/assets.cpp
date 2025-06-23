@@ -2,11 +2,8 @@
 
 #include <ntfstl/utility.hpp>
 
-asset_bundle::asset_bundle(ntfr::context_view render_ctx) :
-  _render_ctx{render_ctx} {}
-
 auto asset_bundle::put_rmodel(rigged_model3d::data_t&& model_data) -> expect<rmodel_idx> {
-  return rigged_model3d::create(_render_ctx, std::move(model_data))
+  return rigged_model3d::create(std::move(model_data))
   .and_then([this](rigged_model3d&& model) -> expect<rmodel_idx> {
     _models.emplace_back(std::move(model));
     u32 pos = _models.size()-1u;

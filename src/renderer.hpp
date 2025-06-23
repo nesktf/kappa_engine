@@ -1,67 +1,46 @@
 #pragma once
 
+#include "common.hpp"
 #include <shogle/boilerplate.hpp>
 
 #include <ntfstl/singleton.hpp>
 #include <variant>
 
-using namespace ntf::numdefs;
+enum vert_shader_type {
+  VERT_SHADER_RIGGED_MODEL = 0,
+  VERT_SHADER_STATIC_MODEL,
+  VERT_SHADER_GENERIC_MODEL,
+  VERT_SHADER_SKYBOX,
+  VERT_SHADER_SPRITE,
+  VERT_SHADER_EFFECT,
 
-using ntf::mat4;
-using ntf::vec2;
-using ntf::vec3;
-using ntf::vec4;
-using ntf::ivec4;
+  VERT_SHADER_COUNT,
+};
 
-enum vertex_stage_flags {
-  VERTEX_STAGE_NO_FLAGS = 0,
-  VERTEX_STAGE_HAS_SCENE_TRANSFORMS = 1 << 0,
-  VERTEX_STAGE_EXPORTS_TANGENTS = 1 << 1,
-  VERTEX_STAGE_EXPORTS_NORMALS = 1 << 2,
-  VERTEX_STAGE_EXPORTS_CUBEMAP_UVS = 1 << 3,
+enum frag_shader_type {
+  FRAG_SHADER_RAW_ALBEDO = 0,
 
-  VERTEX_STAGE_MODEL_NONE = 0 << 4, // Has no model uniform
-  VERTEX_STAGE_MODEL_MATRIX = 1 << 4, // Has a single matrix as model uniform
-  VERTEX_STAGE_MODEL_ARRAY = 2 << 4, // Has an array of matrices as model uniform
-  VERTEX_STAGE_MODEL_OFFSET = 3 << 4, // Has a matrix and a vec4 with offsets as model uniform
+  FRAG_SHADER_COUNT,
 };
 
 struct vertex_stage_props {
   std::vector<ntfr::attribute_binding> att_bindings;
-  ntfr::shader_t shader;
+  ntfr::vertex_shader_view shader;
   u32 flags;
 };
 
-class pipeline_provider {
-public:
-  enum vert_type {
-    VERT_RIGGED_MODEL = 0,
-    VERT_STATIC_MODEL,
-    VERT_GENERIC_MODEL,
-    VERT_SKYBOX,
-    VERT_SPRITE,
-    VERT_EFFECT,
+struct frag_stage_props {
+  ntfr::fragment_shader shader;
+  u32 flags;
+};
 
-    VERT_COUNT,
-  };
-
-public:
-  pipeline_provider(std::array<ntfr::vertex_shader, VERT_COUNT>&& vert_shaders);
-
-public:
-  static pipeline_provider create(ntfr::context_view ctx);
-
-public:
-  vertex_stage_props make_vert_stage(vert_type type, bool aos_bindings);
-
-public:
-  std::array<ntfr::vertex_shader, VERT_COUNT> _vert_shaders;
+struct pipeline_opts {
+  ntfr::render_tests tests;
+  ntfr::primitive_mode primitive;
+  bool use_aos_bindings;
 };
 
 class renderer : public ntf::singleton<renderer> {
-public:
-  static constexpr u32 GAME_UPS = 60u;
-
 private:
   friend ntf::singleton<renderer>;
 
@@ -69,19 +48,29 @@ private:
     ~handle_t() { renderer::destroy(); }
   };
 
+  using vert_shader_array = std::array<ntfr::vertex_shader, VERT_SHADER_COUNT>;
+
 private:
-  renderer(ntfr::window&& win, ntfr::context&& ctx,
-           pipeline_provider&& pip_prov);
+  renderer(ntfr::window&& win, ntfr::context&& ctx, vert_shader_array&& vert_shaders);
 
 public:
   static handle_t construct();
 
 public:
-  ntfr::window& win() { return _win; }
-  ntfr::context_view ctx() const { return _ctx; }
+  expect<ntfr::pipeline> make_pipeline(vert_shader_type vert, frag_shader_type frag,
+                                       std::vector<ntfr::attribute_binding>& bindings,
+                                       const pipeline_opts& opts);
+
+private:
+  ntfr::vertex_shader_view _make_vert_stage(vert_shader_type type,
+                                            u32& flags,
+                                            std::vector<ntfr::attribute_binding>& bindings,
+                                            bool aos_bindings);
+  expect<ntfr::fragment_shader> _make_frag_stage(frag_shader_type type, u32 vert_flags);
 
 public:
-  vertex_stage_props make_vert_stage(pipeline_provider::vert_type type, bool aos_bindings = false);
+  ntfr::window& win() { return _win; }
+  ntfr::context_view ctx() const { return _ctx; }
 
 public:
   void render_loop(auto&& fun) {
@@ -91,5 +80,5 @@ public:
 private:
   ntfr::window _win;
   ntfr::context _ctx;
-  pipeline_provider _pip_prov;
+  vert_shader_array _vert_shaders;
 };

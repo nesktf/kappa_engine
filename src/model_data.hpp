@@ -1,6 +1,7 @@
 #pragma once
 
-#include <shogle/math.hpp>
+#include "common.hpp"
+
 #include <shogle/render.hpp>
 
 #include <ntfstl/unique_array.hpp>
@@ -13,18 +14,6 @@
 #include <unordered_map>
 
 using namespace ntf::numdefs;
-
-using ntf::span;
-using ntf::cspan;
-using ntf::mat4;
-using ntf::vec3;
-using ntf::vec2;
-using ntf::quat;
-using ntf::color4;
-using ntf::extent3d;
-
-template<typename T>
-using expect = ntf::expected<T, std::string_view>;
 
 struct vec_span {
   static constexpr u32 INDEX_TOMB = std::numeric_limits<u32>::max();

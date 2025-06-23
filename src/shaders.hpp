@@ -184,3 +184,39 @@ void main() {
   vs_out.uvs = att_uvs;
 }
 )glsl";
+
+inline std::string_view frag_header_base_src = R"glsl(
+#version 460 core
+
+out vec4 frag_color;
+)glsl";
+
+inline std::string_view frag_tangents_base_src = R"glsl(
+in VS_OUT {
+  vec3 normals;
+  vec2 uvs;
+  vec3 tangents;
+  vec3 bitangents;
+} fs_in;
+)glsl";
+
+inline std::string_view frag_normals_base_src = R"glsl(
+in VS_OUT {
+  vec3 normals;
+  vec2 uvs;
+} fs_in;
+)glsl";
+
+inline std::string_view frag_skybox_base_src = R"glsl(
+in VS_OUT {
+  vec3 uvs;
+} fs_in;
+)glsl";
+
+inline std::string_view frag_raw_albedo_src = R"glsl(
+layout(location = 8) uniform sampler2D u_albedo;
+
+void main() {
+  frag_color = texture(u_albedo, fs_in.uvs);
+}
+)glsl";
