@@ -222,17 +222,15 @@ int main() {
       }
     },
     [&](f32 dt, f32 alpha) {
-      const game_frame r {
-        .fbo = fbo,
-        .stransf = scene_transf,
-        .dt = dt,
-        .alpha = alpha,
-      };
+      NTF_UNUSED(dt);
+      NTF_UNUSED(alpha);
+
+      const scene_render_data rdata {.transform = scene_transf};
       mat4 cam_view = cam.view();
       scene_transf.upload(cam_view, sizeof(mat4));
 
       for (auto idx : rmodels) {
-        bundle.get_rmodel(idx).render(r);
+        r.render(fbo, 0u, rdata, bundle.get_rmodel(idx));
       }
     }
   });

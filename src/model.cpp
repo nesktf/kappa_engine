@@ -9,11 +9,13 @@ if (!_buff) { \
 }
 
 model_mesh_provider::model_mesh_provider(mesh_vert_buffs buffs,
-                                         ntfr::buffer_t index_buff,
+                                         ntfr::index_buffer&& index_buff,
                                          std::vector<mesh_offset>&& mesh_offsets) noexcept :
   _buffs{buffs}, _mesh_offsets{std::move(mesh_offsets)},
-  _index_buff{index_buff}, _active_layouts{0u}
+  _index_buff{std::move(index_buff)}, _active_layouts{0u}
 {
+  NTF_ASSERT(buffs[0] != nullptr, "Needs a position vertex buffer");
+  NTF_ASSERT(!_index_buff.empty(), "Needs an index buffer");
   // Do not fill inactive attributes
   for (u32 i = 0u; i < _buffs.size(); ++i) {
     if (_buffs[i]) {
@@ -29,7 +31,7 @@ model_mesh_provider::model_mesh_provider(model_mesh_provider&& other) noexcept :
   _mesh_offsets{std::move(other._mesh_offsets)}, _index_buff{std::move(other._index_buff)},
   _active_layouts{std::move(other._active_layouts)}
 {
-  other._index_buff = nullptr;
+  other._buffs[0] = nullptr;
 }
 
 model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other) noexcept {
@@ -41,7 +43,7 @@ model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other)
   _index_buff = std::move(other._index_buff);
   _active_layouts = std::move(other._active_layouts);
 
-  other._index_buff = nullptr;
+  other._buffs[0] = nullptr;
 
   return *this;
 }
@@ -50,7 +52,6 @@ model_mesh_provider::~model_mesh_provider() noexcept { _free_buffs(); }
 
 
 expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& meshes)
-
 {
   // Assume all models have indices and positions in each mesh
   if (meshes.positions.empty()) {
@@ -63,7 +64,6 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
   auto ctx = renderer::instance().ctx();
 
   mesh_vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-  ntfr::buffer_t ind{nullptr};
   const size_t vertex_elements = meshes.positions.size();;
 
   auto free_buffs = [&]() {
@@ -125,28 +125,24 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
   // Prepare index buffer and upload indices
   std::vector<mesh_offset> mesh_offsets;
   mesh_offsets.reserve(meshes.meshes.size());
-  {
-    const ntfr::buffer_data idx_data {
-      .data = meshes.indices.data(),
-      .size = meshes.indices.size()*sizeof(u32),
-      .offset = 0u,
-    };
-    auto ind_buff = ntfr::create_buffer(ctx, {
-      .type = ntfr::buffer_type::index,
-      .flags = ntfr::buffer_flag::dynamic_storage,
-      .size = meshes.indices.size()*sizeof(u32),
-      .data = idx_data,
-    });
-    if (!ind_buff) {
-      ntf::logger::error("Failed to create index buffer, {}", ind_buff.error().what());
-      return ntf::unexpected{std::string_view{"Failed to create index buffer"}};
-    }
-    ind = *ind_buff;
+  const ntfr::buffer_data idx_data {
+    .data = meshes.indices.data(),
+    .size = meshes.indices.size()*sizeof(u32),
+    .offset = 0u,
+  };
+  auto ind = ntfr::index_buffer::create(ctx, {
+    .flags = ntfr::buffer_flag::dynamic_storage,
+    .size = meshes.indices.size()*sizeof(u32),
+    .data = idx_data,
+  });
+  if (!ind) {
+    ntf::logger::error("Failed to create index buffer, {}", ind.error().what());
+    return ntf::unexpected{std::string_view{"Failed to create index buffer"}};
+  }
 
-    for (const auto& mesh : meshes.meshes) {
-      NTF_ASSERT(!mesh.indices.empty());
-      mesh_offsets.emplace_back(mesh.indices.idx, mesh.indices.count, 0u);
-    }
+  for (const auto& mesh : meshes.meshes) {
+    NTF_ASSERT(!mesh.indices.empty());
+    mesh_offsets.emplace_back(mesh.indices.idx, mesh.indices.count, 0u);
   }
 
   // Copy data
@@ -192,15 +188,14 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
   }
 
   return expect<model_mesh_provider>{
-    ntf::in_place, buffs, ind, std::move(mesh_offsets)
+    ntf::in_place, buffs, std::move(*ind), std::move(mesh_offsets)
   };
 }
 
 void model_mesh_provider::_free_buffs() noexcept {
-  if (!_index_buff) {
+  if (!_buffs[0]) {
     return;
   }
-  ntfr::destroy_buffer(_index_buff);
   for (ntfr::buffer_t buff : _buffs){
     if (buff) {
       ntfr::destroy_buffer(buff);
@@ -208,24 +203,13 @@ void model_mesh_provider::_free_buffs() noexcept {
   }
 }
 
-u32 model_mesh_provider::retrieve_render_data(std::vector<mesh_render_data>& data) {
-  for (const auto& offset : _mesh_offsets) {
-    cspan<ntfr::vertex_binding> bindings{_binds.data(), _active_layouts};
-    data.emplace_back(bindings, _index_buff,
-                      offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
-  }
-  return _mesh_offsets.size();
-}
-
-u32 model_mesh_provider::retrieve_bindings(std::vector<ntfr::attribute_binding>& bindings) {
-  bindings.emplace_back(ntfr::attribute_type::vec3,  0u, 0u, 0u); // positions
-  bindings.emplace_back(ntfr::attribute_type::vec3,  1u, 0u, 0u); // normals
-  bindings.emplace_back(ntfr::attribute_type::vec2,  2u, 0u, 0u); // uvs
-  bindings.emplace_back(ntfr::attribute_type::vec3,  3u, 0u, 0u); // tangents
-  bindings.emplace_back(ntfr::attribute_type::vec3,  4u, 0u, 0u); // bitangents
-  bindings.emplace_back(ntfr::attribute_type::ivec4, 5u, 0u, 0u); // bone indices
-  bindings.emplace_back(ntfr::attribute_type::vec4,  6u, 0u, 0u); // bone weights
-  return (u32)ATTRIB_COUNT;
+mesh_render_data& model_mesh_provider::retrieve_mesh_data(u32 idx,
+                                                          std::vector<mesh_render_data>& data) {
+  NTF_ASSERT(idx < _mesh_offsets.size());
+  cspan<ntfr::vertex_binding> bindings{_binds.data(), _active_layouts};
+  const auto& offset = _mesh_offsets[idx];
+  return data.emplace_back(bindings, _index_buff,
+                           offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
 }
 
 model_rigger::model_rigger(vec_span bones,
@@ -341,8 +325,7 @@ void model_rigger::set_transform(const model_rig_data& rigs,
   _bone_transforms[local_pos] = transf;
 }
 
-u32 model_rigger::retrieve_buffers(std::vector<ntfr::shader_binding>& binds,
-                                   ntfr::uniform_buffer_view stransf) {
+u32 model_rigger::retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds) {
   const ntfr::buffer_data data {
     .data = _transform_output.data(),
     .size = _bones.count*sizeof(mat4),
@@ -350,8 +333,219 @@ u32 model_rigger::retrieve_buffers(std::vector<ntfr::shader_binding>& binds,
   };
   [[maybe_unused]] auto ret = _ssbo.upload(data);
   NTF_ASSERT(ret);
-  NTF_ASSERT(!stransf.empty());
-  binds.emplace_back(_ssbo.get(), 1u, _ssbo.size(), 0u);
-  binds.emplace_back(stransf.get(), 2u, 2*sizeof(mat4), 0u);
-  return 2u;
+  binds.emplace_back(_ssbo.get(), renderer::VERT_MODEL_TRANSFORM_LOC, _ssbo.size(), 0u);
+  return 1u;
+}
+
+rigged_model3d::rigged_model3d(std::string&& name,
+                               material_meta&& materials,
+                               armature_meta&& armature,
+                               render_meta&& rendering,
+                               ntf::transform3d<f32> transf) :
+  _name{std::move(name)}, _materials{std::move(materials)},
+  _armature{std::move(armature)}, _rendering{std::move(rendering)},
+  _transf{transf} {}
+
+template<u32 tex_extent = 32u>
+static ntfr::expect<ntfr::texture2d> make_missing_albedo(ntfr::context_view ctx) {
+  static constexpr auto bitmap = [](){
+    std::array<u8, 4u*tex_extent*tex_extent> out;
+    const u8 pixels[] {
+      0x00, 0x00, 0x00, 0xFF, // black
+      0xFE, 0x00, 0xFE, 0xFF, // pink
+      0x00, 0x00, 0x00, 0xFF, // black again
+    };
+
+    for (u32 i = 0; i < tex_extent; ++i) {
+      const u8* start = i%2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
+      u32 pos = 0;
+      for (u32 j = 0; j < tex_extent; ++j) {
+        pos = (pos + 4) % 8;
+        for (u32 k = 0; k < 4; ++k) {
+          out[(4*i*tex_extent)+(4*j)+k] = start[pos+k];
+        }
+      }
+    }
+
+    return out;
+  }();
+  const ntfr::image_data image {
+    .bitmap = bitmap.data(),
+    .format = ntfr::image_format::rgba8nu,
+    .alignment = 4u,
+    .extent = {tex_extent, tex_extent, 1},
+    .offset = {0, 0, 0},
+    .layer = 0u,
+    .level = 0u,
+  };
+  const ntfr::texture_data data {
+    .images = {image},
+    .generate_mipmaps = false,
+  };
+  return ntfr::texture2d::create(ctx, {
+    .format = ntfr::image_format::rgba8nu,
+    .sampler = ntfr::texture_sampler::nearest,
+    .addressing = ntfr::texture_addressing::repeat,
+    .extent = {tex_extent, tex_extent, 1},
+    .layers = 1u,
+    .levels = 1u,
+    .data = data,
+  });
+}
+
+expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
+  auto& r = renderer::instance();
+  auto ctx = r.ctx();
+
+  auto rigger = model_rigger::create(data.rigs, data.armature);
+  if (!rigger) {
+    return ntf::unexpected{std::move(rigger.error())};
+  }
+  armature_meta armature {
+    .anims = std::move(data.anims),
+    .rigs = std::move(data.rigs),
+    .rigger = std::move(*rigger),
+  };
+
+  std::vector<texture_t> texs;
+  texs.reserve(data.mats.textures.size());
+  std::unordered_map<std::string_view, u32> tex_reg;
+  tex_reg.reserve(data.mats.textures.size());
+
+  for (auto& texture : data.mats.textures) {
+    const ntfr::image_data images {
+      .bitmap = texture.bitmap.data(),
+      .format = texture.format,
+      .alignment = 4u,
+      .extent = texture.extent,
+      .offset = {0, 0, 0},
+      .layer = 0u,
+      .level = 0u,
+    };
+    const ntfr::texture_data data {
+      .images = {images},
+      .generate_mipmaps = true,
+    };
+    auto tex = ntfr::texture2d::create(ctx, {
+      .format = ntfr::image_format::rgba8nu,
+      .sampler = ntfr::texture_sampler::linear,
+      .addressing = ntfr::texture_addressing::repeat,
+      .extent = texture.extent,
+      .layers = 1u,
+      .levels = 7u,
+      .data = data,
+    }).value();
+    texs.emplace_back(std::move(texture.name), std::move(tex));
+    // texs.emplace_back(std::move(texture.name), make_missing_albedo(ctx).value());
+  }
+  for (u32 i = 0; const auto& texture : texs) {
+    auto [_, empl] = tex_reg.try_emplace(texture.name, i++);
+    NTF_ASSERT(empl);
+  }
+
+  material_meta materials {
+    .textures = std::move(texs),
+    .texture_registry = std::move(tex_reg),
+    .materials = std::move(data.mats.materials),
+    .material_registry = std::move(data.mats.material_registry),
+    .material_textures = std::move(data.mats.material_textures),
+  };
+
+  auto meshes = model_mesh_provider::create(data.meshes);
+  if (!meshes) {
+    return ntf::unexpected{std::move(meshes.error())};
+  }
+
+  std::vector<u32> mesh_texs;
+  mesh_texs.reserve(data.meshes.meshes.size());
+  for (const auto& mesh : data.meshes.meshes) {
+    auto it = materials.material_registry.find(mesh.material_name);
+    if (it == materials.material_registry.end()) {
+      mesh_texs.emplace_back(0u);
+    }
+    // Place the first texture only, fix this later
+    const auto& mat = materials.materials[it->second];
+    if (mat.textures.count == 1) {
+      mesh_texs.emplace_back(materials.material_textures[mat.textures.idx]);
+    } else {
+      mesh_texs.emplace_back(0u);
+    }
+  }
+
+  std::vector<ntfr::attribute_binding> att_binds;
+  const ntfr::face_cull_opts cull {
+    .mode = ntfr::cull_mode::back,
+    .front_face = ntfr::cull_face::counter_clockwise,
+  };
+  const pipeline_opts pip_opts {
+    .tests = {
+      .stencil_test = nullptr,
+      .depth_test = ntfr::def_depth_opts,
+      .scissor_test = nullptr,
+      .face_culling = cull,
+      .blending = ntfr::def_blending_opts,
+    },
+    .primitive = ntfr::primitive_mode::triangles,
+    .use_aos_bindings = false,
+  };
+  auto pip = r.make_pipeline(VERT_SHADER_RIGGED_MODEL, FRAG_SHADER_RAW_ALBEDO,
+                             att_binds, pip_opts);
+
+  render_meta rendering {
+    .pip = std::move(*pip),
+    .meshes = std::move(*meshes),
+    .mesh_texs = std::move(mesh_texs),
+  };
+
+  return expect<rigged_model3d>{
+    ntf::in_place, std::move(data.name),
+    std::move(materials), std::move(armature), std::move(rendering),
+    ntf::transform3d<f32>{}.pos(0.f, 0.f, 0.f).scale(1.f, 1.f, 1.f)
+  };
+}
+
+void rigged_model3d::tick() {
+  _armature.rigger.set_root_transform(_transf.world());
+  _armature.rigger.tick(_armature.rigs);
+}
+
+void rigged_model3d::set_bone_transform(std::string_view name,
+                                        const model_rigger::bone_transform& transf)
+{
+  _armature.rigger.set_transform(_armature.rigs, name, transf);
+}
+
+void rigged_model3d::set_bone_transform(std::string_view name, const mat4& transf) {
+  _armature.rigger.set_transform(_armature.rigs, name, transf);
+}
+
+void rigged_model3d::set_bone_transform(std::string_view name, ntf::transform3d<f32>& transf) {
+  set_bone_transform(name, transf.local());
+}
+
+u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
+                                         object_render_data& data)
+{
+  const u32 mesh_count = _rendering.meshes.mesh_count();
+  for (u32 mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
+    auto& mesh = _rendering.meshes.retrieve_mesh_data(mesh_idx, data.meshes);
+    mesh.pipeline = _rendering.pip.get();
+
+    const u32 tex = _rendering.mesh_texs[mesh_idx];
+    mesh.textures.idx = data.textures.size();
+    data.textures.emplace_back(_materials.textures[tex].tex);
+    mesh.textures.count = 1u;
+
+    mesh.uniforms.idx = data.uniforms.size();
+    const i32 sampler = 0;
+    data.uniforms.emplace_back(ntfr::format_uniform_const(renderer::FRAG_SAMPLER_LOC, sampler));
+    mesh.uniforms.count = 1u;
+
+    mesh.bindings.idx = data.bindings.size();
+    data.bindings.emplace_back(scene.transform, renderer::VERT_SCENE_TRANSFORM_LOC,
+                               scene.transform.size(), 0u);
+    const u32 rigger_bind_count = _armature.rigger.retrieve_buffer_bindings(data.bindings);
+    mesh.bindings.count = rigger_bind_count+1;
+  }
+  return mesh_count;
 }

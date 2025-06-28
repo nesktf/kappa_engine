@@ -268,3 +268,42 @@ expect<ntfr::fragment_shader> renderer::_make_frag_stage(frag_shader_type type, 
     return err.msg();
   });
 }
+
+void renderer::render(ntfr::framebuffer_view target, u32 sort,
+                      const scene_render_data& scene, renderable& obj) {
+  const u32 mesh_count = obj.retrieve_render_data(scene, _render_data);
+  if (!mesh_count) {
+    return;
+  }
+  NTF_ASSERT(mesh_count && !_render_data.meshes.empty());
+  for (const auto& mesh : _render_data.meshes) {
+    auto tex_span = mesh.textures.to_cspan(_render_data.textures.data());
+    auto unif_span = mesh.uniforms.to_cspan(_render_data.uniforms.data());
+    auto bind_span = mesh.bindings.to_cspan(_render_data.bindings.data());
+    const ntfr::buffer_binding buff_bind {
+      .vertex = mesh.vertex_buffers,
+      .index = mesh.index_buffer,
+      .shader = bind_span,
+    };
+    const ntfr::render_opts opts {
+      .vertex_count = mesh.vertex_count,
+      .vertex_offset = mesh.vertex_offset,
+      .index_offset = mesh.index_offset,
+      .instances = 0,
+    };
+    _ctx.submit_render_command({
+      .target = target,
+      .pipeline = mesh.pipeline,
+      .buffers = buff_bind,
+      .textures = tex_span,
+      .consts = unif_span,
+      .opts = opts,
+      .sort_group = sort+mesh.sort_offset,
+      .render_callback = {},
+    });
+  }
+  _render_data.meshes.clear();
+  _render_data.bindings.clear();
+  _render_data.uniforms.clear();
+  _render_data.textures.clear();
+}

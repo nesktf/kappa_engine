@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderable.hpp"
+#include "model.hpp"
 #include <shogle/assets.hpp>
 
 #include <ntfstl/threadpool.hpp>

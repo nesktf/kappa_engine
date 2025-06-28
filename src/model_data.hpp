@@ -15,30 +15,6 @@
 
 using namespace ntf::numdefs;
 
-struct vec_span {
-  static constexpr u32 INDEX_TOMB = std::numeric_limits<u32>::max();
-
-  u32 idx, count;
-
-  template<typename T>
-  span<T> to_span(T* data) const {
-    if (empty()) {
-      return {};
-    }
-    return {data+idx, count};
-  }
-
-  template<typename T>
-  cspan<T> to_cspan(const T* data) const {
-    if (empty()) {
-      return {};
-    }
-    return {data+idx, count};
-  }
-
-  bool empty() const { return idx == INDEX_TOMB || count == 0u; }
-};
-
 struct model_rig_data {
   struct bone_meta {
     std::string name;
