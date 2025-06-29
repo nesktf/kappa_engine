@@ -3,8 +3,8 @@
 #include "model_data.hpp"
 #include "renderer.hpp"
 
-class model_mesh_provider {
-public:
+class model_mesher {
+protected:
   enum attr_idx {
     ATTRIB_POS = 0,
     ATTRIB_NORM,
@@ -17,8 +17,9 @@ public:
     ATTRIB_COUNT,
   };
 
-  using mesh_vert_buffs = std::array<ntfr::buffer_t, ATTRIB_COUNT>;
-  using mesh_vert_binds = std::array<ntfr::vertex_binding, ATTRIB_COUNT>;
+public:
+  using vert_buffs = std::array<ntfr::buffer_t, ATTRIB_COUNT>;
+  using vert_binds = std::array<ntfr::vertex_binding, ATTRIB_COUNT>;
 
 private:
   struct mesh_offset {
@@ -28,22 +29,22 @@ private:
   };
 
 public:
-  model_mesh_provider(mesh_vert_buffs buffs, ntfr::index_buffer&& index_buff,
-                      std::vector<mesh_offset>&& mesh_offsets) noexcept;
+  model_mesher(vert_buffs buffs, ntfr::index_buffer&& index_buff,
+               ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept;
 
-  ~model_mesh_provider() noexcept;
+  ~model_mesher() noexcept;
 
-  model_mesh_provider(const model_mesh_provider&) = delete;
-  model_mesh_provider(model_mesh_provider&& other) noexcept;
-
-public:
-  model_mesh_provider& operator=(const model_mesh_provider&) = delete;
-  model_mesh_provider& operator=(model_mesh_provider&&) noexcept;
+  model_mesher(const model_mesher&) = delete;
+  model_mesher(model_mesher&& other) noexcept;
 
 public:
-  static expect<model_mesh_provider> create(const model_mesh_data& meshes);
+  model_mesher& operator=(const model_mesher&) = delete;
+  model_mesher& operator=(model_mesher&&) noexcept;
 
-public:
+protected:
+  static expect<model_mesher> create(const model_mesh_data& meshes);
+
+protected:
   mesh_render_data& retrieve_mesh_data(u32 idx, std::vector<mesh_render_data>& data);
   u32 mesh_count() const { return _mesh_offsets.size(); }
 
@@ -51,14 +52,55 @@ private:
   void _free_buffs() noexcept;
 
 private:
-  mesh_vert_buffs _buffs;
-  mesh_vert_binds _binds;
-  std::vector<mesh_offset> _mesh_offsets;
+  vert_buffs _buffs;
+  vert_binds _binds;
+  ntf::unique_array<mesh_offset> _mesh_offsets;
   ntfr::index_buffer _index_buff;
   u32 _active_layouts;
 };
 
+class model_texturer {
+private:
+  struct texture_t {
+    std::string name;
+    ntfr::texture2d tex;
+    u32 sampler;
+  };
+  struct material_t {
+    std::string name;
+    vec_span textures;
+  };
+
+public:
+  model_texturer(ntf::unique_array<texture_t>&& textures,
+                 std::unordered_map<std::string_view, u32>&& tex_reg,
+                 ntf::unique_array<vec_span>&& mat_spans,
+                 ntf::unique_array<u32>&& mat_texes) noexcept;
+
+protected:
+  static expect<model_texturer> create(const model_material_data& materials);
+
+public:
+  ntfr::texture2d_view find_texture(std::string_view name);
+
+protected:
+  ntf::optional<u32> find_texture_idx(std::string_view name) const;
+  u32 retrieve_material_textures(u32 mat_idx, std::vector<ntfr::texture_binding>& texs) const;
+
+private:
+  ntf::unique_array<texture_t> _textures;
+  std::unordered_map<std::string_view, u32> _tex_reg;
+  ntf::unique_array<vec_span> _mat_spans;
+  ntf::unique_array<u32> _mat_texes;
+};
+
 class model_rigger {
+private:
+  struct bone_t {
+    std::string name;
+    u32 parent;
+  };
+
 public:
   struct bone_transform {
     vec3 pos;
@@ -67,32 +109,39 @@ public:
   };
 
 public:
-  model_rigger(vec_span bones,
-               ntfr::shader_storage_buffer&& ssbo,
-               std::vector<mat4>&& transform_output, std::vector<mat4>&& bone_transforms,
-               std::vector<mat4>&& local_cache, std::vector<mat4>&& model_cache) noexcept;
+  model_rigger(ntfr::shader_storage_buffer&& ssbo,
+               ntf::unique_array<bone_t>&& bones,
+               std::unordered_map<std::string_view, u32>&& bone_reg,
+               ntf::unique_array<mat4>&& bone_locals,
+               ntf::unique_array<mat4>&& bone_inv_models,
+               ntf::unique_array<mat4>&& bone_transforms,
+               ntf::unique_array<mat4>&& transf_cache,
+               ntf::unique_array<mat4>&& transf_output) noexcept;
 
-public:
+protected:
   static expect<model_rigger> create(const model_rig_data& rigs, std::string_view armature);
 
 public:
-  void set_root_transform(const mat4& transf);
-  void set_transform(const model_rig_data& rigs,
-                     std::string_view bone, const bone_transform& transf);
-  void set_transform(const model_rig_data& rigs,
-                     std::string_view bone, const mat4& transf);
-  void tick(const model_rig_data& rigs);
+  bool set_transform(std::string_view bone, const bone_transform& transf);
+  bool set_transform(std::string_view bone, const mat4& transf);
+  bool set_transform(std::string_view bone, ntf::transform3d<f32>& transf);
 
 public:
-  u32 retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds);
+  void apply_animation(const model_anim_data& anims, std::string_view name, u32 tick);
+
+protected:
+  void tick_bones(const mat4& root);
+  u32 retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds) const;
 
 private:
-  vec_span _bones;
   ntfr::shader_storage_buffer _ssbo;
-  std::vector<mat4> _transform_output;
-  std::vector<mat4> _bone_transforms;
-  std::vector<mat4> _local_cache;
-  std::vector<mat4> _model_cache;
+  ntf::unique_array<bone_t> _bones;
+  std::unordered_map<std::string_view, u32> _bone_reg;
+  ntf::unique_array<mat4> _bone_locals;
+  ntf::unique_array<mat4> _bone_inv_models;
+  ntf::unique_array<mat4> _bone_transforms;
+  ntf::unique_array<mat4> _transf_cache;
+  ntf::unique_array<mat4> _transf_output;
 };
 
 struct tickable {
@@ -100,7 +149,8 @@ struct tickable {
   virtual void tick() = 0;
 };
 
-class rigged_model3d : public renderable, public tickable {
+class rigged_model3d : public model_mesher, public model_texturer, public model_rigger,
+                       public renderable, public tickable {
 public:
   struct data_t {
     std::string name;
@@ -111,37 +161,15 @@ public:
     model_mesh_data meshes;
   };
 
-  struct texture_t {
-    std::string name;
-    ntfr::texture2d tex;
-  };
-
-  struct material_meta {
-    std::vector<texture_t> textures;
-    std::unordered_map<std::string_view, u32> texture_registry;
-    std::vector<model_material_data::material_meta> materials;
-    std::unordered_map<std::string_view, u32> material_registry;
-    std::vector<u32> material_textures;
-  };
-
-  struct armature_meta {
-    model_anim_data anims;
-    model_rig_data rigs;
-    model_rigger rigger;
-  };
-
-  struct render_meta {
-    ntfr::pipeline pip;
-    model_mesh_provider meshes;
-    std::vector<u32> mesh_texs;
-  };
-
 public:
-  rigged_model3d(std::string&& name,
-                 material_meta&& materials,
-                 armature_meta&& armature,
-                 render_meta&& rendering,
-                 ntf::transform3d<f32> transf);
+  rigged_model3d(model_mesher&& meshes,
+                 model_texturer&& texturer,
+                 model_rigger&& rigger,
+                 std::vector<model_material_data::material_meta>&& mats,
+                 std::unordered_map<std::string_view, u32>&& mat_reg,
+                 ntfr::pipeline pip,
+                 std::vector<u32> mesh_mats,
+                 std::string&& name) noexcept;
 
 public:
   static expect<rigged_model3d> create(data_t&& data);
@@ -154,14 +182,11 @@ public:
   ntf::transform3d<f32>& transform() { return _transf; }
   std::string_view name() const { return _name; }
 
-  void set_bone_transform(std::string_view name, const model_rigger::bone_transform& transf);
-  void set_bone_transform(std::string_view name, const mat4& transf);
-  void set_bone_transform(std::string_view name, ntf::transform3d<f32>& transf);
-
 private:
+  std::vector<model_material_data::material_meta> _mats;
+  std::unordered_map<std::string_view, u32> _mat_reg;
+  ntfr::pipeline _pip;
+  std::vector<u32> _mesh_mats;
   std::string _name;
-  material_meta _materials;
-  armature_meta _armature;
-  render_meta _rendering;
   ntf::transform3d<f32> _transf;
 };

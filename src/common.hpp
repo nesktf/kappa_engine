@@ -49,4 +49,5 @@ struct vec_span {
   }
 
   bool empty() const { return idx == INDEX_TOMB || count == 0u; }
+  u32 size() const { return count; }
 };

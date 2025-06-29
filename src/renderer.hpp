@@ -24,6 +24,36 @@ enum frag_shader_type {
   FRAG_SHADER_COUNT,
 };
 
+enum tex_sampler_idx {
+  TEX_SAMPLER_ALBEDO = 0,
+  TEX_SAMPLER_SPECULAR,
+  TEX_SAMPLER_NORMALS,
+  TEX_SAMPLER_DISPLACEMENT,
+
+  TEX_SAMPLER_COUNT,
+};
+
+class tex_sampler_data {
+public:
+  tex_sampler_data() noexcept = default; // trivial
+
+  tex_sampler_data(u32 binding) noexcept {
+    for (auto& sampler : data) {
+      sampler = binding;
+    }
+  }
+
+  tex_sampler_data& set(u32 idx, u32 binding) {
+    NTF_ASSERT(idx < TEX_SAMPLER_COUNT);
+    data[idx] = binding;
+    return *this;
+  }
+
+public:
+  std::array<u32, TEX_SAMPLER_COUNT> data;
+  static_assert(sizeof(data) % 16 == 0, "Not 16 byte aligned");
+};
+
 struct pipeline_opts {
   ntfr::render_tests tests;
   ntfr::primitive_mode primitive;
@@ -47,7 +77,7 @@ struct mesh_render_data {
 struct object_render_data {
   std::vector<mesh_render_data> meshes;
   std::vector<ntfr::shader_binding> bindings;
-  std::vector<ntfr::texture_t> textures;
+  std::vector<ntfr::texture_binding> textures;
   std::vector<ntfr::uniform_const> uniforms;
 };
 

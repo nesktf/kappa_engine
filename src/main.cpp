@@ -87,7 +87,7 @@ private:
 };
 
 int main() {
-  ntf::logger::set_level(ntf::log_level::debug);
+  ntf::logger::set_level(ntf::log_level::verbose);
   auto rh__ = renderer::construct();
 
   auto& r = renderer::instance();
@@ -217,7 +217,7 @@ int main() {
       for (auto idx : rmodels) {
         auto& model = bundle.get_rmodel(idx);
         model.transform().rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
-        model.set_bone_transform("Head", bone_transform);
+        model.set_transform("Head", bone_transform);
         model.tick();
       }
     },

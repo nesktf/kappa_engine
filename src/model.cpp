@@ -8,9 +8,9 @@ if (!_buff) { \
   return ntf::unexpected{std::string_view{"Failed to create vertex buffer"}}; \
 }
 
-model_mesh_provider::model_mesh_provider(mesh_vert_buffs buffs,
-                                         ntfr::index_buffer&& index_buff,
-                                         std::vector<mesh_offset>&& mesh_offsets) noexcept :
+model_mesher::model_mesher(vert_buffs buffs,
+                           ntfr::index_buffer&& index_buff,
+                           ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept :
   _buffs{buffs}, _mesh_offsets{std::move(mesh_offsets)},
   _index_buff{std::move(index_buff)}, _active_layouts{0u}
 {
@@ -26,7 +26,7 @@ model_mesh_provider::model_mesh_provider(mesh_vert_buffs buffs,
   }
 }
 
-model_mesh_provider::model_mesh_provider(model_mesh_provider&& other) noexcept :
+model_mesher::model_mesher(model_mesher&& other) noexcept :
   _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
   _mesh_offsets{std::move(other._mesh_offsets)}, _index_buff{std::move(other._index_buff)},
   _active_layouts{std::move(other._active_layouts)}
@@ -34,7 +34,7 @@ model_mesh_provider::model_mesh_provider(model_mesh_provider&& other) noexcept :
   other._buffs[0] = nullptr;
 }
 
-model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other) noexcept {
+model_mesher& model_mesher::operator=(model_mesher&& other) noexcept {
   _free_buffs();
 
   _buffs = std::move(other._buffs);
@@ -48,10 +48,10 @@ model_mesh_provider& model_mesh_provider::operator=(model_mesh_provider&& other)
   return *this;
 }
 
-model_mesh_provider::~model_mesh_provider() noexcept { _free_buffs(); }
+model_mesher::~model_mesher() noexcept { _free_buffs(); }
 
 
-expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& meshes)
+expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
 {
   // Assume all models have indices and positions in each mesh
   if (meshes.positions.empty()) {
@@ -63,7 +63,7 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
 
   auto ctx = renderer::instance().ctx();
 
-  mesh_vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+  vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
   const size_t vertex_elements = meshes.positions.size();;
 
   auto free_buffs = [&]() {
@@ -123,8 +123,6 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
   }
 
   // Prepare index buffer and upload indices
-  std::vector<mesh_offset> mesh_offsets;
-  mesh_offsets.reserve(meshes.meshes.size());
   const ntfr::buffer_data idx_data {
     .data = meshes.indices.data(),
     .size = meshes.indices.size()*sizeof(u32),
@@ -140,9 +138,12 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
     return ntf::unexpected{std::string_view{"Failed to create index buffer"}};
   }
 
-  for (const auto& mesh : meshes.meshes) {
+  ntf::unique_array<mesh_offset> mesh_offsets{ntf::uninitialized, meshes.meshes.size()};
+  for (u32 i = 0u; const auto& mesh : meshes.meshes) {
     NTF_ASSERT(!mesh.indices.empty());
-    mesh_offsets.emplace_back(mesh.indices.idx, mesh.indices.count, 0u);
+    std::construct_at(mesh_offsets.data()+i,
+                      mesh.indices.idx, mesh.indices.count, 0u);
+    ++i;
   }
 
   // Copy data
@@ -187,12 +188,12 @@ expect<model_mesh_provider> model_mesh_provider::create(const model_mesh_data& m
     offset += mesh.positions.count;
   }
 
-  return expect<model_mesh_provider>{
+  return expect<model_mesher>{
     ntf::in_place, buffs, std::move(*ind), std::move(mesh_offsets)
   };
 }
 
-void model_mesh_provider::_free_buffs() noexcept {
+void model_mesher::_free_buffs() noexcept {
   if (!_buffs[0]) {
     return;
   }
@@ -203,8 +204,105 @@ void model_mesh_provider::_free_buffs() noexcept {
   }
 }
 
-mesh_render_data& model_mesh_provider::retrieve_mesh_data(u32 idx,
-                                                          std::vector<mesh_render_data>& data) {
+model_texturer::model_texturer(ntf::unique_array<texture_t>&& textures,
+                               std::unordered_map<std::string_view, u32>&& tex_reg,
+                               ntf::unique_array<vec_span>&& mat_spans,
+                               ntf::unique_array<u32>&& mat_texes) noexcept :
+  _textures{std::move(textures)}, _tex_reg{std::move(tex_reg)},
+  _mat_spans{std::move(mat_spans)}, _mat_texes{std::move(mat_texes)} {}
+
+expect<model_texturer> model_texturer::create(const model_material_data& mat_data) {
+  auto ctx = renderer::instance().ctx();
+
+  ntf::unique_array<u32> mat_texes{ntf::uninitialized, mat_data.material_textures.size()};
+  for (u32 i = 0u; i < mat_data.material_textures.size(); ++i){
+    mat_texes[i] = mat_data.material_textures[i];
+  }
+  ntf::unique_array<vec_span> mat_spans{ntf::uninitialized, mat_data.materials.size()};
+  for (u32 i = 0u; const auto& mat : mat_data.materials) {
+    mat_spans[i++] = mat.textures;
+  }
+
+  ntf::unique_array<texture_t> textures{ntf::uninitialized, mat_data.textures.size()};
+  std::unordered_map<std::string_view, u32> tex_reg;
+  tex_reg.reserve(mat_data.textures.size());
+  for (u32 i = 0u; const auto& tex : mat_data.textures) {
+    const ntfr::image_data image {
+      .bitmap = tex.bitmap.data(),
+      .format = tex.format,
+      .alignment = 4u,
+      .extent = tex.extent,
+      .offset = {0, 0, 0},
+      .layer = 0u,
+      .level = 0u,
+    };
+    const ntfr::texture_data data {
+      .images = {image},
+      .generate_mipmaps = true,
+    };
+    auto tex2d = ntfr::texture2d::create(ctx, {
+      .format = ntfr::image_format::rgba8nu,
+      .sampler = ntfr::texture_sampler::linear,
+      .addressing = ntfr::texture_addressing::repeat,
+      .extent = tex.extent,
+      .layers = 1u,
+      .levels = 7u,
+      .data = data,
+    });
+    if (!tex2d) {
+      ntf::logger::error("Failed to upload texture \"{}\" ({})", tex.name, i);
+      return {ntf::unexpect, "Failed to upload textures"};
+    }
+
+    const u32 sampler = TEX_SAMPLER_ALBEDO;
+    std::construct_at(textures.data()+i,
+                      tex.name, std::move(*tex2d), sampler);
+    auto [_, empl] = tex_reg.try_emplace(textures[i].name, i);
+    NTF_ASSERT(empl);
+    ++i;
+  }
+
+  return {
+    ntf::in_place,
+    std::move(textures), std::move(tex_reg), std::move(mat_spans), std::move(mat_texes)
+  };
+}
+
+ntf::optional<u32> model_texturer::find_texture_idx(std::string_view name) const {
+  auto it = _tex_reg.find(name);
+  if (it == _tex_reg.end()) {
+    return ntf::nullopt;
+  }
+  return it->second;
+}
+
+ntfr::texture2d_view model_texturer::find_texture(std::string_view name) {
+  auto idx = find_texture_idx(name);
+  if (!idx) {
+    return {};
+  }
+  NTF_ASSERT(*idx < _textures.size());
+  return _textures[*idx].tex;
+}
+
+u32 model_texturer::retrieve_material_textures(u32 mat_idx,
+                                                std::vector<ntfr::texture_binding>& texs) const
+{
+  NTF_ASSERT(mat_idx < _mat_spans.size());
+
+  const auto tex_span = _mat_spans[mat_idx].to_cspan(_mat_texes.data());
+  for (const u32 tex_idx : tex_span) {
+    NTF_ASSERT(tex_idx < _textures.size());
+    const auto& texture = _textures[tex_idx];
+    texs.emplace_back(texture.tex.get(), texture.sampler);
+  }
+
+  return tex_span.size();
+}
+
+mesh_render_data& model_mesher::retrieve_mesh_data(u32 idx,
+                                                    std::vector<mesh_render_data>& data)
+{
   NTF_ASSERT(idx < _mesh_offsets.size());
   cspan<ntfr::vertex_binding> bindings{_binds.data(), _active_layouts};
   const auto& offset = _mesh_offsets[idx];
@@ -212,123 +310,151 @@ mesh_render_data& model_mesh_provider::retrieve_mesh_data(u32 idx,
                            offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
 }
 
-model_rigger::model_rigger(vec_span bones,
-                           ntfr::shader_storage_buffer&& ssbo,
-                           std::vector<mat4>&& transform_output,
-                           std::vector<mat4>&& bone_transforms,
-                           std::vector<mat4>&& local_cache,
-                           std::vector<mat4>&& model_cache) noexcept :
-  _bones{bones},
-  _ssbo{std::move(ssbo)}, _transform_output{std::move(transform_output)},
-  _bone_transforms{std::move(bone_transforms)},
-  _local_cache{std::move(local_cache)}, _model_cache{std::move(model_cache)} {}
+model_rigger::model_rigger(ntfr::shader_storage_buffer&& ssbo,
+                           ntf::unique_array<bone_t>&& bones,
+                           std::unordered_map<std::string_view, u32>&& bone_reg,
+                           ntf::unique_array<mat4>&& bone_locals,
+                           ntf::unique_array<mat4>&& bone_inv_models,
+                           ntf::unique_array<mat4>&& bone_transforms,
+                           ntf::unique_array<mat4>&& transf_cache,
+                           ntf::unique_array<mat4>&& transf_output) noexcept :
+  _ssbo{std::move(ssbo)}, _bones{std::move(bones)}, _bone_reg{std::move(bone_reg)},
+  _bone_locals{std::move(bone_locals)}, _bone_inv_models{std::move(bone_inv_models)},
+  _bone_transforms{std::move(bone_transforms)}, _transf_cache{std::move(transf_cache)},
+  _transf_output{std::move(transf_output)} {}
 
-expect<model_rigger> model_rigger::create(const model_rig_data& rigs, std::string_view armature)
-{
+expect<model_rigger> model_rigger::create(const model_rig_data& rigs, std::string_view armature) {
   auto it = rigs.armature_registry.find(armature);
   if (it == rigs.armature_registry.end()) {
-    return ntf::unexpected{std::string_view{"Armature not found"}};
+    return {ntf::unexpect, "Armature not found"};
   }
   auto ctx = renderer::instance().ctx();
 
-  const u32 idx = it->second;
-  NTF_ASSERT(rigs.armatures.size() > idx);
-  const vec_span bones = rigs.armatures[idx].bones;
-
-  std::vector<mat4> transform_output;
-  std::vector<mat4> bone_transforms;
-  std::vector<mat4> local_cache;
-  std::vector<mat4> model_cache;
-
+  const u32 armature_idx = it->second;
+  NTF_ASSERT(rigs.armatures.size() > armature_idx);
+  const auto bone_vspan = rigs.armatures[armature_idx].bones;
   try {
-    const mat4 identity{1.f};
-    transform_output.assign(bones.count, identity);
-    bone_transforms.assign(bones.count, identity);
-    local_cache.assign(bones.count, identity);
-    model_cache.assign(bones.count, identity);
+    ntf::unique_array<bone_t> bones{ntf::uninitialized, bone_vspan.size()};
+    ntf::unique_array<mat4> bone_locals{ntf::uninitialized, bone_vspan.size()};
+    ntf::unique_array<mat4> bone_inv_models{ntf::uninitialized, bone_vspan.size()};
+    std::unordered_map<std::string_view, u32> bone_reg;
+    bone_reg.reserve(bone_vspan.size());
+    for (u32 i = 0u; i < bone_vspan.count; ++i) {
+      const u32 idx = bone_vspan.idx+i;
+
+      const auto& bone = rigs.bones[idx];
+      const u32 local_parent = bone.parent-bone_vspan.idx;
+      if (local_parent != vec_span::INDEX_TOMB) {
+        NTF_ASSERT(local_parent < bones.size());
+      }
+      std::construct_at(bones.data()+i,
+                        bone.name, local_parent);
+      auto [_, empl] = bone_reg.try_emplace(bones[i].name, i);
+      NTF_ASSERT(empl);
+
+      std::construct_at(bone_locals.data()+i, rigs.bone_locals[idx]);
+      std::construct_at(bone_inv_models.data()+i, rigs.bone_inv_models[idx]);
+    }
+
+    constexpr mat4 identity{1.f};
+    ntf::unique_array<mat4> bone_transforms{bone_vspan.size(), identity};
+    ntf::unique_array<mat4> transf_cache{bone_vspan.size()*2u, identity}; // for model and locals
+
+    ntf::unique_array<mat4> transf_output{bone_vspan.size(), identity};
+    const ntfr::buffer_data initial_data {
+      .data = transf_output.data(),
+      .size = transf_output.size()*sizeof(mat4),
+      .offset = 0u,
+    };
+    auto ssbo = ntfr::shader_storage_buffer::create(ctx, {
+      .flags = ntfr::buffer_flag::dynamic_storage,
+      .size = transf_output.size()*sizeof(mat4),
+      .data = initial_data,
+    });
+    if (!ssbo) {
+      return {ntf::unexpect, ssbo.error().msg()};
+    }
+
+    return {
+      ntf::in_place,
+      std::move(*ssbo), std::move(bones), std::move(bone_reg),
+      std::move(bone_locals), std::move(bone_inv_models), std::move(bone_transforms),
+      std::move(transf_cache), std::move(transf_output)
+    };
   } catch (const std::bad_alloc&) {
-    return ntf::unexpected{std::string_view{"Matrix allocation failure"}};
+    return {ntf::unexpect, "Allocation failure"};
+  } catch (...) {
+    return {ntf::unexpect, "Unknown error"};
   }
-
-  const ntfr::buffer_data initial_data {
-    .data = transform_output.data(),
-    .size = bones.count*sizeof(mat4),
-    .offset = 0u,
-  };
-  auto ssbo = ntfr::shader_storage_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
-    .size = bones.count*sizeof(mat4),
-    .data = initial_data,
-  });
-  if (!ssbo) {
-    return ntf::unexpected{std::string_view{"Failed to create ssbo"}};
-  }
-
-  return expect<model_rigger> {
-    ntf::in_place, bones, std::move(*ssbo),
-    std::move(transform_output), std::move(bone_transforms),
-    std::move(local_cache), std::move(model_cache)
-  };
 }
 
-void model_rigger::tick(const model_rig_data& rigs) {
-  for (auto& local : _local_cache){
-    local = mat4{1.f};
-  }
-  for (auto& model : _model_cache) {
-    model = mat4{1.f};
-  }
+void model_rigger::tick_bones(const mat4& root) {
+  _bone_transforms[0] = root;
 
+  const u32 model_offset = _bones.size(); // First elements are locals, the rest models
+  NTF_ASSERT(_transf_cache.size() == 2*model_offset);
+  
   // Populate bone local transforms
-  for (u32 i = 0; i < _bones.count; ++i) {
-    _local_cache[i] = rigs.bone_locals[_bones.idx+i]*_bone_transforms[i];
+  for (u32 i = 0; i < _bones.size(); ++i) {
+    _transf_cache[i] = _bone_locals[i]*_bone_transforms[i];
   }
 
   // Populate bone model transforms
-  _model_cache[0] = _local_cache[0]; // Root transform
-  for (u32 i = 1; i < _bones.count; ++i) {
-    u32 parent = rigs.bones[_bones.idx+i].parent;
-    _model_cache[i] = _model_cache[parent] * _local_cache[i];
+  _transf_cache[model_offset] = _transf_cache[0]; // Root transform
+  for (u32 i = 1; i < _bones.size(); ++i) {
+    const u32 parent = _bones[i].parent;
+    // Since the bone hierarchy is sorted, we should be able to read the parent model matrix safely
+    NTF_ASSERT(parent < model_offset);
+    _transf_cache[model_offset+i] = _transf_cache[model_offset+parent]*_transf_cache[i];
   }
 
   // Prepare shader transform data
-  for (u32 i = 0; i < _bones.count; ++i){
-    _transform_output[i] = _model_cache[i]*rigs.bone_inv_models[_bones.idx+i];
+  for (u32 i = 0; i < _bones.size(); ++i){
+    _transf_output[i] = _transf_cache[model_offset+i]*_bone_inv_models[i];
   }
 }
 
-void model_rigger::set_root_transform(const mat4& transf) {
-  _bone_transforms[0u] = transf;
-}
-
-void model_rigger::set_transform(const model_rig_data& rigs,
-                                 std::string_view bone, const bone_transform& transf)
-{
-  auto it = rigs.bone_registry.find(bone);
-  NTF_ASSERT(it != rigs.bone_registry.end());
-  u32 local_pos = it->second - _bones.idx;
-  NTF_ASSERT(local_pos < _bone_transforms.size());
+bool model_rigger::set_transform(std::string_view bone, const bone_transform& transf) {
+  auto it = _bone_reg.find(bone);
+  if (it == _bone_reg.end()) {
+    return false;
+  }
+  NTF_ASSERT(it->second < _bone_transforms.size());
 
   constexpr vec3 pivot{0.f, 0.f, 0.f};
-  _bone_transforms[local_pos] = ntf::build_trs_matrix(transf.pos, transf.scale,
-                                                      pivot, transf.rot);
+  _bone_transforms[it->second] = ntf::build_trs_matrix(transf.pos, transf.scale,
+                                                       pivot, transf.rot);
+  return true;
 }
 
-void model_rigger::set_transform(const model_rig_data& rigs,
-                                 std::string_view bone, const mat4& transf)
-{
-  auto it = rigs.bone_registry.find(bone);
-  NTF_ASSERT(it != rigs.bone_registry.end());
-  u32 local_pos = it->second - _bones.idx;
-  NTF_ASSERT(local_pos < _bone_transforms.size());
+bool model_rigger::set_transform(std::string_view bone, const mat4& transf) {
+  auto it = _bone_reg.find(bone);
+  if (it == _bone_reg.end()) {
+    return false;
+  }
+  NTF_ASSERT(it->second < _bone_transforms.size());
 
-  _bone_transforms[local_pos] = transf;
+  _bone_transforms[it->second] = transf;
+  return true;
 }
 
-u32 model_rigger::retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds) {
+bool model_rigger::set_transform(std::string_view bone, ntf::transform3d<f32>& transf) {
+  return set_transform(bone, transf.local());
+}
+
+void model_rigger::apply_animation(const model_anim_data& anims, std::string_view name, u32 tick) {
+  auto it = anims.animation_registry.find(name);
+  if (it == anims.animation_registry.end()) {
+    return;
+  }
+  const auto& anim = anims.animations[it->second];
+  const f64 t = std::fmod(anim.tps*tick, anim.duration);
+}
+
+u32 model_rigger::retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds) const {
   const ntfr::buffer_data data {
-    .data = _transform_output.data(),
-    .size = _bones.count*sizeof(mat4),
+    .data = _transf_output.data(),
+    .size = _transf_output.size()*sizeof(mat4),
     .offset = 0u,
   };
   [[maybe_unused]] auto ret = _ssbo.upload(data);
@@ -337,16 +463,21 @@ u32 model_rigger::retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& bi
   return 1u;
 }
 
-rigged_model3d::rigged_model3d(std::string&& name,
-                               material_meta&& materials,
-                               armature_meta&& armature,
-                               render_meta&& rendering,
-                               ntf::transform3d<f32> transf) :
-  _name{std::move(name)}, _materials{std::move(materials)},
-  _armature{std::move(armature)}, _rendering{std::move(rendering)},
-  _transf{transf} {}
+rigged_model3d::rigged_model3d(model_mesher&& meshes,
+                               model_texturer&& texturer,
+                               model_rigger&& rigger,
+                               std::vector<model_material_data::material_meta>&& mats,
+                               std::unordered_map<std::string_view, u32>&& mat_reg,
+                               ntfr::pipeline pip,
+                               std::vector<u32> mesh_texs,
+                               std::string&& name) noexcept :
+  model_mesher{std::move(meshes)}, model_texturer{std::move(texturer)},
+  model_rigger{std::move(rigger)},
+  _mats{std::move(mats)}, _mat_reg{std::move(mat_reg)},
+  _pip{std::move(pip)}, _mesh_mats{std::move(mesh_texs)},
+  _name{std::move(name)}, _transf{} {}
 
-template<u32 tex_extent = 32u>
+template<u32 tex_extent = 16u>
 static ntfr::expect<ntfr::texture2d> make_missing_albedo(ntfr::context_view ctx) {
   static constexpr auto bitmap = [](){
     std::array<u8, 4u*tex_extent*tex_extent> out;
@@ -395,82 +526,6 @@ static ntfr::expect<ntfr::texture2d> make_missing_albedo(ntfr::context_view ctx)
 
 expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
   auto& r = renderer::instance();
-  auto ctx = r.ctx();
-
-  auto rigger = model_rigger::create(data.rigs, data.armature);
-  if (!rigger) {
-    return ntf::unexpected{std::move(rigger.error())};
-  }
-  armature_meta armature {
-    .anims = std::move(data.anims),
-    .rigs = std::move(data.rigs),
-    .rigger = std::move(*rigger),
-  };
-
-  std::vector<texture_t> texs;
-  texs.reserve(data.mats.textures.size());
-  std::unordered_map<std::string_view, u32> tex_reg;
-  tex_reg.reserve(data.mats.textures.size());
-
-  for (auto& texture : data.mats.textures) {
-    const ntfr::image_data images {
-      .bitmap = texture.bitmap.data(),
-      .format = texture.format,
-      .alignment = 4u,
-      .extent = texture.extent,
-      .offset = {0, 0, 0},
-      .layer = 0u,
-      .level = 0u,
-    };
-    const ntfr::texture_data data {
-      .images = {images},
-      .generate_mipmaps = true,
-    };
-    auto tex = ntfr::texture2d::create(ctx, {
-      .format = ntfr::image_format::rgba8nu,
-      .sampler = ntfr::texture_sampler::linear,
-      .addressing = ntfr::texture_addressing::repeat,
-      .extent = texture.extent,
-      .layers = 1u,
-      .levels = 7u,
-      .data = data,
-    }).value();
-    texs.emplace_back(std::move(texture.name), std::move(tex));
-    // texs.emplace_back(std::move(texture.name), make_missing_albedo(ctx).value());
-  }
-  for (u32 i = 0; const auto& texture : texs) {
-    auto [_, empl] = tex_reg.try_emplace(texture.name, i++);
-    NTF_ASSERT(empl);
-  }
-
-  material_meta materials {
-    .textures = std::move(texs),
-    .texture_registry = std::move(tex_reg),
-    .materials = std::move(data.mats.materials),
-    .material_registry = std::move(data.mats.material_registry),
-    .material_textures = std::move(data.mats.material_textures),
-  };
-
-  auto meshes = model_mesh_provider::create(data.meshes);
-  if (!meshes) {
-    return ntf::unexpected{std::move(meshes.error())};
-  }
-
-  std::vector<u32> mesh_texs;
-  mesh_texs.reserve(data.meshes.meshes.size());
-  for (const auto& mesh : data.meshes.meshes) {
-    auto it = materials.material_registry.find(mesh.material_name);
-    if (it == materials.material_registry.end()) {
-      mesh_texs.emplace_back(0u);
-    }
-    // Place the first texture only, fix this later
-    const auto& mat = materials.materials[it->second];
-    if (mat.textures.count == 1) {
-      mesh_texs.emplace_back(materials.material_textures[mat.textures.idx]);
-    } else {
-      mesh_texs.emplace_back(0u);
-    }
-  }
 
   std::vector<ntfr::attribute_binding> att_binds;
   const ntfr::face_cull_opts cull {
@@ -490,61 +545,76 @@ expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
   };
   auto pip = r.make_pipeline(VERT_SHADER_RIGGED_MODEL, FRAG_SHADER_RAW_ALBEDO,
                              att_binds, pip_opts);
+  if (!pip) {
+    return {ntf::unexpect, pip.error()};
+  }
 
-  render_meta rendering {
-    .pip = std::move(*pip),
-    .meshes = std::move(*meshes),
-    .mesh_texs = std::move(mesh_texs),
-  };
+  auto mesher = model_mesher::create(data.meshes);
+  if (!mesher) {
+    return {ntf::unexpect, mesher.error()};
+  }
 
-  return expect<rigged_model3d>{
-    ntf::in_place, std::move(data.name),
-    std::move(materials), std::move(armature), std::move(rendering),
-    ntf::transform3d<f32>{}.pos(0.f, 0.f, 0.f).scale(1.f, 1.f, 1.f)
+  auto texturer = model_texturer::create(data.mats);
+  if (!texturer) {
+    return {ntf::unexpect, texturer.error()};
+  }
+
+  auto rigger = model_rigger::create(data.rigs, data.armature);
+  if (!rigger) {
+    return {ntf::unexpect, rigger.error()};
+  }
+
+  std::vector<u32> mesh_mats;
+  mesh_mats.reserve(data.meshes.meshes.size());
+  for (const auto& mesh : data.meshes.meshes) {
+    auto it = data.mats.material_registry.find(mesh.material_name);
+    if (it == data.mats.material_registry.end()) {
+      mesh_mats.emplace_back(0u);
+    }
+    mesh_mats.emplace_back(it->second);
+    // // Place the first texture only, fix this later
+    // const auto& mat = data.mats.materials[it->second];
+    // if (mat.textures.count == 1) {
+    //   mesh_mats.emplace_back(data.mats.material_textures[mat.textures.idx]);
+    // } else {
+    //   mesh_mats.emplace_back(0u);
+    // }
+  }
+
+  return {
+    ntf::in_place,
+    std::move(*mesher), std::move(*texturer), std::move(*rigger),
+    std::move(data.mats.materials), std::move(data.mats.material_registry),
+    std::move(*pip), std::move(mesh_mats), std::move(data.name)
   };
 }
 
 void rigged_model3d::tick() {
-  _armature.rigger.set_root_transform(_transf.world());
-  _armature.rigger.tick(_armature.rigs);
-}
-
-void rigged_model3d::set_bone_transform(std::string_view name,
-                                        const model_rigger::bone_transform& transf)
-{
-  _armature.rigger.set_transform(_armature.rigs, name, transf);
-}
-
-void rigged_model3d::set_bone_transform(std::string_view name, const mat4& transf) {
-  _armature.rigger.set_transform(_armature.rigs, name, transf);
-}
-
-void rigged_model3d::set_bone_transform(std::string_view name, ntf::transform3d<f32>& transf) {
-  set_bone_transform(name, transf.local());
+  model_rigger::tick_bones(_transf.local());
 }
 
 u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
                                          object_render_data& data)
 {
-  const u32 mesh_count = _rendering.meshes.mesh_count();
+  const u32 mesh_count = model_mesher::mesh_count();
   for (u32 mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
-    auto& mesh = _rendering.meshes.retrieve_mesh_data(mesh_idx, data.meshes);
-    mesh.pipeline = _rendering.pip.get();
+    auto& mesh = retrieve_mesh_data(mesh_idx, data.meshes);
+    mesh.pipeline = _pip.get();
 
-    const u32 tex = _rendering.mesh_texs[mesh_idx];
+    const i32 sampler = 0;
+    const u32 mat_idx = _mesh_mats[mesh_idx];
     mesh.textures.idx = data.textures.size();
-    data.textures.emplace_back(_materials.textures[tex].tex);
-    mesh.textures.count = 1u;
+    const u32 tex_count = model_texturer::retrieve_material_textures(mat_idx, data.textures);
+    mesh.textures.count = tex_count;
 
     mesh.uniforms.idx = data.uniforms.size();
-    const i32 sampler = 0;
     data.uniforms.emplace_back(ntfr::format_uniform_const(renderer::FRAG_SAMPLER_LOC, sampler));
     mesh.uniforms.count = 1u;
 
     mesh.bindings.idx = data.bindings.size();
     data.bindings.emplace_back(scene.transform, renderer::VERT_SCENE_TRANSFORM_LOC,
                                scene.transform.size(), 0u);
-    const u32 rigger_bind_count = _armature.rigger.retrieve_buffer_bindings(data.bindings);
+    const u32 rigger_bind_count = model_rigger::retrieve_buffer_bindings(data.bindings);
     mesh.bindings.count = rigger_bind_count+1;
   }
   return mesh_count;
