@@ -2,6 +2,7 @@
 #include "assets.hpp"
 #include "model_data.hpp"
 #include "model.hpp"
+#include "interpolator.hpp"
 #include <ranges>
 
 using namespace ntf::numdefs;
@@ -184,6 +185,10 @@ int main() {
   }).value();
 
   float t = 0.f;
+
+  const ntf::quat q1{1.f, 0.f, 0.f, 0.f};
+  const ntf::quat q2{0.f, 0.f, 0.f, 1.f};
+  steplerp_aged<ntf::quat, glm_mix<ntf::quat>> qulerp{q1, q2, 60};
   r.render_loop(ntf::overload{
     [&](u32 fdt) {
       f32 delta = 1/(f32)fdt;
@@ -216,10 +221,12 @@ int main() {
 
       for (auto idx : rmodels) {
         auto& model = bundle.get_rmodel(idx);
-        model.transform().rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
+        // model.transform().rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
+        model.transform().rot(*qulerp);
         model.set_transform("Head", bone_transform);
         model.tick();
       }
+      qulerp.tick();
     },
     [&](f32 dt, f32 alpha) {
       NTF_UNUSED(dt);

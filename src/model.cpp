@@ -211,6 +211,56 @@ model_texturer::model_texturer(ntf::unique_array<texture_t>&& textures,
   _textures{std::move(textures)}, _tex_reg{std::move(tex_reg)},
   _mat_spans{std::move(mat_spans)}, _mat_texes{std::move(mat_texes)} {}
 
+
+template<u32 tex_extent>
+[[maybe_unused]] static constexpr auto missing_albedo_bitmap = []{
+  std::array<u8, 4u*tex_extent*tex_extent> out;
+  const u8 pixels[] {
+    0x00, 0x00, 0x00, 0xFF, // black
+    0xFE, 0x00, 0xFE, 0xFF, // pink
+    0x00, 0x00, 0x00, 0xFF, // black again
+  };
+
+  for (u32 i = 0; i < tex_extent; ++i) {
+    const u8* start = i%2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
+    u32 pos = 0;
+    for (u32 j = 0; j < tex_extent; ++j) {
+      pos = (pos + 4) % 8;
+      for (u32 k = 0; k < 4; ++k) {
+        out[(4*i*tex_extent)+(4*j)+k] = start[pos+k];
+      }
+    }
+  }
+
+  return out;
+}();
+
+template<u32 tex_extent = 16u>
+static ntfr::expect<ntfr::texture2d> make_missing_albedo(ntfr::context_view ctx) {
+  const ntfr::image_data image {
+    .bitmap = missing_albedo_bitmap<tex_extent>.data(),
+    .format = ntfr::image_format::rgba8nu,
+    .alignment = 4u,
+    .extent = {tex_extent, tex_extent, 1},
+    .offset = {0, 0, 0},
+    .layer = 0u,
+    .level = 0u,
+  };
+  const ntfr::texture_data data {
+    .images = {image},
+    .generate_mipmaps = false,
+  };
+  return ntfr::texture2d::create(ctx, {
+    .format = ntfr::image_format::rgba8nu,
+    .sampler = ntfr::texture_sampler::nearest,
+    .addressing = ntfr::texture_addressing::repeat,
+    .extent = {tex_extent, tex_extent, 1},
+    .layers = 1u,
+    .levels = 1u,
+    .data = data,
+  });
+}
+
 expect<model_texturer> model_texturer::create(const model_material_data& mat_data) {
   auto ctx = renderer::instance().ctx();
 
@@ -476,53 +526,6 @@ rigged_model3d::rigged_model3d(model_mesher&& meshes,
   _mats{std::move(mats)}, _mat_reg{std::move(mat_reg)},
   _pip{std::move(pip)}, _mesh_mats{std::move(mesh_texs)},
   _name{std::move(name)}, _transf{} {}
-
-template<u32 tex_extent = 16u>
-static ntfr::expect<ntfr::texture2d> make_missing_albedo(ntfr::context_view ctx) {
-  static constexpr auto bitmap = [](){
-    std::array<u8, 4u*tex_extent*tex_extent> out;
-    const u8 pixels[] {
-      0x00, 0x00, 0x00, 0xFF, // black
-      0xFE, 0x00, 0xFE, 0xFF, // pink
-      0x00, 0x00, 0x00, 0xFF, // black again
-    };
-
-    for (u32 i = 0; i < tex_extent; ++i) {
-      const u8* start = i%2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
-      u32 pos = 0;
-      for (u32 j = 0; j < tex_extent; ++j) {
-        pos = (pos + 4) % 8;
-        for (u32 k = 0; k < 4; ++k) {
-          out[(4*i*tex_extent)+(4*j)+k] = start[pos+k];
-        }
-      }
-    }
-
-    return out;
-  }();
-  const ntfr::image_data image {
-    .bitmap = bitmap.data(),
-    .format = ntfr::image_format::rgba8nu,
-    .alignment = 4u,
-    .extent = {tex_extent, tex_extent, 1},
-    .offset = {0, 0, 0},
-    .layer = 0u,
-    .level = 0u,
-  };
-  const ntfr::texture_data data {
-    .images = {image},
-    .generate_mipmaps = false,
-  };
-  return ntfr::texture2d::create(ctx, {
-    .format = ntfr::image_format::rgba8nu,
-    .sampler = ntfr::texture_sampler::nearest,
-    .addressing = ntfr::texture_addressing::repeat,
-    .extent = {tex_extent, tex_extent, 1},
-    .layers = 1u,
-    .levels = 1u,
-    .data = data,
-  });
-}
 
 expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
   auto& r = renderer::instance();
