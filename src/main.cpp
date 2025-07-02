@@ -137,22 +137,25 @@ int main() {
     .armature = "model",
   };
 
-  std::vector<asset_bundle::rmodel_idx> rmodels;
+  std::vector<std::pair<asset_bundle::rmodel_idx, vec3>> rmodels;
   auto model_callback = [&rmodels](expect<u32> idx, asset_bundle& bundle) {
     if (!idx) {
       ntf::logger::error("Can't load model, {}", idx.error());
       return;
     }
 
-    auto model = rmodels.emplace_back(static_cast<asset_bundle::rmodel_idx>(*idx));
-    auto& m = bundle.get_rmodel(model);
+    const auto id = static_cast<asset_bundle::rmodel_idx>(*idx);
+    auto& m = bundle.get_rmodel(id);
+    vec3 pos;
     if (m.name() == "koishi") {
-      m.transform().pos(.9f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+      pos = {.9f, -.75f, 0.f};
     } else if (m.name() == "chiruno") {
-      m.transform().pos(-.9f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+      pos = {-.9f, -.75f, 0.f};
     } else {
-      m.transform().pos(0.f, -.75f, 0.f).scale(1.f, 1.f, 1.f);
+      pos = {0, -.75f, 0.f};
     }
+    m.transform().pos(pos).scale(1.f, 1.f, 1.f);
+    rmodels.emplace_back(id, pos);
   };
   
   loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "chiruno",
@@ -184,11 +187,14 @@ int main() {
     .data = scene_transf_data,
   }).value();
 
-  float t = 0.f;
-
   const ntf::quat q1{1.f, 0.f, 0.f, 0.f};
   const ntf::quat q2{0.f, 0.f, 0.f, 1.f};
-  steplerp_aged<ntf::quat, glm_mix<ntf::quat>> qulerp{q1, q2, 60};
+  steplerp<ntf::quat, f32, glm_mixer<ntf::quat, f32>, 60> rotlerp{q1, q2};
+
+  const vec3 p1{0.f, 0.f, 0.f};
+  const vec3 p2{2.f, 0.f, 0.f};
+  steplerp<vec3, f32, easing_back_inout<vec3>, 60> poslerp{p1, p2};
+
   r.render_loop(ntf::overload{
     [&](u32 fdt) {
       f32 delta = 1/(f32)fdt;
@@ -216,17 +222,14 @@ int main() {
         return;
       }
 
-      t += delta;
-      // bone_transform.rot(ntf::vec3{-t*M_PIf*.5f, 0.f, 0.f});
-
-      for (auto idx : rmodels) {
+      for (auto& [idx, pos] : rmodels) {
         auto& model = bundle.get_rmodel(idx);
-        // model.transform().rot(ntf::vec3{t*M_PIf*.5f, 0.f, 0.f});
-        model.transform().rot(*qulerp);
+        model.transform().pos(pos+*poslerp).rot(*rotlerp);
         model.set_transform("Head", bone_transform);
         model.tick();
       }
-      qulerp.tick();
+      poslerp.tick_loop();
+      rotlerp.tick_loop();
     },
     [&](f32 dt, f32 alpha) {
       NTF_UNUSED(dt);
@@ -236,7 +239,7 @@ int main() {
       mat4 cam_view = cam.view();
       scene_transf.upload(cam_view, sizeof(mat4));
 
-      for (auto idx : rmodels) {
+      for (auto& [idx,_] : rmodels) {
         r.render(fbo, 0u, rdata, bundle.get_rmodel(idx));
       }
     }

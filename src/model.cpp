@@ -439,13 +439,12 @@ expect<model_rigger> model_rigger::create(const model_rig_data& rigs, std::strin
 }
 
 void model_rigger::tick_bones(const mat4& root) {
-  _bone_transforms[0] = root;
-
   const u32 model_offset = _bones.size(); // First elements are locals, the rest models
   NTF_ASSERT(_transf_cache.size() == 2*model_offset);
   
   // Populate bone local transforms
-  for (u32 i = 0; i < _bones.size(); ++i) {
+  _transf_cache[0] = root*_bone_locals[0]*_bone_transforms[0];
+  for (u32 i = 1; i < _bones.size(); ++i) {
     _transf_cache[i] = _bone_locals[i]*_bone_transforms[i];
   }
 
@@ -486,6 +485,32 @@ bool model_rigger::set_transform(std::string_view bone, const mat4& transf) {
 
   _bone_transforms[it->second] = transf;
   return true;
+}
+
+void model_rigger::set_transform(u32 bone, const mat4& transf) {
+  NTF_ASSERT(bone < _bone_transforms.size());
+  _bone_transforms[bone] = transf;
+}
+
+void model_rigger::set_transform(u32 bone, const bone_transform& transf) {
+  NTF_ASSERT(bone < _bone_transforms.size());
+  constexpr vec3 pivot{0.f, 0.f, 0.f};
+  _bone_transforms[bone] = ntf::build_trs_matrix(transf.pos, transf.scale,
+                                                 pivot, transf.rot);
+}
+
+void model_rigger::set_transform(u32 bone, ntf::transform3d<f32>& transf) {
+  NTF_ASSERT(bone < _bone_transforms.size());
+  _bone_transforms[bone] = transf.local();
+}
+
+ntf::optional<u32> model_rigger::find_bone(std::string_view name) {
+  auto it = _bone_reg.find(name);
+  if (it == _bone_reg.end()) {
+    return ntf::nullopt;
+  }
+  NTF_ASSERT(it->second < _bone_transforms.size());
+  return it->second;
 }
 
 bool model_rigger::set_transform(std::string_view bone, ntf::transform3d<f32>& transf) {

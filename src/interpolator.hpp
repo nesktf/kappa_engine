@@ -2,12 +2,73 @@
 
 #include "common.hpp"
 
-struct steplerp_pow {
-  constexpr steplerp_pow(u32 p) :
+template<typename T, typename U>
+concept interpolable = requires(T a, T b, U scalar) {
+  { a + b } -> std::convertible_to<T>;
+  { a - b } -> std::convertible_to<T>;
+  { scalar*a } -> std::convertible_to<T>;
+};
+
+template<typename F, typename T, typename U>
+concept lerp_func = requires(const F func, const T& a, const T& b, U t) {
+  { std::invoke(func, a, b, t) } -> std::convertible_to<T>;
+};
+
+template<typename T, typename U = f32>
+struct glm_mixer {
+  constexpr T operator()(const T& a, const T& b, U t) const { return glm::mix(a, b, t); }
+};
+
+template<typename T, std::floating_point U, typename Derived>
+requires(interpolable<T, U>)
+struct easing_mixer_base {
+  constexpr T operator()(const T& a, const T& b, U t) const {
+    if (t == U{1}) {
+      return b;
+    }
+    return a + std::invoke(static_cast<const Derived&>(*this), t)*(b-a);
+  }
+};
+
+template<typename T, typename U = f32>
+struct easing_linear : public easing_mixer_base<T, U, easing_linear<T, U>>  {
+  using easing_mixer_base<T, U, easing_linear<T, U>>::operator();
+  constexpr U operator()(U t) const { return t; }
+};
+
+// https://easings.net/
+template<typename T, typename U = f32>
+struct easing_elastic_in : public easing_mixer_base<T, U, easing_elastic_in<T, U>> {
+  using easing_mixer_base<T, U, easing_elastic_in<T, U>>::operator();
+  constexpr U operator()(U t) const {
+    const U c4 = U{2}*U{M_PI} / U{3};
+    if (t <= U{0} || t >= U{1}) {
+      return t;
+    }
+    return -std::pow(U{2}, U{10}*t - U{10})*std::sin((t*U{10} - (U{10.75f}))*c4);
+  }
+};
+
+template<typename T, typename U = f32>
+struct easing_back_inout : public easing_mixer_base<T, U, easing_back_inout<T, U>> {
+  using easing_mixer_base<T, U, easing_back_inout<T, U>>::operator();
+  constexpr U operator()(U t) const {
+    const U c2 = U{1.70158f*1.525f};
+    if (t < U{.5f}) {
+      return (std::pow(U{2}*t, U{2})*((c2+U{1})*U{2}*t - c2))/U{2};
+    }
+    return (std::pow(U{2}*t-U{2}, U{2})*((c2+U{1})*(t*U{2}-U{2})+c2) +U{2})/U{2};
+  }
+};
+
+template<typename T, typename U = f32>
+struct easing_pow : public easing_mixer_base<T, U, easing_pow<T, U>> {
+  using easing_mixer_base<T, U, easing_pow<T, U>>::operator();
+  constexpr easing_pow(u32 p) :
     _p{p} {}
 
-  constexpr f32 operator()(f32 t) const {
-    f32 res = 1.f;
+  constexpr U operator()(U t) const {
+    U res{1};
     for (u32 i = _p; i--;) {
       res *= t;
     }
@@ -18,110 +79,33 @@ private:
   u32 _p;
 };
 
-struct linear_mix {
-  constexpr f32 operator()(f32 t) const {
-    return t;
-  }
-};
+template<typename T, std::floating_point U, lerp_func<T, U> F, typename Derived>
+requires(interpolable<T, U>)
+class lerper_base : private F {
+public:
+  using interpolator_type = F;
 
-template<typename T>
-struct glm_mix {
-  constexpr T operator()(const T& a, const T& b, f32 t) const {
-    return glm::mix(a, b, t);
-  }
-};
-
-struct easing_elastic_in {
-  constexpr f32 operator()(f32 t) const {
-    const f32 c4 = 2.f*M_PIf / 3.f;
-    if (t <= 0.f || t >= 1.f) {
-      return t;
-    }
-    return -std::pow(2, 10.*t - 10.f)*std::sin((t*10.f - 10.75f)*c4);
-  }
-};
-
-struct easing_backinout {
-  constexpr f32 operator()(f32 t) const {
-    const f32 c1 = 1.70158f;
-    const f32 c2 = c1*1.525f;
-    if (t < .5f) {
-      return (std::pow(2.f*t, 2.f)*((c2+1.f)*2*t - c2))/2.f;
-    }
-    return (std::pow(2.f*t-2, 2.f)*((c2+1.f)*(t*2.f-2.f)+c2) +2.f)/2.f;
-  }
-};
-
-template<typename F>
-concept steplerp_factor_func = requires(const F func, f32 t) {
-  { std::invoke(func, t) } -> std::same_as<f32>;
-};
-
-template<typename F, typename T>
-concept steplerp_range_func = requires(const F func, const T& val, f32 t){
-  { std::invoke(func, val, val, t) } -> std::same_as<T>;
-};
-
-template<typename F, typename T>
-concept steplerp_func =
-  (steplerp_factor_func<F> && !steplerp_range_func<F, T>) ||
-  (!steplerp_factor_func<F> && steplerp_range_func<F, T>);
-
-template<typename T, typename F, typename Derived>
-requires(steplerp_func<F, T>)
-struct steplerp_base : private F {
-protected:
-  constexpr steplerp_base(const T& first, const T& last) :
+public:
+  constexpr lerper_base(const T& first, const T& last) :
     F{},
     _first{first}, _last{last} {}
 
-  explicit constexpr steplerp_base(const T& first, const T& last, const F& func) :
-    F{func},
+  constexpr lerper_base(const T& first, const T& last, const F& lerper) :
+    F{lerper},
     _first{first}, _last{last} {}
 
-  explicit constexpr steplerp_base(const T& first, const T& last, F&& func) :
-    F{std::move(func)},
+  constexpr lerper_base(const T& first, const T& last, F&& lerper) :
+    F{std::move(lerper)},
     _first{first}, _last{last} {}
 
   template<typename... Args>
-  explicit constexpr steplerp_base(const T& first, const T& last, std::in_place_t, Args&&... arg) :
-    F{std::forward<Args>(arg)...},
+  constexpr lerper_base(const T& first, const T& last,
+                        std::in_place_t, Args&&... args) :
+    F{std::forward<Args>(args)...},
     _first{first}, _last{last} {}
 
-public:
-  constexpr T value(i32 step) const {
-    const auto& self = static_cast<const Derived&>(*this);
-
-    const i32 max = self.steps();
-    if (step == max) {
-      return _last;
-    }
-    const f32 t = static_cast<f32>(step)/static_cast<f32>(max);
-    if constexpr (steplerp_range_func<F, T>) {
-      return std::invoke(self.get_func(), _first, _last, t);
-    } else {
-      return _first + (_last-_first)*std::invoke(get_func(), t);
-    }
-  }
-  constexpr T operator()(i32 step) const { return value(step); }
-
-  template<typename G>
-  constexpr Derived& for_each(G&& func, i32 first_step = 0) {
-    auto& self = static_cast<Derived&>(*this);
-    for (i32 i = first_step; i <= self.steps(); ++i){
-      func(i, self.value(i));
-    }
-    return self;
-  }
-
-  template<typename G>
-  constexpr const Derived& for_each(G&& func, i32 first_step = 0) const {
-    const auto& self = static_cast<const Derived&>(*this);
-    for (i32 i = first_step; i <= self.steps(); ++i){
-      func(i, self.value(i));
-    }
-    return self;
-  }
+protected:
+  constexpr T evaluate(U t) const { return std::invoke(get_interpolator(), _first, _last, t); }
 
 public:
   constexpr T first() const { return _first; }
@@ -136,18 +120,35 @@ public:
     return static_cast<Derived&>(*this);
   }
 
-  constexpr F& get_func() { return static_cast<F&>(*this); }
-  constexpr const F& get_func() const { return static_cast<const F&>(*this); }
+  constexpr F& get_interpolator() { return static_cast<F&>(*this); }
+  constexpr const F& get_interpolator() const { return static_cast<const F&>(*this); }
 
 private:
   T _first, _last;
 };
 
-constexpr u32 dynamic_step = std::numeric_limits<u32>::max();
-template<typename T, typename F = linear_mix, u32 StepSize = dynamic_step>
-class steplerp : public steplerp_base<T, F, steplerp<T, F, StepSize>> {
+template<typename T, typename U = f32, typename F = easing_linear<T, U>>
+class deltalerp_func : public lerper_base<T, U, F, deltalerp_func<T, U, F>> {
 private:
-  using base_t = steplerp_base<T, F, steplerp<T, F, StepSize>>;
+  using base_t = lerper_base<T, U, F, deltalerp_func<T, U, F>>;
+
+public:
+  using base_t::base_t;
+
+public:
+  [[nodiscard]] constexpr T eval(U t) const { return base_t::evaluate(t); }
+  [[nodiscard]] constexpr T eval(U t, U alpha) const { return eval(t+alpha); }
+
+public:
+  [[nodiscard]] constexpr T operator()(U t) const { return eval(t); }
+  [[nodiscard]] constexpr T operator()(U t, U alpha) const { return eval(t, alpha); }
+};
+
+constexpr u32 dynamic_step = std::numeric_limits<u32>::max();
+template<typename T, typename U = f32, typename F =easing_linear<T,U>, u32 StepSize = dynamic_step>
+class steplerp_func : public lerper_base<T, U, F, steplerp_func<T, U, F, StepSize>> {
+private:
+  using base_t = lerper_base<T, U, F, steplerp_func<T, U, F, StepSize>>;
 
 public:
   static constexpr u32 step_size = StepSize;
@@ -155,37 +156,64 @@ public:
 public:
   using base_t::base_t;
 
+private:
+  constexpr T _eval(U delta) const { return base_t::evaluate(delta/static_cast<U>(steps())); }
+
+public:
+  [[nodiscard]] constexpr T eval(i32 steps) const { return _eval(static_cast<U>(steps)); }
+  [[nodiscard]] constexpr T eval(i32 steps, U alpha) const {
+    return _eval(static_cast<U>(steps)+alpha);
+  }
+
+public:
+  [[nodiscard]] constexpr T operator()(i32 steps) const { return eval(steps); }
+  [[nodiscard]] constexpr T operator()(i32 steps, U alpha) const { return eval(steps, alpha); }
+
 public:
   constexpr u32 steps() const { return step_size; }
 };
 
-template<typename T, typename F>
-class steplerp<T, F, dynamic_step> :
-  public steplerp_base<T, F, steplerp<T, F, dynamic_step>>
+template<typename T, typename U, typename F>
+class steplerp_func<T, U, F, dynamic_step> :
+  public lerper_base<T, U, F, steplerp_func<T, U, F, dynamic_step>>
 {
 private:
-  using base_t = steplerp_base<T, F, steplerp<T, F, dynamic_step>>;
+  using base_t = lerper_base<T, U, F, steplerp_func<T, U, F, dynamic_step>>;
 
 public:
   static constexpr u32 step_size = dynamic_step;
 
 public:
-  constexpr steplerp(const T& first, const T& last, u32 steps) :
+  constexpr steplerp_func(const T& first, const T& last, u32 steps) :
     base_t{first, last}, _steps{steps} {}
 
-  constexpr steplerp(const T& first, const T& last, u32 steps, const F& func) :
-    base_t{first, last, func}, _steps{steps} {}
+  constexpr steplerp_func(const T& first, const T& last, u32 steps, const F& lerper) :
+    base_t{first, last, lerper}, _steps{steps} {}
 
-  constexpr steplerp(const T& first, const T& last, u32 steps, F&& func) :
-    base_t{first, last, std::move(func)}, _steps{steps} {}
+  constexpr steplerp_func(const T& first, const T& last, u32 steps, F&& lerper) :
+    base_t{first, last, std::move(lerper)}, _steps{steps} {}
 
   template<typename... Args>
-  constexpr steplerp(const T& first, const T& last, u32 steps, std::in_place_t t, Args&&... args) :
+  explicit constexpr steplerp_func(const T& first, const T& last, u32 steps,
+                              std::in_place_t t, Args&&... args) :
     base_t{first, last, t, std::forward<Args>(args)...}, _steps{steps} {}
+
+private:
+  constexpr T _eval(U delta) const { return base_t::evaluate(delta/static_cast<U>(steps())); }
+
+public:
+  [[nodiscard]] constexpr T eval(i32 steps) const { return _eval(static_cast<U>(steps)); }
+  [[nodiscard]] constexpr T eval(i32 steps, U alpha) const {
+    return _eval(static_cast<U>(steps)+alpha);
+  }
+
+public:
+  [[nodiscard]] constexpr T operator()(i32 steps) const { return eval(steps); }
+  [[nodiscard]] constexpr T operator()(i32 steps, U alpha) const { return eval(steps, alpha); }
 
 public:
   constexpr u32 steps() const { return _steps; }
-  constexpr steplerp& steps(u32 value) {
+  constexpr steplerp_func& steps(u32 value) {
     _steps = value;
     return *this;
   }
@@ -194,41 +222,176 @@ private:
   u32 _steps;
 };
 
-template<typename T, typename F = linear_mix, u32 StepSize = dynamic_step>
-class steplerp_aged : public steplerp<T, F, StepSize> {
+template<typename T, std::floating_point U = f32, lerp_func<T, U> F = easing_linear<T, U>>
+class deltalerp : public lerper_base<T, U, F, deltalerp<T, U, F>> {
 private:
-  using base_t = steplerp<T, F, StepSize>;
+  using base_t = lerper_base<T, U, F, deltalerp<T, U, F>>;
 
 public:
-  using base_t::steplerp;
-  using base_t::operator();
+  using base_t::base_t;
+
+  explicit constexpr deltalerp(const T& first, const T& last, U age) :
+    base_t{first, last}, _t{age} {}
+
+  constexpr deltalerp(const T& first, const T& last, U age, const F& lerper) :
+    base_t{first, last, lerper},
+    _t{age} {}
+
+  constexpr deltalerp(const T& first, const T& last, U age, F&& lerper) :
+    base_t{first, last, std::move(lerper)}, _t{age} {}
+
+  template<typename... Args>
+  explicit constexpr deltalerp(const T& first, const T& last, U age,
+                               std::in_place_t tag, Args&&... args) :
+    base_t{first, last, tag, std::forward<Args>(args)...}, _t{age} {}
 
 public:
-  constexpr T value() const { return base_t::value(_step); }
+  [[nodiscard]] constexpr T value() const { return base_t::evaluate(_t); }
+  [[nodiscard]] constexpr T value(U alpha) const { return base_t::evaluate(_t+alpha); }
 
-  constexpr T operator*() const { return value(); }
+public:
+  [[nodiscard]] constexpr T operator*() const { return value(); }
 
-  constexpr T value_tick(i32 count = 1) {
-    const T val = value();
-    tick(count);
-    return val;
+public:
+  constexpr U age() const { return _t; }
+  constexpr deltalerp& tick(U delta) {
+    _t += delta;
+    return *this;
   }
-
-  constexpr T tick_value(i32 count = 1) { return tick(count).value(); }
-
-public:
-  constexpr i32 age() const { return _step; }
-
-  constexpr steplerp_aged& tick(i32 count = 1) {
-    _step += count;
+  constexpr deltalerp& age(U val) {
+    _t = val;
     return *this;
   }
 
-  constexpr steplerp_aged& age(i32 count) {
-    _step = count;
+private:
+  U _t{};
+};
+
+template<typename T, typename U = f32, typename F =easing_linear<T,U>, u32 StepSize = dynamic_step>
+class steplerp : public lerper_base<T, U, F, steplerp<T, U, F, StepSize>> {
+private:
+  using base_t = lerper_base<T, U, F, steplerp<T, U, F, StepSize>>;
+
+public:
+  static constexpr u32 step_size = StepSize;
+
+public:
+  using base_t::base_t;
+
+  explicit constexpr steplerp(const T& first, const T& last, i32 age) :
+    base_t{first, last}, _age{age} {}
+
+  constexpr steplerp(const T& first, const T& last, i32 age, const F& lerper) :
+    base_t{first, last, lerper}, _age{age} {}
+
+  constexpr steplerp(const T& first, const T& last, i32 age, F&& lerper) :
+    base_t{first, last, std::move(lerper)}, _age{age} {}
+
+  template<typename... Args>
+  explicit constexpr steplerp(const T& first, const T& last, i32 age,
+                              std::in_place_t t, Args&&... args) :
+    base_t{first, last, t, std::forward<Args>(args)...}, _age{age} {}
+
+private:
+  constexpr T _eval(U delta) const { return base_t::evaluate(delta/static_cast<U>(steps())); }
+
+public:
+  [[nodiscard]] constexpr T value() const { return _eval(static_cast<U>(_age)); }
+  [[nodiscard]] constexpr T value(U alpha) const { return _eval(static_cast<U>(_age)+alpha); }
+
+public:
+  [[nodiscard]] constexpr T operator*() const { return value(); }
+
+public:
+  constexpr u32 steps() const { return step_size; }
+  constexpr i32 age() const { return _age; }
+  constexpr steplerp& tick(i32 count = 1) {
+    _age += count;
+    return *this;
+  }
+  constexpr steplerp& tick_loop(i32 count = 1) {
+    _age = (_age+count) % static_cast<i32>(steps());
+    return *this;
+  }
+  constexpr steplerp& age(i32 value) {
+    _age = value;
     return *this;
   }
 
 private:
-  i32 _step{0};
+  i32 _age{};
+};
+
+template<typename T, typename U, typename F>
+class steplerp<T, U, F, dynamic_step> :
+  public lerper_base<T, U, F, steplerp<T, U, F, dynamic_step>>
+{
+private:
+  using base_t = lerper_base<T, U, F, steplerp<T, U, F, dynamic_step>>;
+
+public:
+  static constexpr u32 step_size = dynamic_step;
+
+public:
+  constexpr steplerp(const T& first, const T& last, u32 steps) :
+    base_t{first, last}, _steps{steps}, _age{} {}
+
+  constexpr steplerp(const T& first, const T& last, u32 steps, const F& lerper) :
+    base_t{first, last, lerper}, _steps{steps}, _age{} {}
+
+  constexpr steplerp(const T& first, const T& last, u32 steps, F&& lerper) :
+    base_t{first, last, std::move(lerper)}, _steps{steps}, _age{} {}
+
+  template<typename... Args>
+  explicit constexpr steplerp(const T& first, const T& last, u32 steps,
+                              std::in_place_t tag, Args&&... args) :
+    base_t{first, last, tag, std::forward<Args>(args)...}, _steps{steps}, _age{} {}
+
+  explicit constexpr steplerp(const T& first, const T& last, u32 steps, i32 age) :
+    base_t{first, last}, _steps{steps}, _age{age} {}
+
+  constexpr steplerp(const T& first, const T& last, u32 steps, i32 age, const F& lerper) :
+    base_t{first, last, lerper}, _steps{steps}, _age{age} {}
+
+  constexpr steplerp(const T& first, const T& last, u32 steps, i32 age, F&& lerper) :
+    base_t{first, last, std::move(lerper)}, _steps{steps}, _age{age} {}
+
+  template<typename... Args>
+  explicit constexpr steplerp(const T& first, const T& last, u32 steps, i32 age,
+                              std::in_place_t tag, Args&&... args) :
+    base_t{first, last, tag, std::forward<Args>(args)...}, _steps{steps}, _age{age} {}
+
+private:
+  constexpr T _eval(U delta) const { return base_t::evaluate(delta/static_cast<U>(steps())); }
+
+public:
+  [[nodiscard]] constexpr T value() const { return _eval(static_cast<U>(_age)); }
+  [[nodiscard]] constexpr T value(U alpha) const { return _eval(static_cast<U>(_age)+alpha); }
+
+public:
+  [[nodiscard]] constexpr T operator*() const { return value(); }
+
+public:
+  constexpr u32 steps() const { return _steps; }
+  constexpr steplerp& steps(u32 value) {
+    _steps = value;
+    return *this;
+  }
+  constexpr i32 age() const { return _age; }
+  constexpr steplerp& tick(i32 count = 1) {
+    _age += count;
+    return *this;
+  }
+  constexpr steplerp& tick_loop(i32 count = 1) {
+    _age = (_age+count) % static_cast<i32>(steps());
+    return *this;
+  }
+  constexpr steplerp& age(i32 value) {
+    _age = value;
+    return *this;
+  }
+
+private:
+  u32 _steps;
+  i32 _age;
 };

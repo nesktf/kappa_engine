@@ -125,6 +125,12 @@ public:
   bool set_transform(std::string_view bone, const bone_transform& transf);
   bool set_transform(std::string_view bone, const mat4& transf);
   bool set_transform(std::string_view bone, ntf::transform3d<f32>& transf);
+  
+  void set_transform(u32 bone, const bone_transform& transf);
+  void set_transform(u32 bone, const mat4& transf);
+  void set_transform(u32 bone, ntf::transform3d<f32>& transf);
+
+  ntf::optional<u32> find_bone(std::string_view name);
 
 public:
   void apply_animation(const model_anim_data& anims, std::string_view name, u32 tick);
