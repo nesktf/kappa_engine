@@ -2,7 +2,6 @@
 
 #include "common.hpp"
 
-#include <shogle/render.hpp>
 
 #include <ntfstl/unique_array.hpp>
 #include <ntfstl/optional.hpp>
@@ -69,7 +68,7 @@ struct model_material_data {
     std::string path;
     ntf::unique_array<uint8> bitmap;
     extent3d extent;
-    ntfr::image_format format;
+    shogle::image_format format;
     // aiTextureType tex_type;
     // aiTextureMapMode mapping;
     // aiTextureOp combine_op;

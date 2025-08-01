@@ -1,6 +1,8 @@
 #include "model.hpp"
 #include "renderer.hpp"
 
+#include <ntfstl/logger.hpp>
+
 #define CHECK_ERR_BUFF(_buff) \
 if (!_buff) { \
   ntf::logger::error("Failed to create vertex buffer, {}", _buff.error().what()); \
@@ -8,8 +10,21 @@ if (!_buff) { \
   return ntf::unexpected{std::string_view{"Failed to create vertex buffer"}}; \
 }
 
+static const shogle::blend_opts def_blending_opts {
+  .mode = shogle::blend_mode::add,
+  .src_factor = shogle::blend_factor::src_alpha,
+  .dst_factor = shogle::blend_factor::inv_src_alpha,
+  .color = {0.f, 0.f, 0.f, 0.f},
+};
+
+static const shogle::depth_test_opts def_depth_opts {
+  .func = shogle::test_func::less,
+  .near_bound = 0.f,
+  .far_bound = 1.f,
+};
+
 model_mesher::model_mesher(vert_buffs buffs,
-                           ntfr::index_buffer&& index_buff,
+                           shogle::index_buffer&& index_buff,
                            ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept :
   _buffs{buffs}, _mesh_offsets{std::move(mesh_offsets)},
   _index_buff{std::move(index_buff)}, _active_layouts{0u}
@@ -67,17 +82,17 @@ expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
   const size_t vertex_elements = meshes.positions.size();;
 
   auto free_buffs = [&]() {
-    for (ntfr::buffer_t buff : buffs) {
+    for (shogle::buffer_t buff : buffs) {
       if (buff) {
-        ntfr::destroy_buffer(buff);
+        shogle::destroy_buffer(buff);
       }
     }
   };
 
   auto make_vbuffer = [&](size_t sz) {
-    return ntfr::create_buffer(ctx, {
-      .type = ntfr::buffer_type::vertex,
-      .flags = ntfr::buffer_flag::dynamic_storage,
+    return shogle::create_buffer(ctx, {
+      .type = shogle::buffer_type::vertex,
+      .flags = shogle::buffer_flag::dynamic_storage,
       .size = vertex_elements*sz,
       .data = nullptr,
     });
@@ -123,13 +138,13 @@ expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
   }
 
   // Prepare index buffer and upload indices
-  const ntfr::buffer_data idx_data {
+  const shogle::buffer_data idx_data {
     .data = meshes.indices.data(),
     .size = meshes.indices.size()*sizeof(u32),
     .offset = 0u,
   };
-  auto ind = ntfr::index_buffer::create(ctx, {
-    .flags = ntfr::buffer_flag::dynamic_storage,
+  auto ind = shogle::index_buffer::create(ctx, {
+    .flags = shogle::buffer_flag::dynamic_storage,
     .size = meshes.indices.size()*sizeof(u32),
     .data = idx_data,
   });
@@ -154,13 +169,13 @@ expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
 
     auto upload_thing = [&](size_t idx, vec_span vspan, const auto& vec) {
       const auto span = vspan.to_cspan(vec.data());
-      const ntfr::buffer_data data {
+      const shogle::buffer_data data {
         .data = span.data(),
         .size = span.size_bytes(),
         .offset = offset*sizeof(typename decltype(span)::value_type),
       };
       NTF_ASSERT(buffs[idx]);
-      [[maybe_unused]] auto ret = ntfr::buffer_upload(buffs[idx], data);
+      [[maybe_unused]] auto ret = shogle::buffer_upload(buffs[idx], data);
       NTF_ASSERT(ret);
     };
 
@@ -197,9 +212,9 @@ void model_mesher::_free_buffs() noexcept {
   if (!_buffs[0]) {
     return;
   }
-  for (ntfr::buffer_t buff : _buffs){
+  for (shogle::buffer_t buff : _buffs){
     if (buff) {
-      ntfr::destroy_buffer(buff);
+      shogle::destroy_buffer(buff);
     }
   }
 }
@@ -236,24 +251,24 @@ template<u32 tex_extent>
 }();
 
 template<u32 tex_extent = 16u>
-static ntfr::expect<ntfr::texture2d> make_missing_albedo(ntfr::context_view ctx) {
-  const ntfr::image_data image {
+static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::context_view ctx) {
+  const shogle::image_data image {
     .bitmap = missing_albedo_bitmap<tex_extent>.data(),
-    .format = ntfr::image_format::rgba8nu,
+    .format = shogle::image_format::rgba8u,
     .alignment = 4u,
     .extent = {tex_extent, tex_extent, 1},
     .offset = {0, 0, 0},
     .layer = 0u,
     .level = 0u,
   };
-  const ntfr::texture_data data {
+  const shogle::texture_data data {
     .images = {image},
     .generate_mipmaps = false,
   };
-  return ntfr::texture2d::create(ctx, {
-    .format = ntfr::image_format::rgba8nu,
-    .sampler = ntfr::texture_sampler::nearest,
-    .addressing = ntfr::texture_addressing::repeat,
+  return shogle::texture2d::create(ctx, {
+    .format = shogle::image_format::rgba8u,
+    .sampler = shogle::texture_sampler::nearest,
+    .addressing = shogle::texture_addressing::repeat,
     .extent = {tex_extent, tex_extent, 1},
     .layers = 1u,
     .levels = 1u,
@@ -277,7 +292,7 @@ expect<model_texturer> model_texturer::create(const model_material_data& mat_dat
   std::unordered_map<std::string_view, u32> tex_reg;
   tex_reg.reserve(mat_data.textures.size());
   for (u32 i = 0u; const auto& tex : mat_data.textures) {
-    const ntfr::image_data image {
+    const shogle::image_data image {
       .bitmap = tex.bitmap.data(),
       .format = tex.format,
       .alignment = 4u,
@@ -286,14 +301,14 @@ expect<model_texturer> model_texturer::create(const model_material_data& mat_dat
       .layer = 0u,
       .level = 0u,
     };
-    const ntfr::texture_data data {
+    const shogle::texture_data data {
       .images = {image},
       .generate_mipmaps = true,
     };
-    auto tex2d = ntfr::texture2d::create(ctx, {
-      .format = ntfr::image_format::rgba8nu,
-      .sampler = ntfr::texture_sampler::linear,
-      .addressing = ntfr::texture_addressing::repeat,
+    auto tex2d = shogle::texture2d::create(ctx, {
+      .format = shogle::image_format::rgba8u,
+      .sampler = shogle::texture_sampler::linear,
+      .addressing = shogle::texture_addressing::repeat,
       .extent = tex.extent,
       .layers = 1u,
       .levels = 7u,
@@ -326,7 +341,7 @@ ntf::optional<u32> model_texturer::find_texture_idx(std::string_view name) const
   return it->second;
 }
 
-ntfr::texture2d_view model_texturer::find_texture(std::string_view name) {
+shogle::texture2d_view model_texturer::find_texture(std::string_view name) {
   auto idx = find_texture_idx(name);
   if (!idx) {
     return {};
@@ -336,7 +351,7 @@ ntfr::texture2d_view model_texturer::find_texture(std::string_view name) {
 }
 
 u32 model_texturer::retrieve_material_textures(u32 mat_idx,
-                                                std::vector<ntfr::texture_binding>& texs) const
+                                                std::vector<shogle::texture_binding>& texs) const
 {
   NTF_ASSERT(mat_idx < _mat_spans.size());
 
@@ -354,13 +369,13 @@ mesh_render_data& model_mesher::retrieve_mesh_data(u32 idx,
                                                     std::vector<mesh_render_data>& data)
 {
   NTF_ASSERT(idx < _mesh_offsets.size());
-  cspan<ntfr::vertex_binding> bindings{_binds.data(), _active_layouts};
+  cspan<shogle::vertex_binding> bindings{_binds.data(), _active_layouts};
   const auto& offset = _mesh_offsets[idx];
   return data.emplace_back(bindings, _index_buff,
                            offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
 }
 
-model_rigger::model_rigger(ntfr::shader_storage_buffer&& ssbo,
+model_rigger::model_rigger(shogle::shader_storage_buffer&& ssbo,
                            ntf::unique_array<bone_t>&& bones,
                            std::unordered_map<std::string_view, u32>&& bone_reg,
                            ntf::unique_array<mat4>&& bone_locals,
@@ -411,13 +426,13 @@ expect<model_rigger> model_rigger::create(const model_rig_data& rigs, std::strin
     ntf::unique_array<mat4> transf_cache{bone_vspan.size()*2u, identity}; // for model and locals
 
     ntf::unique_array<mat4> transf_output{bone_vspan.size(), identity};
-    const ntfr::buffer_data initial_data {
+    const shogle::buffer_data initial_data {
       .data = transf_output.data(),
       .size = transf_output.size()*sizeof(mat4),
       .offset = 0u,
     };
-    auto ssbo = ntfr::shader_storage_buffer::create(ctx, {
-      .flags = ntfr::buffer_flag::dynamic_storage,
+    auto ssbo = shogle::shader_storage_buffer::create(ctx, {
+      .flags = shogle::buffer_flag::dynamic_storage,
       .size = transf_output.size()*sizeof(mat4),
       .data = initial_data,
     });
@@ -471,7 +486,7 @@ bool model_rigger::set_transform(std::string_view bone, const bone_transform& tr
   NTF_ASSERT(it->second < _bone_transforms.size());
 
   constexpr vec3 pivot{0.f, 0.f, 0.f};
-  _bone_transforms[it->second] = ntf::build_trs_matrix(transf.pos, transf.scale,
+  _bone_transforms[it->second] = shogle::build_trs_matrix(transf.pos, transf.scale,
                                                        pivot, transf.rot);
   return true;
 }
@@ -495,11 +510,11 @@ void model_rigger::set_transform(u32 bone, const mat4& transf) {
 void model_rigger::set_transform(u32 bone, const bone_transform& transf) {
   NTF_ASSERT(bone < _bone_transforms.size());
   constexpr vec3 pivot{0.f, 0.f, 0.f};
-  _bone_transforms[bone] = ntf::build_trs_matrix(transf.pos, transf.scale,
+  _bone_transforms[bone] = shogle::build_trs_matrix(transf.pos, transf.scale,
                                                  pivot, transf.rot);
 }
 
-void model_rigger::set_transform(u32 bone, ntf::transform3d<f32>& transf) {
+void model_rigger::set_transform(u32 bone, shogle::transform3d<f32>& transf) {
   NTF_ASSERT(bone < _bone_transforms.size());
   _bone_transforms[bone] = transf.local();
 }
@@ -513,7 +528,7 @@ ntf::optional<u32> model_rigger::find_bone(std::string_view name) {
   return it->second;
 }
 
-bool model_rigger::set_transform(std::string_view bone, ntf::transform3d<f32>& transf) {
+bool model_rigger::set_transform(std::string_view bone, shogle::transform3d<f32>& transf) {
   return set_transform(bone, transf.local());
 }
 
@@ -526,8 +541,8 @@ void model_rigger::apply_animation(const model_anim_data& anims, std::string_vie
   const f64 t = std::fmod(anim.tps*tick, anim.duration);
 }
 
-u32 model_rigger::retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds) const {
-  const ntfr::buffer_data data {
+u32 model_rigger::retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const {
+  const shogle::buffer_data data {
     .data = _transf_output.data(),
     .size = _transf_output.size()*sizeof(mat4),
     .offset = 0u,
@@ -543,7 +558,7 @@ rigged_model3d::rigged_model3d(model_mesher&& meshes,
                                model_rigger&& rigger,
                                std::vector<model_material_data::material_meta>&& mats,
                                std::unordered_map<std::string_view, u32>&& mat_reg,
-                               ntfr::pipeline pip,
+                               shogle::pipeline pip,
                                std::vector<u32> mesh_texs,
                                std::string&& name) noexcept :
   model_mesher{std::move(meshes)}, model_texturer{std::move(texturer)},
@@ -555,20 +570,20 @@ rigged_model3d::rigged_model3d(model_mesher&& meshes,
 expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
   auto& r = renderer::instance();
 
-  std::vector<ntfr::attribute_binding> att_binds;
-  const ntfr::face_cull_opts cull {
-    .mode = ntfr::cull_mode::back,
-    .front_face = ntfr::cull_face::counter_clockwise,
+  std::vector<shogle::attribute_binding> att_binds;
+  const shogle::face_cull_opts cull {
+    .mode = shogle::cull_mode::back,
+    .front_face = shogle::cull_face::counter_clockwise,
   };
   const pipeline_opts pip_opts {
     .tests = {
       .stencil_test = nullptr,
-      .depth_test = ntfr::def_depth_opts,
+      .depth_test = def_depth_opts,
       .scissor_test = nullptr,
       .face_culling = cull,
-      .blending = ntfr::def_blending_opts,
+      .blending = def_blending_opts,
     },
-    .primitive = ntfr::primitive_mode::triangles,
+    .primitive = shogle::primitive_mode::triangles,
     .use_aos_bindings = false,
   };
   auto pip = r.make_pipeline(VERT_SHADER_RIGGED_MODEL, FRAG_SHADER_RAW_ALBEDO,
@@ -636,7 +651,7 @@ u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
     mesh.textures.count = tex_count;
 
     mesh.uniforms.idx = data.uniforms.size();
-    data.uniforms.emplace_back(ntfr::format_uniform_const(renderer::FRAG_SAMPLER_LOC, sampler));
+    data.uniforms.emplace_back(shogle::format_uniform_const(renderer::FRAG_SAMPLER_LOC, sampler));
     mesh.uniforms.count = 1u;
 
     mesh.bindings.idx = data.bindings.size();

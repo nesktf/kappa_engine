@@ -34,41 +34,65 @@ enum fragment_sampler_type {
   FRAGMENT_SAMPLER_COUNT,
 };
 
-renderer::renderer(ntfr::window&& win, ntfr::context&& ctx, vert_shader_array&& vert_shaders) :
+static shogle::render_expect<shogle::context> make_gl_ctx(
+  const shogle::window& win,
+  const color4& fb_color = {.3f, .3f, .3f, 1.f},
+  shogle::clear_flag fb_clear = shogle::clear_flag::color_depth
+) {
+  if (win.renderer() != shogle::context_api::opengl) {
+    return {ntf::unexpect, shogle::render_error::invalid_handle, "Invalid window context"};
+  }
+  const auto vp = shogle::uvec4{0, 0, win.fb_size()};
+  const auto gl_params = shogle::window::make_gl_params(win);
+  auto ctx = shogle::context::create({
+    .ctx_params = &gl_params,
+    .ctx_api = shogle::context_api::opengl,
+    .fb_viewport = vp,
+    .fb_clear_flags = fb_clear,
+    .fb_clear_color = fb_color,
+    .alloc = nullptr,
+  });
+  if (!ctx) {
+    return ntf::unexpected{std::move(ctx.error())};
+  }
+  return std::move(*ctx);
+}
+
+renderer::renderer(shogle::window&& win, shogle::context&& ctx, vert_shader_array&& vert_shaders) :
   _win{std::move(win)}, _ctx{std::move(ctx)}, _vert_shaders{std::move(vert_shaders)} {}
 
 renderer::handle_t renderer::construct() {
   u32 win_width = 1280;
   u32 win_height = 720;
-  const ntfr::win_x11_params x11 {
+  const shogle::win_x11_params x11 {
     .class_name = "cino_anim",
     .instance_name = "cino_anim",
   };
-  const ntfr::win_gl_params win_gl {
+  const shogle::win_gl_params win_gl {
     .ver_major = 4,
     .ver_minor = 6,
     .swap_interval = 1,
     .fb_msaa_level = 8,
-    .fb_buffer = ntfr::fbo_buffer::depth24u_stencil8u,
+    .fb_buffer = shogle::fbo_buffer::depth24u_stencil8u,
     .fb_use_alpha = false,
   };
-  auto win = ntfr::window::create({
+  auto win = shogle::window::create({
     .width = win_width,
     .height = win_height,
     .title = "test",
-    .attrib = ntfr::win_attrib::decorate | ntfr::win_attrib::resizable,
-    .renderer_api = ntfr::context_api::opengl,
+    .attrib = shogle::win_attrib::decorate | shogle::win_attrib::resizable,
+    .renderer_api = shogle::context_api::opengl,
     .platform_params = &x11,
     .renderer_params = &win_gl,
   }).value();
-  auto ctx = ntfr::make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
+  auto ctx = make_gl_ctx(win, {.3f, .3f, .3f, .0f}).value();
 
-  auto vert_rigged = *ntfr::vertex_shader::create(ctx, {vert_rigged_model_src});
-  auto vert_static = *ntfr::vertex_shader::create(ctx, {vert_static_model_src});
-  auto vert_generic = *ntfr::vertex_shader::create(ctx, {vert_generic_model_src});
-  auto vert_skybox = *ntfr::vertex_shader::create(ctx, {vert_skybox_src});
-  auto vert_sprite = *ntfr::vertex_shader::create(ctx, {vert_sprite_src});
-  auto vert_effect = *ntfr::vertex_shader::create(ctx, {vert_effect_src});
+  auto vert_rigged = *shogle::vertex_shader::create(ctx, {vert_rigged_model_src});
+  auto vert_static = *shogle::vertex_shader::create(ctx, {vert_static_model_src});
+  auto vert_generic = *shogle::vertex_shader::create(ctx, {vert_generic_model_src});
+  auto vert_skybox = *shogle::vertex_shader::create(ctx, {vert_skybox_src});
+  auto vert_sprite = *shogle::vertex_shader::create(ctx, {vert_sprite_src});
+  auto vert_effect = *shogle::vertex_shader::create(ctx, {vert_effect_src});
   vert_shader_array shaders {
     std::move(vert_rigged), std::move(vert_static), std::move(vert_generic),
     std::move(vert_skybox), std::move(vert_sprite), std::move(vert_effect)
@@ -78,8 +102,8 @@ renderer::handle_t renderer::construct() {
   return {};
 }
 
-ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& flags,
-                                                    std::vector<ntfr::attribute_binding>& bindings,
+shogle::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& flags,
+                                                    std::vector<shogle::attribute_binding>& bindings,
                                                     bool aos_bindings)
 {
   struct rig_vertex {
@@ -114,25 +138,25 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
     case VERT_SHADER_RIGGED_MODEL: {
       bindings.reserve(7u);
       // type, location, offset, stride
-      bindings.emplace_back(ntfr::attribute_type::vec3,  0u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  0u,
                             aos_bindings*offsetof(rig_vertex, pos),
                             aos_bindings*sizeof(rig_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  1u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  1u,
                             aos_bindings*offsetof(rig_vertex, norm),
                             aos_bindings*sizeof(rig_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec2,  2u,
+      bindings.emplace_back(shogle::attribute_type::vec2,  2u,
                             aos_bindings*offsetof(rig_vertex, uvs),
                             aos_bindings*sizeof(rig_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  3u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  3u,
                             aos_bindings*offsetof(rig_vertex, tang),
                             aos_bindings*sizeof(rig_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3, 4u,
+      bindings.emplace_back(shogle::attribute_type::vec3, 4u,
                             aos_bindings*offsetof(rig_vertex, bitang),
                             aos_bindings*sizeof(rig_vertex));
-      bindings.emplace_back(ntfr::attribute_type::ivec4,  5u,
+      bindings.emplace_back(shogle::attribute_type::ivec4,  5u,
                             aos_bindings*offsetof(rig_vertex, bones),
                             aos_bindings*sizeof(rig_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec4,  6u,
+      bindings.emplace_back(shogle::attribute_type::vec4,  6u,
                             aos_bindings*offsetof(rig_vertex, weights),
                             aos_bindings*sizeof(rig_vertex));
       flags =
@@ -143,19 +167,19 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
     case VERT_SHADER_STATIC_MODEL: {
       bindings.reserve(5u);
       // type, location, offset, stride
-      bindings.emplace_back(ntfr::attribute_type::vec3,  0u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  0u,
                             aos_bindings*offsetof(tang_vertex, pos),
                             aos_bindings*sizeof(tang_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  1u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  1u,
                             aos_bindings*offsetof(tang_vertex, norm),
                             aos_bindings*sizeof(tang_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec2,  2u,
+      bindings.emplace_back(shogle::attribute_type::vec2,  2u,
                             aos_bindings*offsetof(tang_vertex, uvs),
                             aos_bindings*sizeof(tang_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  3u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  3u,
                             aos_bindings*offsetof(tang_vertex, tang),
                             aos_bindings*sizeof(tang_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3, 4u,
+      bindings.emplace_back(shogle::attribute_type::vec3, 4u,
                             aos_bindings*offsetof(tang_vertex, bitang),
                             aos_bindings*sizeof(tang_vertex));
       flags =
@@ -166,13 +190,13 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
     case VERT_SHADER_GENERIC_MODEL: {
       bindings.reserve(3u);
       // type, location, offset, stride
-      bindings.emplace_back(ntfr::attribute_type::vec3,  0u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  0u,
                             aos_bindings*offsetof(generic_vertex, pos),
                             aos_bindings*sizeof(generic_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  1u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  1u,
                             aos_bindings*offsetof(generic_vertex, norm),
                             aos_bindings*sizeof(generic_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec2,  2u,
+      bindings.emplace_back(shogle::attribute_type::vec2,  2u,
                             aos_bindings*offsetof(generic_vertex, uvs),
                             aos_bindings*sizeof(generic_vertex));
       flags =
@@ -182,7 +206,7 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
     }
     case VERT_SHADER_SKYBOX: {
       bindings.reserve(1u);
-      bindings.emplace_back(ntfr::attribute_type::vec3, 0u,
+      bindings.emplace_back(shogle::attribute_type::vec3, 0u,
                             aos_bindings*offsetof(skybox_vertex, pos),
                             aos_bindings*sizeof(skybox_vertex));
       flags =
@@ -192,13 +216,13 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
     case VERT_SHADER_SPRITE: {
       bindings.reserve(3u);
       // type, location, offset, stride
-      bindings.emplace_back(ntfr::attribute_type::vec3,  0u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  0u,
                             aos_bindings*offsetof(generic_vertex, pos),
                             aos_bindings*sizeof(generic_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  1u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  1u,
                             aos_bindings*offsetof(generic_vertex, norm),
                             aos_bindings*sizeof(generic_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec2,  2u,
+      bindings.emplace_back(shogle::attribute_type::vec2,  2u,
                             aos_bindings*offsetof(generic_vertex, uvs),
                             aos_bindings*sizeof(generic_vertex));
       flags =
@@ -209,13 +233,13 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
     case VERT_SHADER_EFFECT: {
       bindings.reserve(3u);
       // type, location, offset, stride
-      bindings.emplace_back(ntfr::attribute_type::vec3,  0u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  0u,
                             aos_bindings*offsetof(generic_vertex, pos),
                             aos_bindings*sizeof(generic_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec3,  1u,
+      bindings.emplace_back(shogle::attribute_type::vec3,  1u,
                             aos_bindings*offsetof(generic_vertex, norm),
                             aos_bindings*sizeof(generic_vertex));
-      bindings.emplace_back(ntfr::attribute_type::vec2,  2u,
+      bindings.emplace_back(shogle::attribute_type::vec2,  2u,
                             aos_bindings*offsetof(generic_vertex, uvs),
                             aos_bindings*sizeof(generic_vertex));
       flags =
@@ -228,8 +252,8 @@ ntfr::vertex_shader_view renderer::_make_vert_stage(vert_shader_type type, u32& 
   return _vert_shaders[type];
 }
 
-expect<ntfr::pipeline> renderer::make_pipeline(vert_shader_type vert, frag_shader_type frag,
-                                               std::vector<ntfr::attribute_binding>& bindings,
+expect<shogle::pipeline> renderer::make_pipeline(vert_shader_type vert, frag_shader_type frag,
+                                               std::vector<shogle::attribute_binding>& bindings,
                                                const pipeline_opts& opts)
 {
   auto ctx = renderer::instance().ctx();
@@ -242,34 +266,34 @@ expect<ntfr::pipeline> renderer::make_pipeline(vert_shader_type vert, frag_shade
     return {ntf::unexpect, frag_stage.error()};
   }
 
-  const ntfr::shader_t stages[] = {vert_stage, *frag_stage};
-  return ntfr::pipeline::create(ctx, {
+  const shogle::shader_t stages[] = {vert_stage, *frag_stage};
+  return shogle::pipeline::create(ctx, {
     .attributes = {bindings.data(), bindings.size()},
     .stages = stages,
     .primitive = opts.primitive,
-    .poly_mode = ntfr::polygon_mode::fill,
+    .poly_mode = shogle::polygon_mode::fill,
     .poly_width = 1.f,
     .tests = opts.tests,
   })
-  .transform_error([](ntfr::render_error&& err) -> std::string_view {
+  .transform_error([](shogle::render_error&& err) -> std::string_view {
     return err.msg();
   });
 }
 
-expect<ntfr::fragment_shader> renderer::_make_frag_stage(frag_shader_type type, u32 vert_flags) {
+expect<shogle::fragment_shader> renderer::_make_frag_stage(frag_shader_type type, u32 vert_flags) {
   auto ctx = renderer::instance().ctx();
-  std::vector<ntfr::cstring_view<char>> srcs;
+  std::vector<shogle::string_view> srcs;
   srcs.emplace_back(frag_header_base_src);
   srcs.emplace_back(frag_tangents_base_src);
   srcs.emplace_back(frag_raw_albedo_src);
 
-  return ntfr::fragment_shader::create(ctx, {srcs.data(), srcs.size()})
-  .transform_error([](ntfr::render_error&& err) -> std::string_view {
+  return shogle::fragment_shader::create(ctx, {srcs.data(), srcs.size()})
+  .transform_error([](shogle::render_error&& err) -> std::string_view {
     return err.msg();
   });
 }
 
-void renderer::render(ntfr::framebuffer_view target, u32 sort,
+void renderer::render(shogle::framebuffer_view target, u32 sort,
                       const scene_render_data& scene, renderable& obj) {
   const u32 mesh_count = obj.retrieve_render_data(scene, _render_data);
   if (!mesh_count) {
@@ -280,12 +304,12 @@ void renderer::render(ntfr::framebuffer_view target, u32 sort,
     auto tex_span = mesh.textures.to_cspan(_render_data.textures.data());
     auto unif_span = mesh.uniforms.to_cspan(_render_data.uniforms.data());
     auto bind_span = mesh.bindings.to_cspan(_render_data.bindings.data());
-    const ntfr::buffer_binding buff_bind {
+    const shogle::buffer_binding buff_bind {
       .vertex = mesh.vertex_buffers,
       .index = mesh.index_buffer,
       .shader = bind_span,
     };
-    const ntfr::render_opts opts {
+    const shogle::render_opts opts {
       .vertex_count = mesh.vertex_count,
       .vertex_offset = mesh.vertex_offset,
       .index_offset = mesh.index_offset,

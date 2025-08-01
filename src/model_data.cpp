@@ -1,5 +1,4 @@
 #include "model.hpp"
-#include <shogle/assets.hpp>
 #include <ntfstl/logger.hpp>
 
 #define RET_ERR(_msg) \
@@ -14,7 +13,7 @@ assimp_parser::assimp_parser() {
 }
 
 auto assimp_parser::load(const std::string& path, uint32 assimp_flags) -> expect<void> {
-  auto dir = ntf::file_dir(path);
+  auto dir = shogle::file_dir(path);
   RET_ERR_IF(!dir, "Failed to parse directory path");
 
   const aiScene* scene = _imp.ReadFile(path.c_str(), assimp_flags);
@@ -72,8 +71,8 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
   RET_ERR_IF(!scene->HasMaterials(), "No materials found");
 
   std::unordered_map<std::string, u32> parsed_tex;
-  const auto stb_flags = ntf::image_load_flags::flip_y;
-  ntf::stb_image_loader stb;
+  const auto stb_flags = shogle::image_load_flags::flip_y;
+  shogle::stb_image_loader stb;
 
   // auto copy_raw_bitmap = [&](span<uint8> bitmap, const aiTexture* tex) -> ntfr::image_format {
   //   const size_t texel_count = tex->mWidth*tex->mHeight;
@@ -144,7 +143,7 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
           continue;
         }
 
-        auto file_data = ntf::file_data(tex_path);
+        auto file_data = shogle::file_data(tex_path);
         if (!file_data) {
           ntf::logger::warning("Failed to load texture \"{}\", {}",
                                tex_path, file_data.error().what());

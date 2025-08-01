@@ -1,7 +1,6 @@
 #pragma once
 
 #include "model.hpp"
-#include <shogle/assets.hpp>
 
 #include <ntfstl/threadpool.hpp>
 #include <ntfstl/function.hpp>

@@ -18,8 +18,8 @@ protected:
   };
 
 public:
-  using vert_buffs = std::array<ntfr::buffer_t, ATTRIB_COUNT>;
-  using vert_binds = std::array<ntfr::vertex_binding, ATTRIB_COUNT>;
+  using vert_buffs = std::array<shogle::buffer_t, ATTRIB_COUNT>;
+  using vert_binds = std::array<shogle::vertex_binding, ATTRIB_COUNT>;
 
 private:
   struct mesh_offset {
@@ -29,7 +29,7 @@ private:
   };
 
 public:
-  model_mesher(vert_buffs buffs, ntfr::index_buffer&& index_buff,
+  model_mesher(vert_buffs buffs, shogle::index_buffer&& index_buff,
                ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept;
 
   ~model_mesher() noexcept;
@@ -55,7 +55,7 @@ private:
   vert_buffs _buffs;
   vert_binds _binds;
   ntf::unique_array<mesh_offset> _mesh_offsets;
-  ntfr::index_buffer _index_buff;
+  shogle::index_buffer _index_buff;
   u32 _active_layouts;
 };
 
@@ -63,7 +63,7 @@ class model_texturer {
 private:
   struct texture_t {
     std::string name;
-    ntfr::texture2d tex;
+    shogle::texture2d tex;
     u32 sampler;
   };
   struct material_t {
@@ -81,11 +81,11 @@ protected:
   static expect<model_texturer> create(const model_material_data& materials);
 
 public:
-  ntfr::texture2d_view find_texture(std::string_view name);
+  shogle::texture2d_view find_texture(std::string_view name);
 
 protected:
   ntf::optional<u32> find_texture_idx(std::string_view name) const;
-  u32 retrieve_material_textures(u32 mat_idx, std::vector<ntfr::texture_binding>& texs) const;
+  u32 retrieve_material_textures(u32 mat_idx, std::vector<shogle::texture_binding>& texs) const;
 
 private:
   ntf::unique_array<texture_t> _textures;
@@ -109,7 +109,7 @@ public:
   };
 
 public:
-  model_rigger(ntfr::shader_storage_buffer&& ssbo,
+  model_rigger(shogle::shader_storage_buffer&& ssbo,
                ntf::unique_array<bone_t>&& bones,
                std::unordered_map<std::string_view, u32>&& bone_reg,
                ntf::unique_array<mat4>&& bone_locals,
@@ -124,11 +124,11 @@ protected:
 public:
   bool set_transform(std::string_view bone, const bone_transform& transf);
   bool set_transform(std::string_view bone, const mat4& transf);
-  bool set_transform(std::string_view bone, ntf::transform3d<f32>& transf);
+  bool set_transform(std::string_view bone, shogle::transform3d<f32>& transf);
   
   void set_transform(u32 bone, const bone_transform& transf);
   void set_transform(u32 bone, const mat4& transf);
-  void set_transform(u32 bone, ntf::transform3d<f32>& transf);
+  void set_transform(u32 bone, shogle::transform3d<f32>& transf);
 
   ntf::optional<u32> find_bone(std::string_view name);
 
@@ -137,10 +137,10 @@ public:
 
 protected:
   void tick_bones(const mat4& root);
-  u32 retrieve_buffer_bindings(std::vector<ntfr::shader_binding>& binds) const;
+  u32 retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const;
 
 private:
-  ntfr::shader_storage_buffer _ssbo;
+  shogle::shader_storage_buffer _ssbo;
   ntf::unique_array<bone_t> _bones;
   std::unordered_map<std::string_view, u32> _bone_reg;
   ntf::unique_array<mat4> _bone_locals;
@@ -173,7 +173,7 @@ public:
                  model_rigger&& rigger,
                  std::vector<model_material_data::material_meta>&& mats,
                  std::unordered_map<std::string_view, u32>&& mat_reg,
-                 ntfr::pipeline pip,
+                 shogle::pipeline pip,
                  std::vector<u32> mesh_mats,
                  std::string&& name) noexcept;
 
@@ -185,14 +185,14 @@ public:
   u32 retrieve_render_data(const scene_render_data& scene, object_render_data& data) override;
 
 public:
-  ntf::transform3d<f32>& transform() { return _transf; }
+  shogle::transform3d<f32>& transform() { return _transf; }
   std::string_view name() const { return _name; }
 
 private:
   std::vector<model_material_data::material_meta> _mats;
   std::unordered_map<std::string_view, u32> _mat_reg;
-  ntfr::pipeline _pip;
+  shogle::pipeline _pip;
   std::vector<u32> _mesh_mats;
   std::string _name;
-  ntf::transform3d<f32> _transf;
+  shogle::transform3d<f32> _transf;
 };

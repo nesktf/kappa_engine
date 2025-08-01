@@ -2,7 +2,6 @@
 
 #define SHOGLE_EXPOSE_GLFW 1
 #include "common.hpp"
-#include <shogle/boilerplate.hpp>
 
 #include <ntfstl/singleton.hpp>
 #include <variant>
@@ -55,14 +54,14 @@ public:
 };
 
 struct pipeline_opts {
-  ntfr::render_tests tests;
-  ntfr::primitive_mode primitive;
+  shogle::render_tests tests;
+  shogle::primitive_mode primitive;
   bool use_aos_bindings;
 };
 
 struct mesh_render_data {
-  cspan<ntfr::vertex_binding> vertex_buffers;
-  ntfr::index_buffer_view index_buffer;
+  cspan<shogle::vertex_binding> vertex_buffers;
+  shogle::index_buffer_view index_buffer;
   u32 vertex_count;
   u32 vertex_offset;
   u32 index_offset;
@@ -71,18 +70,18 @@ struct mesh_render_data {
   vec_span textures;
   vec_span uniforms;
   vec_span bindings;
-  ntfr::pipeline_view pipeline;
+  shogle::pipeline_view pipeline;
 };
 
 struct object_render_data {
   std::vector<mesh_render_data> meshes;
-  std::vector<ntfr::shader_binding> bindings;
-  std::vector<ntfr::texture_binding> textures;
-  std::vector<ntfr::uniform_const> uniforms;
+  std::vector<shogle::shader_binding> bindings;
+  std::vector<shogle::texture_binding> textures;
+  std::vector<shogle::uniform_const> uniforms;
 };
 
 struct scene_render_data {
-  ntfr::uniform_buffer_view transform;
+  shogle::uniform_buffer_view transform;
 };
 
 struct renderable {
@@ -98,7 +97,7 @@ private:
     ~handle_t() { renderer::destroy(); }
   };
 
-  using vert_shader_array = std::array<ntfr::vertex_shader, VERT_SHADER_COUNT>;
+  using vert_shader_array = std::array<shogle::vertex_shader, VERT_SHADER_COUNT>;
 
 public:
   static constexpr i32 VERT_MODEL_TRANSFORM_LOC = 1;
@@ -107,38 +106,38 @@ public:
   static constexpr i32 FRAG_SAMPLER_LOC = 8;
 
 private:
-  renderer(ntfr::window&& win, ntfr::context&& ctx, vert_shader_array&& vert_shaders);
+  renderer(shogle::window&& win, shogle::context&& ctx, vert_shader_array&& vert_shaders);
 
 public:
   static handle_t construct();
 
 public:
-  expect<ntfr::pipeline> make_pipeline(vert_shader_type vert, frag_shader_type frag,
-                                       std::vector<ntfr::attribute_binding>& bindings,
+  expect<shogle::pipeline> make_pipeline(vert_shader_type vert, frag_shader_type frag,
+                                       std::vector<shogle::attribute_binding>& bindings,
                                        const pipeline_opts& opts);
 
-  void render(ntfr::framebuffer_view target, u32 sort,
+  void render(shogle::framebuffer_view target, u32 sort,
               const scene_render_data& scene, renderable& obj);
 
 private:
-  ntfr::vertex_shader_view _make_vert_stage(vert_shader_type type,
+  shogle::vertex_shader_view _make_vert_stage(vert_shader_type type,
                                             u32& flags,
-                                            std::vector<ntfr::attribute_binding>& bindings,
+                                            std::vector<shogle::attribute_binding>& bindings,
                                             bool aos_bindings);
-  expect<ntfr::fragment_shader> _make_frag_stage(frag_shader_type type, u32 vert_flags);
+  expect<shogle::fragment_shader> _make_frag_stage(frag_shader_type type, u32 vert_flags);
 
 public:
-  ntfr::window& win() { return _win; }
-  ntfr::context_view ctx() const { return _ctx; }
+  shogle::window& win() { return _win; }
+  shogle::context_view ctx() const { return _ctx; }
 
 public:
   void render_loop(auto&& fun) {
-    ntfr::render_loop(_win, _ctx, GAME_UPS, std::forward<decltype(fun)>(fun));
+    shogle::render_loop(_win, _ctx, GAME_UPS, std::forward<decltype(fun)>(fun));
   }
 
 private:
-  ntfr::window _win;
-  ntfr::context _ctx;
+  shogle::window _win;
+  shogle::context _ctx;
   vert_shader_array _vert_shaders;
   object_render_data _render_data;
 };
