@@ -1,7 +1,6 @@
 #pragma once
 
-#include "common.hpp"
-
+#include "../common.hpp"
 
 #include <ntfstl/unique_array.hpp>
 #include <ntfstl/optional.hpp>
@@ -12,7 +11,7 @@
 
 #include <unordered_map>
 
-using namespace ntf::numdefs;
+namespace kappa {
 
 struct model_rig_data {
   struct bone_meta {
@@ -137,13 +136,6 @@ struct model_mesh_data {
   std::unordered_map<std::string_view, u32> mesh_registry;
 };
 
-struct model_data {
-  model_mesh_data meshes;
-  model_material_data materials;
-  model_rig_data rigs;
-  model_anim_data anims;
-};
-
 class assimp_parser {
 private:
   using unex_t = ntf::unexpected<std::string_view>;
@@ -178,3 +170,5 @@ private:
   uint32 _flags;
   std::string _dir;
 };
+
+} // namespace kappa

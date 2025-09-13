@@ -1,6 +1,8 @@
 #pragma once
 
-#include "common.hpp"
+#include "./common.hpp"
+
+namespace kappa {
 
 template<typename T, typename U>
 concept interpolable = requires(T a, T b, U scalar) {
@@ -395,3 +397,5 @@ private:
   u32 _steps;
   i32 _age;
 };
+
+} // namespace kappa

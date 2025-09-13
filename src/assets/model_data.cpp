@@ -1,4 +1,4 @@
-#include "model.hpp"
+#include "assets/model_data.hpp"
 #include <ntfstl/logger.hpp>
 
 #define RET_ERR(_msg) \
@@ -6,6 +6,8 @@
   return unex_t{_msg}
 #define RET_ERR_IF(_cond, _msg) \
   if (_cond) { RET_ERR(_msg); }
+
+namespace kappa {
 
 assimp_parser::assimp_parser() {
   _imp.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, true);
@@ -582,3 +584,5 @@ auto assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
 
   return {};
 }
+
+} // namespace kappa

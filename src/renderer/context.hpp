@@ -1,10 +1,12 @@
 #pragma once
 
 #define SHOGLE_EXPOSE_GLFW 1
-#include "common.hpp"
+#include "../common.hpp"
 
 #include <ntfstl/singleton.hpp>
 #include <variant>
+
+namespace kappa {
 
 enum vert_shader_type {
   VERT_SHADER_RIGGED_MODEL = 0,
@@ -141,3 +143,5 @@ private:
   vert_shader_array _vert_shaders;
   object_render_data _render_data;
 };
+
+} // namespace kappa

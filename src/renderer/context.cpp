@@ -1,5 +1,7 @@
-#include "renderer.hpp"
-#include "shaders.hpp"
+#include "./context.hpp"
+#include "./shaders.hpp"
+
+namespace kappa {
 
 enum vertex_stage_flags {
   VERTEX_STAGE_NO_FLAGS = 0,
@@ -331,3 +333,4 @@ void renderer::render(shogle::framebuffer_view target, u32 sort,
   _render_data.uniforms.clear();
   _render_data.textures.clear();
 }
+} // namespace kappa

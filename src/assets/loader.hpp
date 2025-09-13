@@ -1,11 +1,13 @@
 #pragma once
 
-#include "model.hpp"
+#include "assets/rigged_model.hpp"
 
 #include <ntfstl/threadpool.hpp>
 #include <ntfstl/function.hpp>
 
 #include <variant>
+
+namespace kappa {
 
 class asset_bundle {
 public:
@@ -93,3 +95,5 @@ private:
   std::mutex _res_mtx;
   std::queue<response_t> _responses;
 };
+
+} // namespace kappa

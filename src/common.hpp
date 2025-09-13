@@ -5,6 +5,8 @@
 #include <ntfstl/span.hpp>
 #include <ntfstl/expected.hpp>
 
+namespace kappa {
+
 using namespace ntf::numdefs;
 
 using shogle::mat4;
@@ -51,3 +53,5 @@ struct vec_span {
   bool empty() const { return idx == INDEX_TOMB || count == 0u; }
   u32 size() const { return count; }
 };
+
+} // namespace kappa

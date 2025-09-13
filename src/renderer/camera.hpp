@@ -1,6 +1,8 @@
 #pragma once
 
-#include "common.hpp"
+#include "../common.hpp"
+
+namespace kappa {
 
 enum cam_movement {
   CAM_FORWARD,
@@ -81,3 +83,5 @@ private:
   f32 _pitch;
   f32 _mouse_sens;
 };
+
+} // namespace kappa

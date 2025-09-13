@@ -1,5 +1,4 @@
-#include "model.hpp"
-#include "renderer.hpp"
+#include "assets/rigged_model.hpp"
 
 #include <ntfstl/logger.hpp>
 
@@ -9,6 +8,8 @@ if (!_buff) { \
   free_buffs(); \
   return ntf::unexpected{std::string_view{"Failed to create vertex buffer"}}; \
 }
+
+namespace kappa {
 
 static const shogle::blend_opts def_blending_opts {
   .mode = shogle::blend_mode::add,
@@ -665,3 +666,5 @@ u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
   }
   return mesh_count;
 }
+
+} // namespace kapp

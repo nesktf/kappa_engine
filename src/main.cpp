@@ -1,15 +1,12 @@
-#include "renderer.hpp"
-#include "assets.hpp"
-#include "model_data.hpp"
-#include "model.hpp"
+#include "renderer/context.hpp"
+#include "renderer/camera.hpp"
+#include "assets/loader.hpp"
 #include "interpolator.hpp"
-#include <ranges>
-#include "camera.hpp"
 
 #include <ntfstl/logger.hpp>
 #include <ntfstl/utility.hpp>
 
-using namespace ntf::numdefs;
+using namespace kappa;
 
 int main() {
   ntf::logger::set_level(ntf::log_level::verbose);

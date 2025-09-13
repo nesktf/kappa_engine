@@ -1,6 +1,8 @@
-#include "assets.hpp"
+#include "assets/loader.hpp"
 
 #include <ntfstl/utility.hpp>
+
+namespace kappa {
 
 auto asset_bundle::put_rmodel(rigged_model3d::data_t&& model_data) -> expect<rmodel_idx> {
   return rigged_model3d::create(std::move(model_data))
@@ -102,3 +104,5 @@ auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
     std::move(rigs), std::move(anims), std::move(mats), std::move(meshes)
   };
 }
+
+} // namespace kappa

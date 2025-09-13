@@ -1,7 +1,16 @@
 #pragma once
 
-#include "model_data.hpp"
-#include "renderer.hpp"
+#include "assets/model_data.hpp"
+#include "renderer/context.hpp"
+
+namespace kappa {
+
+struct rigged_model_data {
+  model_mesh_data meshes;
+  model_material_data materials;
+  model_rig_data rigs;
+  model_anim_data anims;
+};
 
 class model_mesher {
 protected:
@@ -196,3 +205,5 @@ private:
   std::string _name;
   shogle::transform3d<f32> _transf;
 };
+
+} // namespace kappa
