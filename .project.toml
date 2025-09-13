@@ -3,15 +3,15 @@ build = "make -C build -j4"
 clean = "rm -rf ./build"
 config = "cmake -B build"
 run = ""
-target = "game_test"
+target = "kappa"
 target_config = "debug"
 target_configs = [ "debug", "release" ]
 term_dir = "vertical"
 test = ""
 
-[game_test]
-run = "mangohud --dlsym ./build/game_test"
+[kappa]
+run = "mangohud --dlsym ./build/kappa"
 
-    [game_test.config]
+    [kappa.config]
     debug = [ "-DCMAKE_BUILD_TYPE=Debug" ]
     release = [ "-DCMAKE_BUILD_TYPE=Release" ]

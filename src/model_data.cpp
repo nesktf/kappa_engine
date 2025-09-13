@@ -201,7 +201,7 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
 }
 
 auto assimp_parser::parse_meshes(const model_rig_data& rigs,
-                                 model_mesh_data& data) -> expect<void>
+                                 model_mesh_data& data, std::string_view model_name) -> expect<void>
 {
   const aiScene* scene = _imp.GetScene();
 
@@ -278,6 +278,11 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
   for (size_t i = 0; i < scene->mNumMeshes; ++i) {
     const aiMesh* mesh = scene->mMeshes[i];
     const size_t nverts = mesh->mNumVertices;
+    std::string_view name{mesh->mName.data, mesh->mName.length};
+    ntf::logger::warning("{}", name);
+    if (name.find(model_name) == std::string::npos) {
+      continue;
+    }
 
     // Positions
     vec_span pos{vec_span::INDEX_TOMB, 0u};
@@ -382,6 +387,14 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
   for (u32 i = 0; const auto& mesh : data.meshes) {
     auto [_, empl] = data.mesh_registry.try_emplace(mesh.name, i++);
     NTF_ASSERT(empl);
+
+    ntf::logger::info("{}", mesh.name); 
+    ntf::logger::info("- pos:  [{} {}]", mesh.positions.idx, mesh.positions.count);
+    ntf::logger::info("- norm: [{} {}]", mesh.normals.idx, mesh.normals.count);
+    ntf::logger::info("- uvs:  [{} {}]", mesh.uvs.idx, mesh.uvs.count);
+    ntf::logger::info("- tang: [{} {}]", mesh.tangents.idx, mesh.tangents.count);
+    ntf::logger::info("- bone: [{} {}]", mesh.bones.idx, mesh.bones.count);
+    ntf::logger::info("- cols: [{} {}]", mesh.colors.idx, mesh.colors.count);
   }
 
   ntf::logger::debug("Parsed {} vertices, {} faces, {} indices, {} meshes",

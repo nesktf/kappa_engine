@@ -95,7 +95,7 @@ auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
   parser.parse_materials(mats);
 
   model_mesh_data meshes;
-  parser.parse_meshes(rigs, meshes);
+  parser.parse_meshes(rigs, meshes, name);
 
   return expect<rigged_model3d::data_t> {
     ntf::in_place, std::move(name), opt.armature,

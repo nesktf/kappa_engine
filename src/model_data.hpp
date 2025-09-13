@@ -166,7 +166,8 @@ public:
   expect<void> parse_rigs(model_rig_data& rigs);
   expect<void> parse_animations(model_anim_data& anims);
   expect<void> parse_materials(model_material_data& materials);
-  expect<void> parse_meshes(const model_rig_data& rigs, model_mesh_data& meshes);
+  expect<void> parse_meshes(const model_rig_data& rigs, model_mesh_data& meshes,
+                            std::string_view model_name);
 
 private:
   void _parse_bone_nodes(const bone_inv_map& bone_invs, u32 parent, u32& bone_count,

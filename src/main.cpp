@@ -56,6 +56,10 @@ int main() {
 
   asset_bundle bundle;
   asset_loader loader;
+  const asset_loader::model_opts koosh_opts {
+    .flags = assimp_parser::DEFAULT_ASS_FLAGS,
+    .armature = "Koishi V1.0_arm",
+  };
   const asset_loader::model_opts cirno_opts {
     .flags = assimp_parser::DEFAULT_ASS_FLAGS,
     .armature = "model",
@@ -71,9 +75,9 @@ int main() {
     const auto id = static_cast<asset_bundle::rmodel_idx>(*idx);
     auto& m = bundle.get_rmodel(id);
     vec3 pos;
-    if (m.name() == "koishi") {
+    if (m.name() == "Koishi V1.0") {
       pos = {.9f, -.75f, 0.f};
-    } else if (m.name() == "chiruno") {
+    } else if (m.name() == "cirno") {
       pos = {-.9f, -.75f, 0.f};
     } else {
       pos = {0, -.75f, 0.f};
@@ -82,10 +86,10 @@ int main() {
     rmodels.emplace_back(id, pos);
   };
   
-  loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "chiruno",
+  loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "cirno",
                         cirno_opts, model_callback);
-  loader.request_rmodel(bundle, "./res/koosh/koosh.gltf", "koishi",
-                        cirno_opts, model_callback);
+  loader.request_rmodel(bundle, "./res/koishi/koishi.gltf", "Koishi V1.0",
+                        koosh_opts, model_callback);
   loader.request_rmodel(bundle, "./res/mari/mari.gltf", "marisa",
                         cirno_opts, model_callback);
   // loader.request_rmodel(bundle, "./lib/shogle/demos/res/cirno_fumo/cirno_fumo.obj", "fumo",
@@ -145,15 +149,17 @@ int main() {
       if (!do_things) {
         return;
       }
+      // rotlerp.tick_loop();
+      // bone_transform.rot(rotlerp.value());
 
       for (auto& [idx, pos] : rmodels) {
         auto& model = bundle.get_rmodel(idx);
-        model.transform().pos(pos+*poslerp).rot(*rotlerp);
-        model.set_transform("Head", bone_transform);
+        // model.transform().pos(pos+*poslerp).rot(*rotlerp);
+        model.set_transform("UpperBody", bone_transform);
         model.tick();
       }
-      poslerp.tick_loop();
-      rotlerp.tick_loop();
+      // poslerp.tick_loop();
+      // rotlerp.tick_loop();
     },
     [&](f32 dt, f32 alpha) {
       NTF_UNUSED(dt);

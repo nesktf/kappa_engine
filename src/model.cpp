@@ -169,6 +169,8 @@ expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
 
     auto upload_thing = [&](size_t idx, vec_span vspan, const auto& vec) {
       const auto span = vspan.to_cspan(vec.data());
+      // ntf::logger::debug("{}, {} {}", idx, vspan.idx, vspan.count);
+      NTF_ASSERT(span.data());
       const shogle::buffer_data data {
         .data = span.data(),
         .size = span.size_bytes(),
@@ -176,6 +178,7 @@ expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
       };
       NTF_ASSERT(buffs[idx]);
       [[maybe_unused]] auto ret = shogle::buffer_upload(buffs[idx], data);
+      // TODO: There is a UV problem in the koishi model?
       NTF_ASSERT(ret);
     };
 
@@ -422,10 +425,10 @@ expect<model_rigger> model_rigger::create(const model_rig_data& rigs, std::strin
     }
 
     constexpr mat4 identity{1.f};
-    ntf::unique_array<mat4> bone_transforms{bone_vspan.size(), identity};
-    ntf::unique_array<mat4> transf_cache{bone_vspan.size()*2u, identity}; // for model and locals
+    ntf::unique_array<mat4> bone_transforms(bone_vspan.size(), identity);
+    ntf::unique_array<mat4> transf_cache(bone_vspan.size()*2u, identity); // for model and locals
 
-    ntf::unique_array<mat4> transf_output{bone_vspan.size(), identity};
+    ntf::unique_array<mat4> transf_output(bone_vspan.size(), identity);
     const shogle::buffer_data initial_data {
       .data = transf_output.data(),
       .size = transf_output.size()*sizeof(mat4),
