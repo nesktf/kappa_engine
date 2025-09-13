@@ -24,7 +24,7 @@ static const shogle::depth_test_opts def_depth_opts {
   .far_bound = 1.f,
 };
 
-model_mesher::model_mesher(vert_buffs buffs,
+rigged_model_mesher::rigged_model_mesher(vert_buffs buffs,
                            shogle::index_buffer&& index_buff,
                            ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept :
   _buffs{buffs}, _mesh_offsets{std::move(mesh_offsets)},
@@ -42,7 +42,7 @@ model_mesher::model_mesher(vert_buffs buffs,
   }
 }
 
-model_mesher::model_mesher(model_mesher&& other) noexcept :
+rigged_model_mesher::rigged_model_mesher(rigged_model_mesher&& other) noexcept :
   _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
   _mesh_offsets{std::move(other._mesh_offsets)}, _index_buff{std::move(other._index_buff)},
   _active_layouts{std::move(other._active_layouts)}
@@ -50,7 +50,7 @@ model_mesher::model_mesher(model_mesher&& other) noexcept :
   other._buffs[0] = nullptr;
 }
 
-model_mesher& model_mesher::operator=(model_mesher&& other) noexcept {
+rigged_model_mesher& rigged_model_mesher::operator=(rigged_model_mesher&& other) noexcept {
   _free_buffs();
 
   _buffs = std::move(other._buffs);
@@ -64,10 +64,10 @@ model_mesher& model_mesher::operator=(model_mesher&& other) noexcept {
   return *this;
 }
 
-model_mesher::~model_mesher() noexcept { _free_buffs(); }
+rigged_model_mesher::~rigged_model_mesher() noexcept { _free_buffs(); }
 
 
-expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
+expect<rigged_model_mesher> rigged_model_mesher::create(const model_mesh_data& meshes)
 {
   // Assume all models have indices and positions in each mesh
   if (meshes.positions.empty()) {
@@ -207,12 +207,12 @@ expect<model_mesher> model_mesher::create(const model_mesh_data& meshes)
     offset += mesh.positions.count;
   }
 
-  return expect<model_mesher>{
+  return expect<rigged_model_mesher>{
     ntf::in_place, buffs, std::move(*ind), std::move(mesh_offsets)
   };
 }
 
-void model_mesher::_free_buffs() noexcept {
+void rigged_model_mesher::_free_buffs() noexcept {
   if (!_buffs[0]) {
     return;
   }
@@ -223,7 +223,7 @@ void model_mesher::_free_buffs() noexcept {
   }
 }
 
-model_texturer::model_texturer(ntf::unique_array<texture_t>&& textures,
+rigged_model_texturer::rigged_model_texturer(ntf::unique_array<texture_t>&& textures,
                                std::unordered_map<std::string_view, u32>&& tex_reg,
                                ntf::unique_array<vec_span>&& mat_spans,
                                ntf::unique_array<u32>&& mat_texes) noexcept :
@@ -280,7 +280,7 @@ static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::cont
   });
 }
 
-expect<model_texturer> model_texturer::create(const model_material_data& mat_data) {
+expect<rigged_model_texturer> rigged_model_texturer::create(const model_material_data& mat_data) {
   auto ctx = renderer::instance().ctx();
 
   ntf::unique_array<u32> mat_texes{ntf::uninitialized, mat_data.material_textures.size()};
@@ -337,7 +337,7 @@ expect<model_texturer> model_texturer::create(const model_material_data& mat_dat
   };
 }
 
-ntf::optional<u32> model_texturer::find_texture_idx(std::string_view name) const {
+ntf::optional<u32> rigged_model_texturer::find_texture_idx(std::string_view name) const {
   auto it = _tex_reg.find(name);
   if (it == _tex_reg.end()) {
     return ntf::nullopt;
@@ -345,7 +345,7 @@ ntf::optional<u32> model_texturer::find_texture_idx(std::string_view name) const
   return it->second;
 }
 
-shogle::texture2d_view model_texturer::find_texture(std::string_view name) {
+shogle::texture2d_view rigged_model_texturer::find_texture(std::string_view name) {
   auto idx = find_texture_idx(name);
   if (!idx) {
     return {};
@@ -354,7 +354,7 @@ shogle::texture2d_view model_texturer::find_texture(std::string_view name) {
   return _textures[*idx].tex;
 }
 
-u32 model_texturer::retrieve_material_textures(u32 mat_idx,
+u32 rigged_model_texturer::retrieve_material_textures(u32 mat_idx,
                                                 std::vector<shogle::texture_binding>& texs) const
 {
   NTF_ASSERT(mat_idx < _mat_spans.size());
@@ -369,7 +369,7 @@ u32 model_texturer::retrieve_material_textures(u32 mat_idx,
   return tex_span.size();
 }
 
-mesh_render_data& model_mesher::retrieve_mesh_data(u32 idx,
+mesh_render_data& rigged_model_mesher::retrieve_mesh_data(u32 idx,
                                                     std::vector<mesh_render_data>& data)
 {
   NTF_ASSERT(idx < _mesh_offsets.size());
@@ -557,15 +557,15 @@ u32 model_rigger::retrieve_buffer_bindings(std::vector<shogle::shader_binding>& 
   return 1u;
 }
 
-rigged_model3d::rigged_model3d(model_mesher&& meshes,
-                               model_texturer&& texturer,
+rigged_model3d::rigged_model3d(rigged_model_mesher&& meshes,
+                               rigged_model_texturer&& texturer,
                                model_rigger&& rigger,
                                std::vector<model_material_data::material_meta>&& mats,
                                std::unordered_map<std::string_view, u32>&& mat_reg,
                                shogle::pipeline pip,
                                std::vector<u32> mesh_texs,
                                std::string&& name) noexcept :
-  model_mesher{std::move(meshes)}, model_texturer{std::move(texturer)},
+  rigged_model_mesher{std::move(meshes)}, rigged_model_texturer{std::move(texturer)},
   model_rigger{std::move(rigger)},
   _mats{std::move(mats)}, _mat_reg{std::move(mat_reg)},
   _pip{std::move(pip)}, _mesh_mats{std::move(mesh_texs)},
@@ -596,12 +596,12 @@ expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
     return {ntf::unexpect, pip.error()};
   }
 
-  auto mesher = model_mesher::create(data.meshes);
+  auto mesher = rigged_model_mesher::create(data.meshes);
   if (!mesher) {
     return {ntf::unexpect, mesher.error()};
   }
 
-  auto texturer = model_texturer::create(data.mats);
+  auto texturer = rigged_model_texturer::create(data.mats);
   if (!texturer) {
     return {ntf::unexpect, texturer.error()};
   }
@@ -643,7 +643,7 @@ void rigged_model3d::tick() {
 u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
                                          object_render_data& data)
 {
-  const u32 mesh_count = model_mesher::mesh_count();
+  const u32 mesh_count = rigged_model_mesher::mesh_count();
   for (u32 mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
     auto& mesh = retrieve_mesh_data(mesh_idx, data.meshes);
     mesh.pipeline = _pip.get();
@@ -651,7 +651,7 @@ u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
     const i32 sampler = 0;
     const u32 mat_idx = _mesh_mats[mesh_idx];
     mesh.textures.idx = data.textures.size();
-    const u32 tex_count = model_texturer::retrieve_material_textures(mat_idx, data.textures);
+    const u32 tex_count = rigged_model_texturer::retrieve_material_textures(mat_idx, data.textures);
     mesh.textures.count = tex_count;
 
     mesh.uniforms.idx = data.uniforms.size();

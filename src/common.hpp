@@ -4,6 +4,7 @@
 #include <shogle/shogle.hpp>
 #include <ntfstl/span.hpp>
 #include <ntfstl/expected.hpp>
+#include <ntfstl/logger.hpp>
 
 namespace kappa {
 
@@ -23,6 +24,8 @@ using shogle::vec2;
 using shogle::quat;
 using shogle::color4;
 using shogle::extent3d;
+
+using std::string_view;
 
 template<typename T>
 using expect = ntf::expected<T, std::string_view>;
