@@ -15,90 +15,77 @@ public:
     {.size = sizeof(model_mesh_data::vertex_bones),   .name = "rigged_bones"},
     {.size = sizeof(model_mesh_data::vertex_weights), .name = "rigged_weights"},
   }};
-  static constexpr bool USE_INDICES = true;
 
 public:
+  std::string name;
+  std::string_view armature;
   model_mesh_data meshes;
   model_material_data materials;
   model_rig_data rigs;
   model_anim_data anims;
 
 public:
-  size_t vertex_count() const { return meshes.positions.size(); }
-  size_t index_count() const { return meshes.indices.size(); }
-  std::pair<const void*, size_t> get_data_ptr(size_t idx) const {
-    enum {
-      IDX_POS = 0,
-      IDX_NORM,
-      IDX_UVS,
-      IDX_TANG,
-      IDX_BITANG,
-      IDX_BONES,
-      IDX_WEIGHTS,
-      IDX_INDICES,
-    };
-    NTF_ASSERT(idx <= IDX_INDICES);
+  u32 vertex_count() const { return meshes.positions.size(); }
+  u32 index_count() const { return meshes.indices.size(); }
+  u32 mesh_count() const { return meshes.meshes.size(); }
 
-    return std::make_pair(nullptr, 0u);
+  vec_span mesh_index_range(u32 mesh_idx) const {
+    NTF_ASSERT(mesh_idx < meshes.meshes.size());
+    return meshes.meshes[mesh_idx].indices;
   }
+
+  std::pair<const void*, u32> vertex_data(u32 attr_idx, u32 mesh_idx) const {
+    enum {
+      ATTR_POS = 0,
+      ATTR_NORM,
+      ATTR_UVS,
+      ATTR_TANG,
+      ATTR_BITANG,
+      ATTR_BONES,
+      ATTR_WEIGHTS,
+    };
+    NTF_ASSERT(mesh_idx < meshes.meshes.size());
+    if (attr_idx > ATTR_WEIGHTS) {
+      return std::make_pair(nullptr, 0u);
+    } 
+
+    const auto& mesh_meta = meshes.meshes[mesh_idx];
+    switch (attr_idx) {
+      case ATTR_POS: {
+        const auto span = mesh_meta.positions.to_cspan(meshes.positions.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      case ATTR_NORM: {
+        const auto span = mesh_meta.normals.to_cspan(meshes.normals.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      case ATTR_UVS: {
+        const auto span = mesh_meta.uvs.to_cspan(meshes.uvs.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      case ATTR_TANG: {
+        const auto span = mesh_meta.tangents.to_cspan(meshes.tangents.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      case ATTR_BITANG: {
+        const auto span = mesh_meta.tangents.to_cspan(meshes.bitangents.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      case ATTR_BONES: {
+        const auto span = mesh_meta.bones.to_cspan(meshes.bones.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      case ATTR_WEIGHTS: {
+        const auto span = mesh_meta.bones.to_cspan(meshes.weights.data());
+        return std::make_pair(static_cast<const void*>(span.data()), span.size());
+      } break;
+      default: break;
+    }
+    NTF_UNREACHABLE();
+  }
+  cspan<u32> index_data() const { return {meshes.indices.data(), meshes.indices.size()}; }
 };
 static_assert(meta::mesh_data_type<rigged_model_data>);
-
-class rigged_model_mesher {
-protected:
-  enum attr_idx {
-    ATTRIB_POS = 0,
-    ATTRIB_NORM,
-    ATTRIB_UVS,
-    ATTRIB_TANG,
-    ATTRIB_BITANG,
-    ATTRIB_BONES,
-    ATTRIB_WEIGHTS,
-
-    ATTRIB_COUNT,
-  };
-
-public:
-  using vert_buffs = std::array<shogle::buffer_t, ATTRIB_COUNT>;
-  using vert_binds = std::array<shogle::vertex_binding, ATTRIB_COUNT>;
-
-private:
-  struct mesh_offset {
-    u32 index_offset;
-    u32 index_count;
-    u32 vertex_offset;
-  };
-
-public:
-  rigged_model_mesher(vert_buffs buffs, shogle::index_buffer&& index_buff,
-               ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept;
-
-  ~rigged_model_mesher() noexcept;
-
-  rigged_model_mesher(const rigged_model_mesher&) = delete;
-  rigged_model_mesher(rigged_model_mesher&& other) noexcept;
-
-public:
-  rigged_model_mesher& operator=(const rigged_model_mesher&) = delete;
-  rigged_model_mesher& operator=(rigged_model_mesher&&) noexcept;
-
-protected:
-  static expect<rigged_model_mesher> create(const model_mesh_data& meshes);
-
-protected:
-  mesh_render_data& retrieve_mesh_data(u32 idx, std::vector<mesh_render_data>& data);
-  u32 mesh_count() const { return _mesh_offsets.size(); }
-
-private:
-  void _free_buffs() noexcept;
-
-private:
-  vert_buffs _buffs;
-  vert_binds _binds;
-  ntf::unique_array<mesh_offset> _mesh_offsets;
-  shogle::index_buffer _index_buff;
-  u32 _active_layouts;
-};
 
 class rigged_model_texturer {
 private:
@@ -196,20 +183,14 @@ struct tickable {
   virtual void tick() = 0;
 };
 
-class rigged_model3d : public rigged_model_mesher, public rigged_model_texturer, public model_rigger,
+class rigged_model3d : public mesh_buffers<rigged_model_data>,
+                       public rigged_model_texturer, public model_rigger,
                        public renderable, public tickable {
 public:
-  struct data_t {
-    std::string name;
-    std::string_view armature;
-    model_rig_data rigs;
-    model_anim_data anims;
-    model_material_data mats;
-    model_mesh_data meshes;
-  };
+  using data_t = rigged_model_data;
 
 public:
-  rigged_model3d(rigged_model_mesher&& meshes,
+  rigged_model3d(mesh_buffers<rigged_model_data>&& meshes,
                  rigged_model_texturer&& texturer,
                  model_rigger&& rigger,
                  std::vector<model_material_data::material_meta>&& mats,

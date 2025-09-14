@@ -186,40 +186,42 @@ template<typename T, size_t N>
 struct is_std_array_of<std::array<T, N>, T> : public std::true_type{};
 
 template<typename T>
-concept mesh_data_type = requires(const T mesh_data, size_t idx) {
-  requires std::convertible_to<decltype(T::USE_INDICES), bool>;
+concept mesh_data_type = requires(const T mesh_data, u32 attr_idx, u32 mesh_idx) {
   requires ntf::meta::std_cont<std::remove_const_t<decltype(T::VERT_CONFIG)>, vertex_config>;
-  { mesh_data.vertex_count() } -> std::convertible_to<size_t>;
-  { mesh_data.index_count() } -> std::convertible_to<size_t>;
-  { mesh_data.get_data_ptr(idx) } -> std::same_as<std::pair<const void*, size_t>>;
+  { mesh_data.vertex_count() } -> std::convertible_to<u32>;
+  { mesh_data.index_count() } -> std::convertible_to<u32>;
+  { mesh_data.mesh_count() } -> std::convertible_to<u32>;
+  { mesh_data.mesh_index_range(mesh_idx) } -> std::same_as<vec_span>;
+  { mesh_data.vertex_data(attr_idx, mesh_idx) } -> std::same_as<std::pair<const void*, u32>>;
+  { mesh_data.index_data() } -> std::same_as<cspan<u32>>;
 };
 
 } // namespace meta
 
+struct mesh_offset {
+  u32 index_offset;
+  u32 index_count;
+  u32 vertex_offset;
+};
 
 template<meta::mesh_data_type MeshDataT>
 class mesh_buffers {
-private:
-  static constexpr size_t ATTRIB_COUNT =
-    MeshDataT::VERT_CONFIG.size() + static_cast<size_t>(MeshDataT::USE_INDICES);
-  static constexpr size_t INDICES_BUFFER_IDX = MeshDataT::VERT_CONFIG.size()+1u;
-
-  struct mesh_offset {
-    u32 index_offset;
-    u32 index_count;
-    u32 vertex_offset;
-  };
+public:
+  static constexpr size_t VERTEX_ATTRIB_COUNT = MeshDataT::VERT_CONFIG.size();
+  using vert_buffs = std::array<shogle::buffer_t, VERTEX_ATTRIB_COUNT>;
+  using vert_binds = std::array<shogle::vertex_binding, VERTEX_ATTRIB_COUNT>;
 
 public:
-  using vert_buffs = std::array<shogle::buffer_t, ATTRIB_COUNT>;
-  using vert_binds = std::array<shogle::vertex_binding, ATTRIB_COUNT>;
-
-public:
-  mesh_buffers(vert_buffs buffs, ntf::unique_array<mesh_offset>&& offsets) :
-    _buffs{buffs}, _offsets{std::move(offsets)}
+  mesh_buffers(vert_buffs buffs, u32 vertex_count,
+               shogle::index_buffer&& idx_buff, u32 index_count,
+               ntf::unique_array<mesh_offset>&& offsets) :
+    _buffs{buffs}, _offsets{std::move(offsets)}, _idx_buff{std::move(idx_buff)},
+    _vertex_count{vertex_count}, _index_count{index_count}
   {
+    NTF_ASSERT(!_idx_buff.empty());
+    NTF_ASSERT(vertex_count > 0);
     for (u32 i = 0; i < _buffs.size(); ++i) {
-      NTF_ASSERT(_buffs[i], "Vertex \"{}\" missing", MeshDataT::VERT_CONF[i].name);
+      NTF_ASSERT(_buffs[i], "Vertex \"{}\" missing", MeshDataT::VERT_CONFIG[i].name);
       _binds[i].buffer = _buffs[i];
       _binds[i].layout = i;
     }
@@ -227,7 +229,8 @@ public:
 
   mesh_buffers(mesh_buffers&& other) noexcept :
     _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
-    _offsets{std::move(other._offsets)}
+    _offsets{std::move(other._offsets)}, _idx_buff{std::move(other._idx_buff)},
+    _vertex_count{std::move(other._vertex_count)}, _index_count{std::move(other._index_count)}
   {
     other._reset_buffs();
   }
@@ -242,6 +245,9 @@ public:
     _buffs = std::move(other._buffs);
     _binds = std::move(other._binds);
     _offsets = std::move(other._offsets);
+    _idx_buff = std::move(other._idx_buff);
+    _vertex_count = std::move(other._vertex_count);
+    _index_count = std::move(other._index_count);
 
     other._reset_buffs();
     return *this;
@@ -252,7 +258,9 @@ public:
 private:
   void _reset_buffs() noexcept {
     std::memset(_buffs.data(), 0, _buffs.size()*sizeof(shogle::buffer_t));
-    std::memset(_binds.data(), 0, _binds.data()*sizeof(shogle::vertex_binding));
+    std::memset(_binds.data(), 0, _binds.size()*sizeof(shogle::vertex_binding));
+    _index_count = 0u;
+    _vertex_count = 0u;
   }
 
   void _free_buffs() noexcept {
@@ -279,110 +287,119 @@ public:
       }
     };
 
+    // Create vertex buffers
+    const size_t vertex_count = mesh_data.vertex_count();
     for (u32 i = 0; const auto& [conf_size, conf_name] : MeshDataT::VERT_CONFIG) {
-      ntf::logger::debug("Creating vertex \"{}\"", conf_name);
+      ntf::logger::debug("Creating vertex buffer \"{}\"", conf_name);
       auto buff =  shogle::create_buffer(ctx, {
         .type = shogle::buffer_type::vertex,
         .flags = shogle::buffer_flag::dynamic_storage,
-        .size = mesh_data.vertex_count()*conf_size,
+        .size = vertex_count*conf_size,
         .data = nullptr,
       });
       if (!buff) {
         free_buffs();
-        return {ntf::unexpect, buff.error()};
+        return {ntf::unexpect, buff.error().msg()};
       }
       buffs[i] = *buff;
       ++i;
     }
-    constexpr size_t idx_buff_pos = ATTRIB_COUNT-1;
-    if constexpr (MeshDataT::USE_INDICES) {
-      ntf::logger::debug("Creating index buffer");
-      const size_t idx_count = mesh_data.index_count();
-      auto ind = shogle::create_buffer(ctx, {
-        .type = shogle::buffer_type::vertex,
-        .flags = shogle::buffer_flag::dynamic_storage,
-        .size = idx_count*sizeof(u32),
-        .data = nullptr,
-      });
-      if (!ind) {
-        free_buffs();
-        return {ntf::unexpect, ind.error()};
-      }
-      buffs[idx_buff_pos] = *ind;
-    }
 
-
-    // Copy data
+    // Copy vertex data
     size_t offset = 0u;
     const size_t mesh_count = mesh_data.mesh_count();
     ntf::unique_array<mesh_offset> mesh_offsets(mesh_count);
     for (size_t mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
-
-      if constexpr (MeshDataT::USE_INDICES) {
-        const auto idx_vspan = mesh_data.idx_vspan_at(mesh_idx);
-        mesh_offsets[mesh_idx].index_offset = idx_vspan.idx;
-        mesh_offsets[mesh_idx].index_count = idx_vspan.count;
-      } else {
-        mesh_offsets[mesh_idx].index_offset = 0u;
-        mesh_offsets[mesh_idx].index_count = 0u;
+      const vec_span idx_range = mesh_data.mesh_index_range(mesh_idx);
+      if (idx_range.empty()) {
+        ntf::logger::debug("Mesh {} with no indices!!!", mesh_idx);
+        continue;
       }
-
+      mesh_offsets[mesh_idx].index_offset = idx_range.idx;
+      mesh_offsets[mesh_idx].index_count = idx_range.count;
       mesh_offsets[mesh_idx].vertex_offset = offset;
 
-      size_t advance = 0u;
-      for (u32 buff_idx = 0; const auto& [conf_size, conf_name] : MeshDataT::VERT_CONFIG) {
-        ntf::logger::debug("Uploading vertex data \"{}\"", conf_name);
-        const auto [data_ptr, data_count] = mesh_data.get_data_ptr(buff_idx);
+      u32 vertex_elems = 0u;
+      for (u32 attr_idx = 0; const auto& [conf_size, conf_name] : MeshDataT::VERT_CONFIG) {
+        ntf::logger::debug("Uploading vertex data \"{}\" in mesh {}", conf_name, mesh_idx);
+        const auto [data_ptr, data_count] = mesh_data.vertex_data(attr_idx, mesh_idx);
         if (!data_ptr) {
-          ntf::logger::warning("Vertex with \"{}\" with no data", conf_name);
+          ntf::logger::warning("Attribute \"{}\" with no vertex data at mesh {}",
+                               conf_name, mesh_idx);
           continue;
         }
-        advance = std::max(advance, data_count);
-        NTF_ASSERT(buffs[buff_idx]);
-        [[maybe_unused]] auto ret = shogle::buffer_upload(buffs[buff_idx], {
+        vertex_elems = std::max(vertex_elems, data_count);
+        NTF_ASSERT(buffs[attr_idx]);
+        ntf::logger::debug(" - {} => {}", vertex_count, data_count);
+        // NTF_ASSERT(data_count == vertex_count);
+        [[maybe_unused]] auto ret = shogle::buffer_upload(buffs[attr_idx], {
           .data = data_ptr,
           .size = data_count*conf_size,
           .offset = offset*conf_size,
         });
-        ++buff_idx;
+        ++attr_idx;
       }
-      offset += advance;
+      offset += vertex_elems;
     }
-    if constexpr (MeshDataT::USE_INDICES) {
-      ntf::logger::debug("Uploading index data");
-      const auto [data_ptr, data_count] = mesh_data.get_index_data();
-      if (!data_ptr) {
-        ntf::logger::warning("No index data");
-      } else {
-        NTF_ASSERT(buffs[idx_buff_pos]);
-        [[maybe_unused]] auto ret = shogle::buffer_upload(buffs[idx_buff_pos], {
-          .data = data_ptr,
-          .size = data_count*sizeof(u32),
-          .offset = offset*sizeof(u32),
-        });
-      }
+
+    // Create index buffer & upload index data
+    ntf::logger::debug("Creating index buffer");
+    const cspan<u32> idx_span = mesh_data.index_data();
+    NTF_ASSERT(!idx_span.empty());
+    const shogle::buffer_data idx_data {
+      .data = idx_span.data(),
+      .size = idx_span.size_bytes(),
+      .offset = 0u,
+    };
+    auto idx_buff = shogle::index_buffer::create(ctx, {
+      .flags = shogle::buffer_flag::dynamic_storage,
+      .size = idx_span.size_bytes(),
+      .data = idx_data,
+    });
+    if (!idx_buff) {
+      free_buffs();
+      return {ntf::unexpect, idx_buff.error().msg()};
     }
-    return {ntf::in_place, buffs, std::move(mesh_offsets)};
+
+    return {
+      ntf::in_place,
+      buffs, static_cast<u32>(vertex_count),
+      std::move(*idx_buff), static_cast<u32>(idx_span.size()),
+      std::move(mesh_offsets)
+    };
   }
 
 public:
-  mesh_render_data& retrieve_meshes(u32 idx, std::vector<mesh_render_data>& data) {
-    if constexpr (MeshDataT::USE_INDICES) {
-      NTF_ASSERT(idx < _offsets.size()-1);
-    } else {
-      NTF_ASSERT(idx < _offsets.size());
-    }
+  mesh_render_data& retrieve_mesh_data(u32 mesh_idx, std::vector<mesh_render_data>& data) const {
+    NTF_ASSERT(mesh_idx < mesh_count());
     cspan<shogle::vertex_binding> binds{_binds.data(), _binds.size()};
-    const auto& offset = _offsets[idx];
-    shogle::buffer_view idx_buff{_binds[_binds.size()-1]};
-    return data.emplace_back(binds, shogle::to_typed<shogle::buffer_type::index>(idx_buff),
-                             offset.index_count, offset.vertex_count, offset.index_count, 0u);
+    const auto& offset = _offsets[mesh_idx];
+    return data.emplace_back(binds, index_buffer(),
+                             offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
   }
+
+  bool has_indices() const { return !_idx_buff.empty(); }
+
+  shogle::vertex_buffer_view vertex_buffer(u32 idx) const {
+    NTF_ASSERT(idx < _buffs.size());
+    return shogle::to_typed<shogle::buffer_type::vertex>(
+      shogle::buffer_view{_buffs[idx]}
+    );
+  }
+  shogle::index_buffer_view index_buffer() const { return _idx_buff; }
+
+  cspan<mesh_offset> offsets() const { return {_offsets.data(), _offsets.size()}; }
+
+  u32 mesh_count() const { return _offsets.size(); }
+  u32 vertex_count() const { return _vertex_count; }
+  u32 index_count() const { return _index_count; }
 
 private:
   vert_buffs _buffs;
   vert_binds _binds;
   ntf::unique_array<mesh_offset> _offsets;
+  shogle::index_buffer _idx_buff;
+  u32 _vertex_count, _index_count;
 };
 
 } // namespace kappa

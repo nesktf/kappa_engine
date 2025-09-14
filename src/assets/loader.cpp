@@ -101,7 +101,8 @@ auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
 
   return expect<rigged_model3d::data_t> {
     ntf::in_place, std::move(name), opt.armature,
-    std::move(rigs), std::move(anims), std::move(mats), std::move(meshes)
+    std::move(meshes), std::move(mats), 
+    std::move(rigs), std::move(anims)
   };
 }
 

@@ -24,205 +24,6 @@ static const shogle::depth_test_opts def_depth_opts {
   .far_bound = 1.f,
 };
 
-rigged_model_mesher::rigged_model_mesher(vert_buffs buffs,
-                           shogle::index_buffer&& index_buff,
-                           ntf::unique_array<mesh_offset>&& mesh_offsets) noexcept :
-  _buffs{buffs}, _mesh_offsets{std::move(mesh_offsets)},
-  _index_buff{std::move(index_buff)}, _active_layouts{0u}
-{
-  NTF_ASSERT(buffs[0] != nullptr, "Needs a position vertex buffer");
-  NTF_ASSERT(!_index_buff.empty(), "Needs an index buffer");
-  // Do not fill inactive attributes
-  for (u32 i = 0u; i < _buffs.size(); ++i) {
-    if (_buffs[i]) {
-      _binds[i].buffer = _buffs[i];
-      _binds[i].layout = i;
-      ++_active_layouts;
-    }
-  }
-}
-
-rigged_model_mesher::rigged_model_mesher(rigged_model_mesher&& other) noexcept :
-  _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
-  _mesh_offsets{std::move(other._mesh_offsets)}, _index_buff{std::move(other._index_buff)},
-  _active_layouts{std::move(other._active_layouts)}
-{
-  other._buffs[0] = nullptr;
-}
-
-rigged_model_mesher& rigged_model_mesher::operator=(rigged_model_mesher&& other) noexcept {
-  _free_buffs();
-
-  _buffs = std::move(other._buffs);
-  _binds = std::move(other._binds);
-  _mesh_offsets = std::move(other._mesh_offsets);
-  _index_buff = std::move(other._index_buff);
-  _active_layouts = std::move(other._active_layouts);
-
-  other._buffs[0] = nullptr;
-
-  return *this;
-}
-
-rigged_model_mesher::~rigged_model_mesher() noexcept { _free_buffs(); }
-
-
-expect<rigged_model_mesher> rigged_model_mesher::create(const model_mesh_data& meshes)
-{
-  // Assume all models have indices and positions in each mesh
-  if (meshes.positions.empty()) {
-    return ntf::unexpected{std::string_view{"No position data"}};
-  }
-  if (meshes.indices.empty()) {
-    return ntf::unexpected{std::string_view{"No index data"}};
-  }
-
-  auto ctx = renderer::instance().ctx();
-
-  vert_buffs buffs{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
-  const size_t vertex_elements = meshes.positions.size();;
-
-  auto free_buffs = [&]() {
-    for (shogle::buffer_t buff : buffs) {
-      if (buff) {
-        shogle::destroy_buffer(buff);
-      }
-    }
-  };
-
-  auto make_vbuffer = [&](size_t sz) {
-    return shogle::create_buffer(ctx, {
-      .type = shogle::buffer_type::vertex,
-      .flags = shogle::buffer_flag::dynamic_storage,
-      .size = vertex_elements*sz,
-      .data = nullptr,
-    });
-  };
-
-  // Prepare each vertex buffer, all of them with the same size
-  {
-    auto buff = make_vbuffer(sizeof(vec3));
-    CHECK_ERR_BUFF(buff);
-    buffs[ATTRIB_POS] = *buff;
-  } 
-  if (!meshes.normals.empty()) {
-    auto buff = make_vbuffer(sizeof(vec3));
-    CHECK_ERR_BUFF(buff);
-    buffs[ATTRIB_NORM] = *buff;
-  }
-  if (!meshes.uvs.empty()) {
-    auto buff = make_vbuffer(sizeof(vec2));
-    CHECK_ERR_BUFF(buff);
-    buffs[ATTRIB_UVS] = *buff;
-  }
-  if (!meshes.tangents.empty()) {
-    NTF_ASSERT(!meshes.bitangents.empty());
-
-    auto tang_buff = make_vbuffer(sizeof(vec3));
-    CHECK_ERR_BUFF(tang_buff);
-    buffs[ATTRIB_TANG] = *tang_buff;
-
-    auto btang_buff = make_vbuffer(sizeof(vec3));
-    CHECK_ERR_BUFF(btang_buff);
-    buffs[ATTRIB_BITANG] = *btang_buff;
-  }
-  if (!meshes.bones.empty()) {
-    NTF_ASSERT(!meshes.weights.empty());
-
-    auto bone_buff = make_vbuffer(sizeof(model_mesh_data::vertex_bones));
-    CHECK_ERR_BUFF(bone_buff);
-    buffs[ATTRIB_BONES] = *bone_buff;
-
-    auto weight_buff = make_vbuffer(sizeof(model_mesh_data::vertex_weights));
-    CHECK_ERR_BUFF(weight_buff);
-    buffs[ATTRIB_WEIGHTS] = *weight_buff;
-  }
-
-  // Prepare index buffer and upload indices
-  const shogle::buffer_data idx_data {
-    .data = meshes.indices.data(),
-    .size = meshes.indices.size()*sizeof(u32),
-    .offset = 0u,
-  };
-  auto ind = shogle::index_buffer::create(ctx, {
-    .flags = shogle::buffer_flag::dynamic_storage,
-    .size = meshes.indices.size()*sizeof(u32),
-    .data = idx_data,
-  });
-  if (!ind) {
-    ntf::logger::error("Failed to create index buffer, {}", ind.error().what());
-    return ntf::unexpected{std::string_view{"Failed to create index buffer"}};
-  }
-
-  ntf::unique_array<mesh_offset> mesh_offsets{ntf::uninitialized, meshes.meshes.size()};
-  for (u32 i = 0u; const auto& mesh : meshes.meshes) {
-    NTF_ASSERT(!mesh.indices.empty());
-    std::construct_at(mesh_offsets.data()+i,
-                      mesh.indices.idx, mesh.indices.count, 0u);
-    ++i;
-  }
-
-  // Copy data
-  u32 offset = 0u;
-  for (size_t i = 0; i < meshes.meshes.size(); ++i) {
-    const auto& mesh = meshes.meshes[i];
-    NTF_ASSERT(!mesh.positions.empty());
-
-    auto upload_thing = [&](size_t idx, vec_span vspan, const auto& vec) {
-      const auto span = vspan.to_cspan(vec.data());
-      // ntf::logger::debug("{}, {} {}", idx, vspan.idx, vspan.count);
-      NTF_ASSERT(span.data());
-      const shogle::buffer_data data {
-        .data = span.data(),
-        .size = span.size_bytes(),
-        .offset = offset*sizeof(typename decltype(span)::value_type),
-      };
-      NTF_ASSERT(buffs[idx]);
-      [[maybe_unused]] auto ret = shogle::buffer_upload(buffs[idx], data);
-      // TODO: There is a UV problem in the koishi model?
-      NTF_ASSERT(ret);
-    };
-
-    upload_thing(ATTRIB_POS, mesh.positions, meshes.positions);
-    mesh_offsets[i].vertex_offset = offset;
-
-    if (buffs[ATTRIB_NORM]) {
-      upload_thing(ATTRIB_NORM, mesh.normals, meshes.normals);
-    }
-
-    if (buffs[ATTRIB_UVS]) {
-      upload_thing(ATTRIB_UVS, mesh.uvs, meshes.uvs);
-    }
-
-    if (buffs[ATTRIB_TANG]) {
-      upload_thing(ATTRIB_TANG, mesh.tangents, meshes.tangents);
-      upload_thing(ATTRIB_BITANG, mesh.tangents, meshes.bitangents);
-    }
-
-    if (buffs[ATTRIB_BONES]) {
-      upload_thing(ATTRIB_BONES, mesh.bones, meshes.bones);
-      upload_thing(ATTRIB_WEIGHTS, mesh.bones, meshes.weights);
-    }
-
-    offset += mesh.positions.count;
-  }
-
-  return expect<rigged_model_mesher>{
-    ntf::in_place, buffs, std::move(*ind), std::move(mesh_offsets)
-  };
-}
-
-void rigged_model_mesher::_free_buffs() noexcept {
-  if (!_buffs[0]) {
-    return;
-  }
-  for (shogle::buffer_t buff : _buffs){
-    if (buff) {
-      shogle::destroy_buffer(buff);
-    }
-  }
-}
-
 rigged_model_texturer::rigged_model_texturer(ntf::unique_array<texture_t>&& textures,
                                std::unordered_map<std::string_view, u32>&& tex_reg,
                                ntf::unique_array<vec_span>&& mat_spans,
@@ -367,16 +168,6 @@ u32 rigged_model_texturer::retrieve_material_textures(u32 mat_idx,
   }
 
   return tex_span.size();
-}
-
-mesh_render_data& rigged_model_mesher::retrieve_mesh_data(u32 idx,
-                                                    std::vector<mesh_render_data>& data)
-{
-  NTF_ASSERT(idx < _mesh_offsets.size());
-  cspan<shogle::vertex_binding> bindings{_binds.data(), _active_layouts};
-  const auto& offset = _mesh_offsets[idx];
-  return data.emplace_back(bindings, _index_buff,
-                           offset.index_count, offset.vertex_offset, offset.index_offset, 0u);
 }
 
 model_rigger::model_rigger(shogle::shader_storage_buffer&& ssbo,
@@ -557,7 +348,7 @@ u32 model_rigger::retrieve_buffer_bindings(std::vector<shogle::shader_binding>& 
   return 1u;
 }
 
-rigged_model3d::rigged_model3d(rigged_model_mesher&& meshes,
+rigged_model3d::rigged_model3d(mesh_buffers<rigged_model_data>&& meshes,
                                rigged_model_texturer&& texturer,
                                model_rigger&& rigger,
                                std::vector<model_material_data::material_meta>&& mats,
@@ -565,7 +356,8 @@ rigged_model3d::rigged_model3d(rigged_model_mesher&& meshes,
                                shogle::pipeline pip,
                                std::vector<u32> mesh_texs,
                                std::string&& name) noexcept :
-  rigged_model_mesher{std::move(meshes)}, rigged_model_texturer{std::move(texturer)},
+  mesh_buffers<rigged_model_data>{std::move(meshes)},
+  rigged_model_texturer{std::move(texturer)},
   model_rigger{std::move(rigger)},
   _mats{std::move(mats)}, _mat_reg{std::move(mat_reg)},
   _pip{std::move(pip)}, _mesh_mats{std::move(mesh_texs)},
@@ -596,12 +388,12 @@ expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
     return {ntf::unexpect, pip.error()};
   }
 
-  auto mesher = rigged_model_mesher::create(data.meshes);
+  auto mesher = mesh_buffers<rigged_model_data>::create(data);
   if (!mesher) {
     return {ntf::unexpect, mesher.error()};
   }
 
-  auto texturer = rigged_model_texturer::create(data.mats);
+  auto texturer = rigged_model_texturer::create(data.materials);
   if (!texturer) {
     return {ntf::unexpect, texturer.error()};
   }
@@ -614,8 +406,8 @@ expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
   std::vector<u32> mesh_mats;
   mesh_mats.reserve(data.meshes.meshes.size());
   for (const auto& mesh : data.meshes.meshes) {
-    auto it = data.mats.material_registry.find(mesh.material_name);
-    if (it == data.mats.material_registry.end()) {
+    auto it = data.materials.material_registry.find(mesh.material_name);
+    if (it == data.materials.material_registry.end()) {
       mesh_mats.emplace_back(0u);
     }
     mesh_mats.emplace_back(it->second);
@@ -631,7 +423,7 @@ expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
   return {
     ntf::in_place,
     std::move(*mesher), std::move(*texturer), std::move(*rigger),
-    std::move(data.mats.materials), std::move(data.mats.material_registry),
+    std::move(data.materials.materials), std::move(data.materials.material_registry),
     std::move(*pip), std::move(mesh_mats), std::move(data.name)
   };
 }
@@ -643,7 +435,7 @@ void rigged_model3d::tick() {
 u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
                                          object_render_data& data)
 {
-  const u32 mesh_count = rigged_model_mesher::mesh_count();
+  const u32 mesh_count = this->mesh_count();
   for (u32 mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
     auto& mesh = retrieve_mesh_data(mesh_idx, data.meshes);
     mesh.pipeline = _pip.get();
