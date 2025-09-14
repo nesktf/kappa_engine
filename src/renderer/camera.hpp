@@ -17,7 +17,7 @@ class camera {
 public:
   camera(vec3 pos_ = {0.f, 0.f, 0.f}, vec3 world_up_ = {0.f, 1.f, 0.f}) :
     pos{pos_}, world_up{world_up_}, move_speed{2.5f},
-    _yaw{glm::radians(-90.f)}, _pitch(0.f), _mouse_sens{.0025f} {}
+    _yaw{glm::radians(-90.f)}, _pitch(0.f), _mouse_sens{.0025f} { _do_cam_vecs(); }
 
 public:
   void process_mouse_move(f32 xoff, f32 yoff, bool clamp_pitch = true) {

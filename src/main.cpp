@@ -73,11 +73,11 @@ int main() {
     auto& m = bundle.get_rmodel(id);
     vec3 pos;
     if (m.name() == "Koishi V1.0") {
-      pos = {.9f, -.75f, 0.f};
+      pos = {.9f, -.75f, -1.f};
     } else if (m.name() == "cirno") {
-      pos = {-.9f, -.75f, 0.f};
+      pos = {-.9f, -.75f, -1.f};
     } else {
-      pos = {0, -.75f, 0.f};
+      pos = {0, -.75f, -1.f};
     }
     m.transform().pos(pos).scale(1.f, 1.f, 1.f);
     rmodels.emplace_back(id, pos);
