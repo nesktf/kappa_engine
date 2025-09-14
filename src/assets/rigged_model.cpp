@@ -24,152 +24,6 @@ static const shogle::depth_test_opts def_depth_opts {
   .far_bound = 1.f,
 };
 
-rigged_model_texturer::rigged_model_texturer(ntf::unique_array<texture_t>&& textures,
-                               std::unordered_map<std::string_view, u32>&& tex_reg,
-                               ntf::unique_array<vec_span>&& mat_spans,
-                               ntf::unique_array<u32>&& mat_texes) noexcept :
-  _textures{std::move(textures)}, _tex_reg{std::move(tex_reg)},
-  _mat_spans{std::move(mat_spans)}, _mat_texes{std::move(mat_texes)} {}
-
-
-template<u32 tex_extent>
-[[maybe_unused]] static constexpr auto missing_albedo_bitmap = []{
-  std::array<u8, 4u*tex_extent*tex_extent> out;
-  const u8 pixels[] {
-    0x00, 0x00, 0x00, 0xFF, // black
-    0xFE, 0x00, 0xFE, 0xFF, // pink
-    0x00, 0x00, 0x00, 0xFF, // black again
-  };
-
-  for (u32 i = 0; i < tex_extent; ++i) {
-    const u8* start = i%2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
-    u32 pos = 0;
-    for (u32 j = 0; j < tex_extent; ++j) {
-      pos = (pos + 4) % 8;
-      for (u32 k = 0; k < 4; ++k) {
-        out[(4*i*tex_extent)+(4*j)+k] = start[pos+k];
-      }
-    }
-  }
-
-  return out;
-}();
-
-template<u32 tex_extent = 16u>
-static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::context_view ctx) {
-  const shogle::image_data image {
-    .bitmap = missing_albedo_bitmap<tex_extent>.data(),
-    .format = shogle::image_format::rgba8u,
-    .alignment = 4u,
-    .extent = {tex_extent, tex_extent, 1},
-    .offset = {0, 0, 0},
-    .layer = 0u,
-    .level = 0u,
-  };
-  const shogle::texture_data data {
-    .images = {image},
-    .generate_mipmaps = false,
-  };
-  return shogle::texture2d::create(ctx, {
-    .format = shogle::image_format::rgba8u,
-    .sampler = shogle::texture_sampler::nearest,
-    .addressing = shogle::texture_addressing::repeat,
-    .extent = {tex_extent, tex_extent, 1},
-    .layers = 1u,
-    .levels = 1u,
-    .data = data,
-  });
-}
-
-expect<rigged_model_texturer> rigged_model_texturer::create(const model_material_data& mat_data) {
-  auto ctx = renderer::instance().ctx();
-
-  ntf::unique_array<u32> mat_texes{ntf::uninitialized, mat_data.material_textures.size()};
-  for (u32 i = 0u; i < mat_data.material_textures.size(); ++i){
-    mat_texes[i] = mat_data.material_textures[i];
-  }
-  ntf::unique_array<vec_span> mat_spans{ntf::uninitialized, mat_data.materials.size()};
-  for (u32 i = 0u; const auto& mat : mat_data.materials) {
-    mat_spans[i++] = mat.textures;
-  }
-
-  ntf::unique_array<texture_t> textures{ntf::uninitialized, mat_data.textures.size()};
-  std::unordered_map<std::string_view, u32> tex_reg;
-  tex_reg.reserve(mat_data.textures.size());
-  for (u32 i = 0u; const auto& tex : mat_data.textures) {
-    const shogle::image_data image {
-      .bitmap = tex.bitmap.data(),
-      .format = tex.format,
-      .alignment = 4u,
-      .extent = tex.extent,
-      .offset = {0, 0, 0},
-      .layer = 0u,
-      .level = 0u,
-    };
-    const shogle::texture_data data {
-      .images = {image},
-      .generate_mipmaps = true,
-    };
-    auto tex2d = shogle::texture2d::create(ctx, {
-      .format = shogle::image_format::rgba8u,
-      .sampler = shogle::texture_sampler::linear,
-      .addressing = shogle::texture_addressing::repeat,
-      .extent = tex.extent,
-      .layers = 1u,
-      .levels = 7u,
-      .data = data,
-    });
-    if (!tex2d) {
-      ntf::logger::error("Failed to upload texture \"{}\" ({})", tex.name, i);
-      return {ntf::unexpect, "Failed to upload textures"};
-    }
-
-    const u32 sampler = TEX_SAMPLER_ALBEDO;
-    std::construct_at(textures.data()+i,
-                      tex.name, std::move(*tex2d), sampler);
-    auto [_, empl] = tex_reg.try_emplace(textures[i].name, i);
-    NTF_ASSERT(empl);
-    ++i;
-  }
-
-  return {
-    ntf::in_place,
-    std::move(textures), std::move(tex_reg), std::move(mat_spans), std::move(mat_texes)
-  };
-}
-
-ntf::optional<u32> rigged_model_texturer::find_texture_idx(std::string_view name) const {
-  auto it = _tex_reg.find(name);
-  if (it == _tex_reg.end()) {
-    return ntf::nullopt;
-  }
-  return it->second;
-}
-
-shogle::texture2d_view rigged_model_texturer::find_texture(std::string_view name) {
-  auto idx = find_texture_idx(name);
-  if (!idx) {
-    return {};
-  }
-  NTF_ASSERT(*idx < _textures.size());
-  return _textures[*idx].tex;
-}
-
-u32 rigged_model_texturer::retrieve_material_textures(u32 mat_idx,
-                                                std::vector<shogle::texture_binding>& texs) const
-{
-  NTF_ASSERT(mat_idx < _mat_spans.size());
-
-  const auto tex_span = _mat_spans[mat_idx].to_cspan(_mat_texes.data());
-  for (const u32 tex_idx : tex_span) {
-    NTF_ASSERT(tex_idx < _textures.size());
-    const auto& texture = _textures[tex_idx];
-    texs.emplace_back(texture.tex.get(), texture.sampler);
-  }
-
-  return tex_span.size();
-}
-
 model_rigger::model_rigger(shogle::shader_storage_buffer&& ssbo,
                            ntf::unique_array<bone_t>&& bones,
                            std::unordered_map<std::string_view, u32>&& bone_reg,
@@ -348,16 +202,16 @@ u32 model_rigger::retrieve_buffer_bindings(std::vector<shogle::shader_binding>& 
   return 1u;
 }
 
-rigged_model3d::rigged_model3d(mesh_buffers<rigged_model_data>&& meshes,
-                               rigged_model_texturer&& texturer,
+rigged_model3d::rigged_model3d(model3d_mesh_buffers<rigged_model_data>&& meshes,
+                               model3d_mesh_textures&& texturer,
                                model_rigger&& rigger,
                                std::vector<model_material_data::material_meta>&& mats,
                                std::unordered_map<std::string_view, u32>&& mat_reg,
                                shogle::pipeline pip,
                                std::vector<u32> mesh_texs,
                                std::string&& name) noexcept :
-  mesh_buffers<rigged_model_data>{std::move(meshes)},
-  rigged_model_texturer{std::move(texturer)},
+  model3d_mesh_buffers<rigged_model_data>{std::move(meshes)},
+  model3d_mesh_textures{std::move(texturer)},
   model_rigger{std::move(rigger)},
   _mats{std::move(mats)}, _mat_reg{std::move(mat_reg)},
   _pip{std::move(pip)}, _mesh_mats{std::move(mesh_texs)},
@@ -388,12 +242,12 @@ expect<rigged_model3d> rigged_model3d::create(data_t&& data) {
     return {ntf::unexpect, pip.error()};
   }
 
-  auto mesher = mesh_buffers<rigged_model_data>::create(data);
+  auto mesher = model3d_mesh_buffers<rigged_model_data>::create(data);
   if (!mesher) {
     return {ntf::unexpect, mesher.error()};
   }
 
-  auto texturer = rigged_model_texturer::create(data.materials);
+  auto texturer = model3d_mesh_textures::create(data.materials);
   if (!texturer) {
     return {ntf::unexpect, texturer.error()};
   }
@@ -443,7 +297,7 @@ u32 rigged_model3d::retrieve_render_data(const scene_render_data& scene,
     const i32 sampler = 0;
     const u32 mat_idx = _mesh_mats[mesh_idx];
     mesh.textures.idx = data.textures.size();
-    const u32 tex_count = rigged_model_texturer::retrieve_material_textures(mat_idx, data.textures);
+    const u32 tex_count = model3d_mesh_textures::retrieve_material_textures(mat_idx, data.textures);
     mesh.textures.count = tex_count;
 
     mesh.uniforms.idx = data.uniforms.size();

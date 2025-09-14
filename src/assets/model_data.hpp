@@ -205,14 +205,14 @@ struct mesh_offset {
 };
 
 template<meta::mesh_data_type MeshDataT>
-class mesh_buffers {
+class model3d_mesh_buffers {
 public:
   static constexpr size_t VERTEX_ATTRIB_COUNT = MeshDataT::VERT_CONFIG.size();
   using vert_buffs = std::array<shogle::buffer_t, VERTEX_ATTRIB_COUNT>;
   using vert_binds = std::array<shogle::vertex_binding, VERTEX_ATTRIB_COUNT>;
 
 public:
-  mesh_buffers(vert_buffs buffs, u32 vertex_count,
+  model3d_mesh_buffers(vert_buffs buffs, u32 vertex_count,
                shogle::index_buffer&& idx_buff, u32 index_count,
                ntf::unique_array<mesh_offset>&& offsets) :
     _buffs{buffs}, _offsets{std::move(offsets)}, _idx_buff{std::move(idx_buff)},
@@ -227,7 +227,7 @@ public:
     }
   }
 
-  mesh_buffers(mesh_buffers&& other) noexcept :
+  model3d_mesh_buffers(model3d_mesh_buffers&& other) noexcept :
     _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
     _offsets{std::move(other._offsets)}, _idx_buff{std::move(other._idx_buff)},
     _vertex_count{std::move(other._vertex_count)}, _index_count{std::move(other._index_count)}
@@ -235,11 +235,11 @@ public:
     other._reset_buffs();
   }
 
-  ~mesh_buffers() noexcept { _free_buffs(); }
-  mesh_buffers(const mesh_buffers&) = delete;
+  ~model3d_mesh_buffers() noexcept { _free_buffs(); }
+  model3d_mesh_buffers(const model3d_mesh_buffers&) = delete;
 
 public:
-  mesh_buffers& operator=(mesh_buffers&& other) noexcept {
+  model3d_mesh_buffers& operator=(model3d_mesh_buffers&& other) noexcept {
     _free_buffs();
     
     _buffs = std::move(other._buffs);
@@ -253,7 +253,7 @@ public:
     return *this;
   }
 
-  mesh_buffers& operator=(const mesh_buffers&) = delete;
+  model3d_mesh_buffers& operator=(const model3d_mesh_buffers&) = delete;
 
 private:
   void _reset_buffs() noexcept {
@@ -275,7 +275,7 @@ private:
   }
 
 public:
-  static expect<mesh_buffers> create(const MeshDataT& mesh_data) {
+  static expect<model3d_mesh_buffers> create(const MeshDataT& mesh_data) {
     auto ctx = renderer::instance().ctx();
     vert_buffs buffs{}; // init as nullptr
 
@@ -400,6 +400,41 @@ private:
   ntf::unique_array<mesh_offset> _offsets;
   shogle::index_buffer _idx_buff;
   u32 _vertex_count, _index_count;
+};
+
+class model3d_mesh_textures {
+private:
+  struct texture_t {
+    std::string name;
+    shogle::texture2d tex;
+    u32 sampler;
+  };
+  struct material_t {
+    std::string name;
+    vec_span textures;
+  };
+
+public:
+  model3d_mesh_textures(ntf::unique_array<texture_t>&& textures,
+                 std::unordered_map<std::string_view, u32>&& tex_reg,
+                 ntf::unique_array<vec_span>&& mat_spans,
+                 ntf::unique_array<u32>&& mat_texes) noexcept;
+
+protected:
+  static expect<model3d_mesh_textures> create(const model_material_data& materials);
+
+public:
+  shogle::texture2d_view find_texture(std::string_view name);
+
+protected:
+  ntf::optional<u32> find_texture_idx(std::string_view name) const;
+  u32 retrieve_material_textures(u32 mat_idx, std::vector<shogle::texture_binding>& texs) const;
+
+private:
+  ntf::unique_array<texture_t> _textures;
+  std::unordered_map<std::string_view, u32> _tex_reg;
+  ntf::unique_array<vec_span> _mat_spans;
+  ntf::unique_array<u32> _mat_texes;
 };
 
 } // namespace kappa

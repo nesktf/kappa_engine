@@ -33,6 +33,7 @@ public:
     NTF_ASSERT(mesh_idx < meshes.meshes.size());
     return meshes.meshes[mesh_idx].indices;
   }
+  cspan<u32> index_data() const { return {meshes.indices.data(), meshes.indices.size()}; }
 
   std::pair<const void*, u32> vertex_data(u32 attr_idx, u32 mesh_idx) const {
     enum {
@@ -43,9 +44,11 @@ public:
       ATTR_BITANG,
       ATTR_BONES,
       ATTR_WEIGHTS,
+
+      ATTR_COUNT
     };
     NTF_ASSERT(mesh_idx < meshes.meshes.size());
-    if (attr_idx > ATTR_WEIGHTS) {
+    if (attr_idx >= ATTR_COUNT) {
       return std::make_pair(nullptr, 0u);
     } 
 
@@ -83,44 +86,8 @@ public:
     }
     NTF_UNREACHABLE();
   }
-  cspan<u32> index_data() const { return {meshes.indices.data(), meshes.indices.size()}; }
 };
 static_assert(meta::mesh_data_type<rigged_model_data>);
-
-class rigged_model_texturer {
-private:
-  struct texture_t {
-    std::string name;
-    shogle::texture2d tex;
-    u32 sampler;
-  };
-  struct material_t {
-    std::string name;
-    vec_span textures;
-  };
-
-public:
-  rigged_model_texturer(ntf::unique_array<texture_t>&& textures,
-                 std::unordered_map<std::string_view, u32>&& tex_reg,
-                 ntf::unique_array<vec_span>&& mat_spans,
-                 ntf::unique_array<u32>&& mat_texes) noexcept;
-
-protected:
-  static expect<rigged_model_texturer> create(const model_material_data& materials);
-
-public:
-  shogle::texture2d_view find_texture(std::string_view name);
-
-protected:
-  ntf::optional<u32> find_texture_idx(std::string_view name) const;
-  u32 retrieve_material_textures(u32 mat_idx, std::vector<shogle::texture_binding>& texs) const;
-
-private:
-  ntf::unique_array<texture_t> _textures;
-  std::unordered_map<std::string_view, u32> _tex_reg;
-  ntf::unique_array<vec_span> _mat_spans;
-  ntf::unique_array<u32> _mat_texes;
-};
 
 class model_rigger {
 private:
@@ -183,15 +150,15 @@ struct tickable {
   virtual void tick() = 0;
 };
 
-class rigged_model3d : public mesh_buffers<rigged_model_data>,
-                       public rigged_model_texturer, public model_rigger,
+class rigged_model3d : public model3d_mesh_buffers<rigged_model_data>,
+                       public model3d_mesh_textures, public model_rigger,
                        public renderable, public tickable {
 public:
   using data_t = rigged_model_data;
 
 public:
-  rigged_model3d(mesh_buffers<rigged_model_data>&& meshes,
-                 rigged_model_texturer&& texturer,
+  rigged_model3d(model3d_mesh_buffers<rigged_model_data>&& meshes,
+                 model3d_mesh_textures&& texturer,
                  model_rigger&& rigger,
                  std::vector<model_material_data::material_meta>&& mats,
                  std::unordered_map<std::string_view, u32>&& mat_reg,
