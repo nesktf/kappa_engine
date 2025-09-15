@@ -22,7 +22,12 @@ int main() {
   f32 last_cam_x = 0.f;
   f32 last_cam_y = 0.f;
 
+  f32 fb_ratio = (f32)1280/(f32)720;
+  mat4 proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
+
   r.win().set_viewport_callback([&](shogle::window&, const shogle::extent2d& ext) {
+    fb_ratio = (f32)ext.x/(f32)ext.y;
+    proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
     fbo.viewport({0, 0, ext.x, ext.y});
   }).set_key_press_callback([&](shogle::window& win, const shogle::win_key_data& k) {
     if (k.action == shogle::win_action::press) {
@@ -92,29 +97,34 @@ int main() {
   // loader.request_rmodel(bundle, "./lib/shogle/demos/res/cirno_fumo/cirno_fumo.obj", "fumo",
   //                       cirno_opts, model_callback);
 
-  const auto fb_ratio = (float)1280/(float)720;
   
-  auto bone_transform = shogle::transform3d<f32>{}
+  auto rarm_transform = shogle::transform3d<f32>{}
+    .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+  auto larm_transform = shogle::transform3d<f32>{}
     .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
 
-  mat4 transf_mats[2u] = {
-    glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f), // proj
-    cam.view(),
-  };
-  const shogle::buffer_data scene_transf_data {
-    .data = transf_mats,
-    .size = sizeof(transf_mats),
-    .offset = 0u,
-  };
-  auto scene_transf = shogle::uniform_buffer::create(r.ctx(),{
-    .flags = shogle::buffer_flag::dynamic_storage,
-    .size = sizeof(transf_mats),
-    .data = scene_transf_data,
-  }).value();
+  auto scene_transf = [&]() {
+    mat4 transf_mats[2u] = {
+      proj_mat,
+      cam.view(),
+    };
+    const shogle::buffer_data scene_transf_data {
+      .data = transf_mats,
+      .size = sizeof(transf_mats),
+      .offset = 0u,
+    };
+    return shogle::uniform_buffer::create(r.ctx(),{
+      .flags = shogle::buffer_flag::dynamic_storage,
+      .size = sizeof(transf_mats),
+      .data = scene_transf_data,
+    }).value();
+  }();
 
-  const quat q1{1.f, 0.f, 0.f, 0.f};
-  const quat q2{0.f, 0.f, 0.f, 1.f};
-  steplerp<quat, f32, glm_mixer<quat, f32>, 60> rotlerp{q1, q2};
+  // const quat q1{1.f, 0.f, 0.f, 0.f};
+  const auto q1 = shogle::axisquat(glm::radians(45.f), vec3{1.f, 0.f, 0.f});
+  const quat q2 = shogle::axisquat(glm::radians(-45.f), vec3{1.f, 0.f, 0.f});
+  steplerp<quat, f32, glm_mixer<quat, f32>, 120> rarm_rotlerp{q1, q2};
+  steplerp<quat, f32, glm_mixer<quat, f32>, 120> larm_rotlerp{q2, q1};
 
   const vec3 p1{0.f, 0.f, 0.f};
   const vec3 p2{2.f, 0.f, 0.f};
@@ -147,24 +157,27 @@ int main() {
         return;
       }
       // rotlerp.tick_loop();
-      // bone_transform.rot(rotlerp.value());
+      rarm_transform.rot(rarm_rotlerp.value());
+      larm_transform.rot(larm_rotlerp.value());
 
       for (auto& [idx, pos] : rmodels) {
         auto& model = bundle.get_rmodel(idx);
         // model.transform().pos(pos+*poslerp).rot(*rotlerp);
-        model.set_transform("UpperBody", bone_transform);
+        model.set_transform("Arm_R", rarm_transform);
+        model.set_transform("Arm_L", larm_transform);
         model.tick();
       }
       // poslerp.tick_loop();
-      // rotlerp.tick_loop();
+      rarm_rotlerp.tick_loop();
+      larm_rotlerp.tick_loop();
     },
     [&](f32 dt, f32 alpha) {
       NTF_UNUSED(dt);
       NTF_UNUSED(alpha);
 
       const scene_render_data rdata {.transform = scene_transf};
-      mat4 cam_view = cam.view();
-      scene_transf.upload(cam_view, sizeof(mat4));
+      scene_transf.upload(proj_mat, 0u);
+      scene_transf.upload(cam.view(), sizeof(mat4));
 
       for (auto& [idx,_] : rmodels) {
         r.render(fbo, 0u, rdata, bundle.get_rmodel(idx));
