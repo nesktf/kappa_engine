@@ -1,7 +1,6 @@
 #pragma once
 
 #include "assets/rigged_model.hpp"
-
 #include <variant>
 
 namespace kappa {
@@ -40,7 +39,7 @@ private:
         callback{std::forward<F>(callback_)},
         data{std::in_place_type_t<rigged_model3d::data_t>{}, std::move(data_)}, bundle{&bundle_} {}
 
-    ntf::inplace_function<void(expect<u32>, asset_bundle&)> callback;
+    ntf::inplace_function<void(expect<u32>, asset_bundle&), 8 * sizeof(void*)> callback;
     std::variant<std::string_view, rigged_model3d::data_t> data;
     asset_bundle* bundle;
   };

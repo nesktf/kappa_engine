@@ -1,5 +1,6 @@
 #include "assets/loader.hpp"
 #include "interpolator.hpp"
+#include "physics/particle.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/context.hpp"
 
@@ -71,7 +72,14 @@ static void run_engine() {
   };
 
   std::vector<std::pair<asset_bundle::rmodel_idx, vec3>> rmodels;
-  auto model_callback = [&rmodels](expect<u32> idx, asset_bundle& bundle) {
+
+  physics::particle_force_registry force_registry;
+  physics::particle_gravity gravity;
+
+  physics::particle_entity chiruno_particle{vec3{-.9f, -.75f, -1.f}, 1.f};
+  physics::particle_bungee_anchor spring{chiruno_particle.pos(), 5.f, 1.f};
+
+  auto model_callback = [&](expect<u32> idx, asset_bundle& bundle) {
     if (!idx) {
       ntf::logger::error("Can't load model, {}", idx.error());
       return;
@@ -84,6 +92,8 @@ static void run_engine() {
       pos = {.9f, -.75f, -1.f};
     } else if (m.name() == "cirno") {
       pos = {-.9f, -.75f, -1.f};
+      force_registry.add_force(chiruno_particle, gravity);
+      force_registry.add_force(chiruno_particle, spring);
     } else {
       pos = {0, -.75f, -1.f};
     }
@@ -119,10 +129,12 @@ static void run_engine() {
   const vec3 p2{2.f, 0.f, 0.f};
   steplerp<vec3, f32, easing_back_inout<vec3>, 60> poslerp{p1, p2};
 
+  f32 t = 0.f;
   auto loop = ntf::overload{
     [&](u32 fdt) {
       f32 delta = 1 / (f32)fdt;
       loader.handle_requests();
+      t += delta;
 
       if (win.poll_key(shogle::win_key::w) == shogle::win_action::press) {
         cam.process_keyboard(CAM_FORWARD, delta);
@@ -148,12 +160,17 @@ static void run_engine() {
       // rotlerp.tick_loop();
       rarm_transform.rot(rarm_rotlerp.value());
       larm_transform.rot(larm_rotlerp.value());
+      force_registry.update_forces(delta);
 
       for (auto& [idx, pos] : rmodels) {
         auto& model = bundle.get_rmodel(idx);
         // model.transform().pos(pos+*poslerp).rot(*rotlerp);
         model.set_transform("Arm_R", rarm_transform);
         model.set_transform("Arm_L", larm_transform);
+        if (model.name() == "cirno") {
+          chiruno_particle.integrate(delta);
+          model.transform().pos(chiruno_particle.pos());
+        }
         model.tick();
       }
       // poslerp.tick_loop();

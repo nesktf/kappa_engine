@@ -3,8 +3,6 @@
 #define SHOGLE_EXPOSE_GLFW 1
 #include <shogle/shogle.hpp>
 
-#include <ntfstl/expected.hpp>
-#include <ntfstl/function.hpp>
 #include <ntfstl/logger.hpp>
 #include <ntfstl/optional.hpp>
 #include <ntfstl/span.hpp>
@@ -30,6 +28,10 @@ using shogle::mat4;
 using shogle::quat;
 using shogle::vec2;
 using shogle::vec3;
+
+using ntf::logger;
+
+using real = f32;
 
 template<typename T>
 using expect = ntf::expected<T, std::string>;
