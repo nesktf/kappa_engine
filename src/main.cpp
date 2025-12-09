@@ -1,19 +1,19 @@
-#include "renderer/context.hpp"
-#include "renderer/camera.hpp"
 #include "assets/loader.hpp"
 #include "interpolator.hpp"
+#include "renderer/camera.hpp"
+#include "renderer/context.hpp"
 
 #include <ntfstl/logger.hpp>
 #include <ntfstl/utility.hpp>
 
+namespace {
+
 using namespace kappa;
 
-int main() {
-  ntf::logger::set_level(ntf::log_level::verbose);
-  auto rh__ = renderer::construct();
-
-  auto& r = renderer::instance();
-  auto fbo = shogle::framebuffer::get_default(r.ctx());
+static void run_engine() {
+  auto _rh = render::initialize();
+  auto fbo = render::default_fb();
+  auto& win = render::window();
 
   bool do_things = true;
 
@@ -22,47 +22,50 @@ int main() {
   f32 last_cam_x = 0.f;
   f32 last_cam_y = 0.f;
 
-  f32 fb_ratio = (f32)1280/(f32)720;
+  f32 fb_ratio = (f32)1280 / (f32)720;
   mat4 proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
 
-  r.win().set_viewport_callback([&](shogle::window&, const shogle::extent2d& ext) {
-    fb_ratio = (f32)ext.x/(f32)ext.y;
-    proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
-    fbo.viewport({0, 0, ext.x, ext.y});
-  }).set_key_press_callback([&](shogle::window& win, const shogle::win_key_data& k) {
-    if (k.action == shogle::win_action::press) {
-      if (k.key == shogle::win_key::escape) {
-        win.close();
+  win
+    .set_viewport_callback([&](shogle::window&, const shogle::extent2d& ext) {
+      fb_ratio = (f32)ext.x / (f32)ext.y;
+      proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
+      fbo.viewport({0, 0, ext.x, ext.y});
+    })
+    .set_key_press_callback([&](shogle::window& win, const shogle::win_key_data& k) {
+      if (k.action == shogle::win_action::press) {
+        if (k.key == shogle::win_key::escape) {
+          win.close();
+        }
+        if (k.key == shogle::win_key::enter) {
+          do_things = !do_things;
+        }
       }
-      if (k.key == shogle::win_key::enter) {
-        do_things = !do_things;
+    })
+    .set_cursor_pos_callback([&](shogle::window&, shogle::dvec2 pos) {
+      f32 xpos = (float)pos.x;
+      f32 ypos = (float)pos.y;
+      if (first_mouse) {
+        last_cam_x = xpos;
+        last_cam_y = ypos;
+        first_mouse = false;
       }
-    }
-  }).set_cursor_pos_callback([&](shogle::window&, shogle::dvec2 pos) {
-    f32 xpos = (float)pos.x;
-    f32 ypos = (float)pos.y;
-    if (first_mouse) {
+      f32 xoff = xpos - last_cam_x;
+      f32 yoff = last_cam_y - ypos; // inverted y
       last_cam_x = xpos;
       last_cam_y = ypos;
-      first_mouse = false;
-    }
-    f32 xoff = xpos - last_cam_x;
-    f32 yoff = last_cam_y - ypos; // inverted y
-    last_cam_x = xpos;
-    last_cam_y = ypos;
-    cam.process_mouse_move(xoff, yoff);
-  });
+      cam.process_mouse_move(xoff, yoff);
+    });
 
   // hack
-  glfwSetInputMode((GLFWwindow*)r.win().get(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  glfwSetInputMode((GLFWwindow*)win.get(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
   asset_bundle bundle;
   asset_loader loader;
-  const asset_loader::model_opts koosh_opts {
+  const asset_loader::model_opts koosh_opts{
     .flags = assimp_parser::DEFAULT_ASS_FLAGS,
     .armature = "Koishi V1.0_arm",
   };
-  const asset_loader::model_opts cirno_opts {
+  const asset_loader::model_opts cirno_opts{
     .flags = assimp_parser::DEFAULT_ASS_FLAGS,
     .armature = "model",
   };
@@ -87,37 +90,23 @@ int main() {
     m.transform().pos(pos).scale(1.f, 1.f, 1.f);
     rmodels.emplace_back(id, pos);
   };
-  
-  loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "cirno",
-                        cirno_opts, model_callback);
-  loader.request_rmodel(bundle, "./res/koishi/koishi.gltf", "Koishi V1.0",
-                        koosh_opts, model_callback);
-  loader.request_rmodel(bundle, "./res/mari/mari.gltf", "marisa",
-                        cirno_opts, model_callback);
+
+  loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "cirno", cirno_opts, model_callback);
+  loader.request_rmodel(bundle, "./res/koishi/koishi.gltf", "Koishi V1.0", koosh_opts,
+                        model_callback);
+  loader.request_rmodel(bundle, "./res/mari/mari.gltf", "marisa", cirno_opts, model_callback);
   // loader.request_rmodel(bundle, "./lib/shogle/demos/res/cirno_fumo/cirno_fumo.obj", "fumo",
   //                       cirno_opts, model_callback);
 
-  
-  auto rarm_transform = shogle::transform3d<f32>{}
-    .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
-  auto larm_transform = shogle::transform3d<f32>{}
-    .scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+  auto rarm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+  auto larm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
 
   auto scene_transf = [&]() {
     mat4 transf_mats[2u] = {
       proj_mat,
       cam.view(),
     };
-    const shogle::buffer_data scene_transf_data {
-      .data = transf_mats,
-      .size = sizeof(transf_mats),
-      .offset = 0u,
-    };
-    return shogle::uniform_buffer::create(r.ctx(),{
-      .flags = shogle::buffer_flag::dynamic_storage,
-      .size = sizeof(transf_mats),
-      .data = scene_transf_data,
-    }).value();
+    return render::create_ubo(sizeof(transf_mats), transf_mats).value();
   }();
 
   // const quat q1{1.f, 0.f, 0.f, 0.f};
@@ -130,26 +119,26 @@ int main() {
   const vec3 p2{2.f, 0.f, 0.f};
   steplerp<vec3, f32, easing_back_inout<vec3>, 60> poslerp{p1, p2};
 
-  r.render_loop(ntf::overload{
+  auto loop = ntf::overload{
     [&](u32 fdt) {
-      f32 delta = 1/(f32)fdt;
+      f32 delta = 1 / (f32)fdt;
       loader.handle_requests();
 
-      if (r.win().poll_key(shogle::win_key::w) == shogle::win_action::press) {
+      if (win.poll_key(shogle::win_key::w) == shogle::win_action::press) {
         cam.process_keyboard(CAM_FORWARD, delta);
-      } else if (r.win().poll_key(shogle::win_key::s) == shogle::win_action::press) {
+      } else if (win.poll_key(shogle::win_key::s) == shogle::win_action::press) {
         cam.process_keyboard(CAM_BACKWARD, delta);
       }
 
-      if (r.win().poll_key(shogle::win_key::a) == shogle::win_action::press){
+      if (win.poll_key(shogle::win_key::a) == shogle::win_action::press) {
         cam.process_keyboard(CAM_LEFT, delta);
-      } else if (r.win().poll_key(shogle::win_key::d) == shogle::win_action::press) {
+      } else if (win.poll_key(shogle::win_key::d) == shogle::win_action::press) {
         cam.process_keyboard(CAM_RIGHT, delta);
       }
 
-      if (r.win().poll_key(shogle::win_key::space) == shogle::win_action::press){
+      if (win.poll_key(shogle::win_key::space) == shogle::win_action::press) {
         cam.process_keyboard(CAM_UP, delta);
-      } else if (r.win().poll_key(shogle::win_key::lshift) == shogle::win_action::press) {
+      } else if (win.poll_key(shogle::win_key::lshift) == shogle::win_action::press) {
         cam.process_keyboard(CAM_DOWN, delta);
       }
 
@@ -175,15 +164,32 @@ int main() {
       NTF_UNUSED(dt);
       NTF_UNUSED(alpha);
 
-      const scene_render_data rdata {.transform = scene_transf};
+      const render::scene_render_data rdata{.transform = scene_transf};
       scene_transf.upload(proj_mat, 0u);
       scene_transf.upload(cam.view(), sizeof(mat4));
 
-      for (auto& [idx,_] : rmodels) {
-        r.render(fbo, 0u, rdata, bundle.get_rmodel(idx));
+      for (auto& [idx, _] : rmodels) {
+        render::render_thing(fbo, 0u, rdata, bundle.get_rmodel(idx));
       }
-    }
-  });
+    }};
+  render::render_loop(GAME_UPS, loop);
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+  NTF_UNUSED(argc);
+  NTF_UNUSED(argv);
+  ntf::logger::set_level(ntf::log_level::verbose);
+  try {
+    run_engine();
+  } catch (const std::exception& ex) {
+    ntf::logger::error("{}", ex.what());
+    return EXIT_FAILURE;
+  } catch (...) {
+    ntf::logger::error("Caught (...)");
+    return EXIT_FAILURE;
+  }
 
   return EXIT_SUCCESS;
 }

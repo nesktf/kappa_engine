@@ -1,11 +1,15 @@
 #include "assets/model_data.hpp"
 #include <ntfstl/logger.hpp>
 
-#define RET_ERR(_msg) \
+#define RET_ERR(_msg)             \
   ntf::logger::error("{}", _msg); \
-  return unex_t{_msg}
+  return unex_t {                 \
+    _msg                          \
+  }
 #define RET_ERR_IF(_cond, _msg) \
-  if (_cond) { RET_ERR(_msg); }
+  if (_cond) {                  \
+    RET_ERR(_msg);              \
+  }
 
 namespace kappa {
 
@@ -40,11 +44,23 @@ static bool is_identity(const mat4& mat) {
 
 static mat4 asscast(const aiMatrix4x4& mat) {
   mat4 out;
-  //the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
-  out[0][0] = mat.a1; out[1][0] = mat.a2; out[2][0] = mat.a3; out[3][0] = mat.a4;
-  out[0][1] = mat.b1; out[1][1] = mat.b2; out[2][1] = mat.b3; out[3][1] = mat.b4;
-  out[0][2] = mat.c1; out[1][2] = mat.c2; out[2][2] = mat.c3; out[3][2] = mat.c4;
-  out[0][3] = mat.d1; out[1][3] = mat.d2; out[2][3] = mat.d3; out[3][3] = mat.d4;
+  // the a,b,c,d in assimp is the row ; the 1,2,3,4 is the column
+  out[0][0] = mat.a1;
+  out[1][0] = mat.a2;
+  out[2][0] = mat.a3;
+  out[3][0] = mat.a4;
+  out[0][1] = mat.b1;
+  out[1][1] = mat.b2;
+  out[2][1] = mat.b3;
+  out[3][1] = mat.b4;
+  out[0][2] = mat.c1;
+  out[1][2] = mat.c2;
+  out[2][2] = mat.c3;
+  out[3][2] = mat.c4;
+  out[0][3] = mat.d1;
+  out[1][3] = mat.d2;
+  out[2][3] = mat.d3;
+  out[3][3] = mat.d4;
   return out;
 }
 
@@ -53,7 +69,7 @@ static mat4 node_model(const aiNode* node) {
   if (node->mParent == nullptr) {
     return asscast(node->mTransformation);
   }
-  return node_model(node->mParent)*asscast(node->mTransformation);
+  return node_model(node->mParent) * asscast(node->mTransformation);
 }
 
 static vec3 asscast(const aiVector3D& vec) {
@@ -147,21 +163,21 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
 
         auto file_data = shogle::file_data(tex_path);
         if (!file_data) {
-          ntf::logger::warning("Failed to load texture \"{}\", {}",
-                               tex_path, file_data.error().what());
+          ntf::logger::warning("Failed to load texture \"{}\", {}", tex_path,
+                               file_data.error().what());
           continue;
         }
         auto image = stb.load_image<uint8>({file_data->data(), file_data->size()}, stb_flags, 0u);
         if (!image) {
-          ntf::logger::warning("Failed to parse texture \"{}\", {}",
-                               tex_path, image.error().what());
+          ntf::logger::warning("Failed to parse texture \"{}\", {}", tex_path,
+                               image.error().what());
           continue;
         }
         auto [data_ptr, byte_count] = image->texels.release();
         mats.textures.emplace_back(filename.C_Str(), std::move(tex_path),
-                                   ntf::unique_array<uint8>{byte_count, data_ptr},
-                                   image->extent, image->format);
-        idx = mats.textures.size()-1;
+                                   ntf::unique_array<uint8>{byte_count, data_ptr}, image->extent,
+                                   image->format);
+        idx = mats.textures.size() - 1;
         parsed_tex.try_emplace(filename.C_Str(), idx);
       } else {
         idx = it->second;
@@ -179,9 +195,9 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
 
     u32 tex_count = 0u;
     u32 diff_count = load_textures(tex_count, ai_mat, aiTextureType_DIFFUSE);
-    ntf::logger::verbose("{} diffuse texture(s) found in material {}",
-                         diff_count, mat_name.C_Str());
-    const u32 tex_idx = tex_count ? mats.material_textures.size()-1 : vec_span::INDEX_TOMB;
+    ntf::logger::verbose("{} diffuse texture(s) found in material {}", diff_count,
+                         mat_name.C_Str());
+    const u32 tex_idx = tex_count ? mats.material_textures.size() - 1 : vec_span::INDEX_TOMB;
     const vec_span tex_span{tex_idx, tex_count};
 
     mats.materials.emplace_back(mat_name.C_Str(), tex_span);
@@ -196,15 +212,14 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
     mats.material_registry.try_emplace(mat.name, i++);
   }
 
-  ntf::logger::debug("Parsed {} materials, {} textures",
-                     mats.materials.size(), mats.textures.size());
+  ntf::logger::debug("Parsed {} materials, {} textures", mats.materials.size(),
+                     mats.textures.size());
 
   return {};
 }
 
-auto assimp_parser::parse_meshes(const model_rig_data& rigs,
-                                 model_mesh_data& data, std::string_view model_name) -> expect<void>
-{
+auto assimp_parser::parse_meshes(const model_rig_data& rigs, model_mesh_data& data,
+                                 std::string_view model_name) -> expect<void> {
   const aiScene* scene = _imp.GetScene();
 
   // Reserve space for all vertex data
@@ -222,7 +237,7 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
       const aiMesh* mesh = scene->mMeshes[i];
       const size_t verts = mesh->mNumVertices;
 
-      if (mesh->HasPositions()) { 
+      if (mesh->HasPositions()) {
         pos_count += verts;
       }
       if (mesh->HasNormals()) {
@@ -257,7 +272,7 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
   }
 
   auto try_place_weight = [&](size_t mesh_start, size_t idx, const aiVertexWeight& weight) {
-    const size_t vertex_pos = mesh_start+weight.mVertexId;
+    const size_t vertex_pos = mesh_start + weight.mVertexId;
     auto& vertex_bone_indices = data.bones[vertex_pos];
     auto& vertex_bone_weights = data.weights[vertex_pos];
 
@@ -331,7 +346,7 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
     // Colors
     vec_span col{vec_span::INDEX_TOMB, 0u};
     if (mesh->HasVertexColors(0)) {
-      col.idx = data.colors.size()-nverts;
+      col.idx = data.colors.size() - nverts;
       col.count = nverts;
       for (size_t j = 0; j < nverts; ++j) {
         data.colors.emplace_back(asscast(mesh->mColors[0][j]));
@@ -382,15 +397,15 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
     const char* mesh_name = mesh->mName.C_Str();
     aiString mat_name = scene->mMaterials[mesh->mMaterialIndex]->GetName();
 
-    data.meshes.emplace_back(pos, norm, uv, tang, col, bone,
-                             indices, mesh_name, mat_name.C_Str(), mesh_faces);
+    data.meshes.emplace_back(pos, norm, uv, tang, col, bone, indices, mesh_name, mat_name.C_Str(),
+                             mesh_faces);
   }
 
   for (u32 i = 0; const auto& mesh : data.meshes) {
     auto [_, empl] = data.mesh_registry.try_emplace(mesh.name, i++);
     NTF_ASSERT(empl);
 
-    ntf::logger::info("{}", mesh.name); 
+    ntf::logger::info("{}", mesh.name);
     ntf::logger::info("- pos:  [{} {}]", mesh.positions.idx, mesh.positions.count);
     ntf::logger::info("- norm: [{} {}]", mesh.normals.idx, mesh.normals.count);
     ntf::logger::info("- uvs:  [{} {}]", mesh.uvs.idx, mesh.uvs.count);
@@ -399,16 +414,14 @@ auto assimp_parser::parse_meshes(const model_rig_data& rigs,
     ntf::logger::info("- cols: [{} {}]", mesh.colors.idx, mesh.colors.count);
   }
 
-  ntf::logger::debug("Parsed {} vertices, {} faces, {} indices, {} meshes",
-                     vertex_count, data.indices.size(), face_count, data.meshes.size());
+  ntf::logger::debug("Parsed {} vertices, {} faces, {} indices, {} meshes", vertex_count,
+                     data.indices.size(), face_count, data.meshes.size());
 
   return {};
 }
 
-void assimp_parser::_parse_bone_nodes(const bone_inv_map& bone_invs,
-                                      u32 parent, u32& bone_count,
-                                      const aiNode* node, model_rig_data& data)
-{
+void assimp_parser::_parse_bone_nodes(const bone_inv_map& bone_invs, u32 parent, u32& bone_count,
+                                      const aiNode* node, model_rig_data& data) {
   NTF_ASSERT(node);
   u32 node_idx = bone_count;
   ++bone_count;
@@ -472,7 +485,7 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
   u32 bone_count = 0u;
   data.bones.reserve(bone_invs.size()); // Avoid invalidating bone string pointers!!!!
   data.bone_registry.reserve(bone_invs.size());
-  for (const aiNode* root : possible_roots) { 
+  for (const aiNode* root : possible_roots) {
     // Check for name dupes
     auto bone_it = data.bone_registry.find(root->mName.C_Str());
     if (bone_it != data.bone_registry.end()) {
@@ -485,7 +498,6 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
     }
 
     if (root->mNumChildren == 0u) {
-
     }
 
     const char* armature_name = root->mParent->mName.C_Str();
@@ -494,12 +506,12 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
     _parse_bone_nodes(bone_invs, vec_span::INDEX_TOMB, bone_count, root, data);
 
     // Make sure the root local transform is its node model transform
-    if (!is_identity(data.bone_locals[root_idx]*data.bone_inv_models[root_idx])) {
+    if (!is_identity(data.bone_locals[root_idx] * data.bone_inv_models[root_idx])) {
       ntf::logger::warning("Malformed transform in root \"{}\", correction applied",
                            root->mName.C_Str());
-      data.bone_locals[root_idx]= node_model(root->mParent)*data.bone_locals[root_idx];
+      data.bone_locals[root_idx] = node_model(root->mParent) * data.bone_locals[root_idx];
     }
-    const vec_span armature_span{root_idx, bone_count-root_idx};
+    const vec_span armature_span{root_idx, bone_count - root_idx};
 
     data.armatures.emplace_back(armature_name, armature_span);
   }
@@ -509,8 +521,7 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
   for (u32 i = 0; auto& arm : data.armatures) {
     auto [_, empl] = data.armature_registry.try_emplace(arm.name, i++);
     if (!empl) {
-      ntf::logger::warning("Armature \"{}\" parsed twice, generating new name for dupe",
-                           arm.name);
+      ntf::logger::warning("Armature \"{}\" parsed twice, generating new name for dupe", arm.name);
       arm.name.append("_bis");
       data.armature_registry.try_emplace(arm.name, i);
     }
@@ -579,36 +590,36 @@ auto assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
     NTF_ASSERT(empl);
   }
 
-  ntf::logger::debug("Parsed {} animations, {} keyframes",
-                     data.animations.size(), data.keyframes.size());
+  ntf::logger::debug("Parsed {} animations, {} keyframes", data.animations.size(),
+                     data.keyframes.size());
 
   return {};
 }
 
 model3d_mesh_textures::model3d_mesh_textures(ntf::unique_array<texture_t>&& textures,
-                               std::unordered_map<std::string_view, u32>&& tex_reg,
-                               ntf::unique_array<vec_span>&& mat_spans,
-                               ntf::unique_array<u32>&& mat_texes) noexcept :
-  _textures{std::move(textures)}, _tex_reg{std::move(tex_reg)},
-  _mat_spans{std::move(mat_spans)}, _mat_texes{std::move(mat_texes)} {}
-
+                                             std::unordered_map<std::string_view, u32>&& tex_reg,
+                                             ntf::unique_array<vec_span>&& mat_spans,
+                                             ntf::unique_array<u32>&& mat_texes) noexcept :
+    _textures{std::move(textures)},
+    _tex_reg{std::move(tex_reg)}, _mat_spans{std::move(mat_spans)},
+    _mat_texes{std::move(mat_texes)} {}
 
 template<u32 tex_extent>
-[[maybe_unused]] static constexpr auto missing_albedo_bitmap = []{
-  std::array<u8, 4u*tex_extent*tex_extent> out;
-  const u8 pixels[] {
+[[maybe_unused]] static constexpr auto missing_albedo_bitmap = [] {
+  std::array<u8, 4u * tex_extent * tex_extent> out;
+  const u8 pixels[]{
     0x00, 0x00, 0x00, 0xFF, // black
     0xFE, 0x00, 0xFE, 0xFF, // pink
     0x00, 0x00, 0x00, 0xFF, // black again
   };
 
   for (u32 i = 0; i < tex_extent; ++i) {
-    const u8* start = i%2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
+    const u8* start = i % 2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
     u32 pos = 0;
     for (u32 j = 0; j < tex_extent; ++j) {
       pos = (pos + 4) % 8;
       for (u32 k = 0; k < 4; ++k) {
-        out[(4*i*tex_extent)+(4*j)+k] = start[pos+k];
+        out[(4 * i * tex_extent) + (4 * j) + k] = start[pos + k];
       }
     }
   }
@@ -618,7 +629,7 @@ template<u32 tex_extent>
 
 template<u32 tex_extent = 16u>
 static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::context_view ctx) {
-  const shogle::image_data image {
+  const shogle::image_data image{
     .bitmap = missing_albedo_bitmap<tex_extent>.data(),
     .format = shogle::image_format::rgba8u,
     .alignment = 4u,
@@ -627,26 +638,24 @@ static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::cont
     .layer = 0u,
     .level = 0u,
   };
-  const shogle::texture_data data {
+  const shogle::texture_data data{
     .images = {image},
     .generate_mipmaps = false,
   };
   return shogle::texture2d::create(ctx, {
-    .format = shogle::image_format::rgba8u,
-    .sampler = shogle::texture_sampler::nearest,
-    .addressing = shogle::texture_addressing::repeat,
-    .extent = {tex_extent, tex_extent, 1},
-    .layers = 1u,
-    .levels = 1u,
-    .data = data,
-  });
+                                          .format = shogle::image_format::rgba8u,
+                                          .sampler = shogle::texture_sampler::nearest,
+                                          .addressing = shogle::texture_addressing::repeat,
+                                          .extent = {tex_extent, tex_extent, 1},
+                                          .layers = 1u,
+                                          .levels = 1u,
+                                          .data = data,
+                                        });
 }
 
 expect<model3d_mesh_textures> model3d_mesh_textures::create(const model_material_data& mat_data) {
-  auto ctx = renderer::instance().ctx();
-
   ntf::unique_array<u32> mat_texes{ntf::uninitialized, mat_data.material_textures.size()};
-  for (u32 i = 0u; i < mat_data.material_textures.size(); ++i){
+  for (u32 i = 0u; i < mat_data.material_textures.size(); ++i) {
     mat_texes[i] = mat_data.material_textures[i];
   }
   ntf::unique_array<vec_span> mat_spans{ntf::uninitialized, mat_data.materials.size()};
@@ -658,45 +667,22 @@ expect<model3d_mesh_textures> model3d_mesh_textures::create(const model_material
   std::unordered_map<std::string_view, u32> tex_reg;
   tex_reg.reserve(mat_data.textures.size());
   for (u32 i = 0u; const auto& tex : mat_data.textures) {
-    const shogle::image_data image {
-      .bitmap = tex.bitmap.data(),
-      .format = tex.format,
-      .alignment = 4u,
-      .extent = tex.extent,
-      .offset = {0, 0, 0},
-      .layer = 0u,
-      .level = 0u,
-    };
-    const shogle::texture_data data {
-      .images = {image},
-      .generate_mipmaps = true,
-    };
-    auto tex2d = shogle::texture2d::create(ctx, {
-      .format = shogle::image_format::rgba8u,
-      .sampler = shogle::texture_sampler::linear,
-      .addressing = shogle::texture_addressing::repeat,
-      .extent = tex.extent,
-      .layers = 1u,
-      .levels = 7u,
-      .data = data,
-    });
+    auto tex2d = render::create_texture(tex.extent.x, tex.extent.y, tex.bitmap.data(), tex.format,
+                                        shogle::texture_sampler::linear, 7u);
     if (!tex2d) {
       ntf::logger::error("Failed to upload texture \"{}\" ({})", tex.name, i);
       return {ntf::unexpect, "Failed to upload textures"};
     }
 
-    const u32 sampler = TEX_SAMPLER_ALBEDO;
-    std::construct_at(textures.data()+i,
-                      tex.name, std::move(*tex2d), sampler);
+    const u32 sampler = render::TEX_SAMPLER_ALBEDO;
+    std::construct_at(textures.data() + i, tex.name, std::move(*tex2d), sampler);
     auto [_, empl] = tex_reg.try_emplace(textures[i].name, i);
     NTF_ASSERT(empl);
     ++i;
   }
 
-  return {
-    ntf::in_place,
-    std::move(textures), std::move(tex_reg), std::move(mat_spans), std::move(mat_texes)
-  };
+  return {ntf::in_place, std::move(textures), std::move(tex_reg), std::move(mat_spans),
+          std::move(mat_texes)};
 }
 
 ntf::optional<u32> model3d_mesh_textures::find_texture_idx(std::string_view name) const {
@@ -716,9 +702,8 @@ shogle::texture2d_view model3d_mesh_textures::find_texture(std::string_view name
   return _textures[*idx].tex;
 }
 
-u32 model3d_mesh_textures::retrieve_material_textures(u32 mat_idx,
-                                                std::vector<shogle::texture_binding>& texs) const
-{
+u32 model3d_mesh_textures::retrieve_material_textures(
+  u32 mat_idx, std::vector<shogle::texture_binding>& texs) const {
   NTF_ASSERT(mat_idx < _mat_spans.size());
 
   const auto tex_span = _mat_spans[mat_idx].to_cspan(_mat_texes.data());

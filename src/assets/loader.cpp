@@ -6,11 +6,11 @@ namespace kappa {
 
 auto asset_bundle::put_rmodel(rigged_model3d::data_t&& model_data) -> expect<rmodel_idx> {
   return rigged_model3d::create(std::move(model_data))
-  .and_then([this](rigged_model3d&& model) -> expect<rmodel_idx> {
-    _models.emplace_back(std::move(model));
-    u32 pos = _models.size()-1u;
-    return static_cast<rmodel_idx>(pos);
-  });
+    .and_then([this](rigged_model3d&& model) -> expect<rmodel_idx> {
+      _models.emplace_back(std::move(model));
+      u32 pos = _models.size() - 1u;
+      return static_cast<rmodel_idx>(pos);
+    });
 }
 
 rigged_model3d* asset_bundle::find_rmodel(std::string_view name) {
@@ -46,13 +46,12 @@ const rigged_model3d& asset_bundle::get_rmodel(rmodel_idx model) const {
 expect<asset_bundle::rmodel_idx> asset_loader::load_rmodel(asset_bundle& bundle,
                                                            const std::string& path,
                                                            const std::string& name,
-                                                           const model_opts& opts)
-{
+                                                           const model_opts& opts) {
   assimp_parser parser;
   return _parse_rmodel(parser, path, name, opts)
-  .and_then([&](rigged_model3d::data_t&& data) -> expect<asset_bundle::rmodel_idx> {
-    return bundle.put_rmodel(std::move(data));
-  });
+    .and_then([&](rigged_model3d::data_t&& data) -> expect<asset_bundle::rmodel_idx> {
+      return bundle.put_rmodel(std::move(data));
+    });
 }
 
 void asset_loader::handle_requests() {
@@ -61,24 +60,24 @@ void asset_loader::handle_requests() {
     _responses.pop();
     NTF_ASSERT(!res.callback.empty());
     NTF_ASSERT(res.bundle);
-    std::visit(ntf::overload{
-      [&](rigged_model3d::data_t&& model) {
-        auto ret = res.bundle->put_rmodel(std::move(model))
-        .transform([](auto model) -> u32 { return static_cast<u32>(model); });
-        std::invoke(res.callback, ret, *res.bundle);
-      },
-      [&](std::string_view err) {
-        expect<u32> ret{ntf::unexpect, err};
-        std::invoke(res.callback, ret, *res.bundle);
-      }
-    }, std::move(res.data));
+    std::visit(
+      ntf::overload{[&](rigged_model3d::data_t&& model) {
+                      auto ret =
+                        res.bundle->put_rmodel(std::move(model)).transform([](auto model) -> u32 {
+                          return static_cast<u32>(model);
+                        });
+                      std::invoke(res.callback, ret, *res.bundle);
+                    },
+                    [&](std::string_view err) {
+                      expect<u32> ret{ntf::unexpect, err};
+                      std::invoke(res.callback, ret, *res.bundle);
+                    }},
+      std::move(res.data));
   }
 }
 
-
-auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
-                                std::string name, const model_opts& opt) -> expect<rigged_model3d::data_t>
-{
+auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path, std::string name,
+                                 const model_opts& opt) -> expect<rigged_model3d::data_t> {
   if (auto ret = parser.load(path, opt.flags); !ret) {
     return ntf::unexpected{std::move(ret.error())};
   }
@@ -87,7 +86,7 @@ auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
   parser.parse_rigs(rigs);
 
   if (rigs.armature_registry.find(opt.armature) == rigs.armature_registry.end()) {
-    return ntf::unexpected{std::string_view{"Armature not found"}};
+    return {ntf::unexpect, "Armature not found"};
   }
 
   model_anim_data anims;
@@ -99,11 +98,9 @@ auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
   model_mesh_data meshes;
   parser.parse_meshes(rigs, meshes, name);
 
-  return expect<rigged_model3d::data_t> {
-    ntf::in_place, std::move(name), opt.armature,
-    std::move(meshes), std::move(mats), 
-    std::move(rigs), std::move(anims)
-  };
+  return expect<rigged_model3d::data_t>{ntf::in_place,     std::move(name), opt.armature,
+                                        std::move(meshes), std::move(mats), std::move(rigs),
+                                        std::move(anims)};
 }
 
 } // namespace kappa

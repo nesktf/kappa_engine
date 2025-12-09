@@ -12,7 +12,7 @@ public:
     {.size = sizeof(vec2), .name = "rigged_uv"},
     {.size = sizeof(vec3), .name = "rigged_tangents"},
     {.size = sizeof(vec3), .name = "rigged_bitangents"},
-    {.size = sizeof(model_mesh_data::vertex_bones),   .name = "rigged_bones"},
+    {.size = sizeof(model_mesh_data::vertex_bones), .name = "rigged_bones"},
     {.size = sizeof(model_mesh_data::vertex_weights), .name = "rigged_weights"},
   }};
 
@@ -26,13 +26,16 @@ public:
 
 public:
   u32 vertex_count() const { return meshes.positions.size(); }
+
   u32 index_count() const { return meshes.indices.size(); }
+
   u32 mesh_count() const { return meshes.meshes.size(); }
 
   vec_span mesh_index_range(u32 mesh_idx) const {
     NTF_ASSERT(mesh_idx < meshes.meshes.size());
     return meshes.meshes[mesh_idx].indices;
   }
+
   cspan<u32> index_data() const { return {meshes.indices.data(), meshes.indices.size()}; }
 
   std::pair<const void*, u32> vertex_data(u32 attr_idx, u32 mesh_idx) const {
@@ -47,10 +50,11 @@ public:
 
       ATTR_COUNT
     };
+
     NTF_ASSERT(mesh_idx < meshes.meshes.size());
     if (attr_idx >= ATTR_COUNT) {
       return std::make_pair(nullptr, 0u);
-    } 
+    }
 
     const auto& mesh_meta = meshes.meshes[mesh_idx];
     switch (attr_idx) {
@@ -82,11 +86,13 @@ public:
         const auto span = mesh_meta.bones.to_cspan(meshes.weights.data());
         return std::make_pair(static_cast<const void*>(span.data()), span.size());
       } break;
-      default: break;
+      default:
+        break;
     }
     NTF_UNREACHABLE();
   }
 };
+
 static_assert(meta::mesh_data_type<rigged_model_data>);
 
 class model_rigger {
@@ -104,13 +110,10 @@ public:
   };
 
 public:
-  model_rigger(shogle::shader_storage_buffer&& ssbo,
-               ntf::unique_array<bone_t>&& bones,
+  model_rigger(shogle::shader_storage_buffer&& ssbo, ntf::unique_array<bone_t>&& bones,
                std::unordered_map<std::string_view, u32>&& bone_reg,
-               ntf::unique_array<mat4>&& bone_locals,
-               ntf::unique_array<mat4>&& bone_inv_models,
-               ntf::unique_array<mat4>&& bone_transforms,
-               ntf::unique_array<mat4>&& transf_cache,
+               ntf::unique_array<mat4>&& bone_locals, ntf::unique_array<mat4>&& bone_inv_models,
+               ntf::unique_array<mat4>&& bone_transforms, ntf::unique_array<mat4>&& transf_cache,
                ntf::unique_array<mat4>&& transf_output) noexcept;
 
 protected:
@@ -120,7 +123,7 @@ public:
   bool set_transform(std::string_view bone, const bone_transform& transf);
   bool set_transform(std::string_view bone, const mat4& transf);
   bool set_transform(std::string_view bone, shogle::transform3d<f32>& transf);
-  
+
   void set_transform(u32 bone, const bone_transform& transf);
   void set_transform(u32 bone, const mat4& transf);
   void set_transform(u32 bone, shogle::transform3d<f32>& transf);
@@ -150,31 +153,33 @@ struct tickable {
   virtual void tick() = 0;
 };
 
-class rigged_model3d : public model3d_mesh_buffers<rigged_model_data>,
-                       public model3d_mesh_textures, public model_rigger,
-                       public renderable, public tickable {
+class rigged_model3d :
+    public model3d_mesh_buffers<rigged_model_data>,
+    public model3d_mesh_textures,
+    public model_rigger,
+    public render::renderable,
+    public tickable {
 public:
   using data_t = rigged_model_data;
 
 public:
   rigged_model3d(model3d_mesh_buffers<rigged_model_data>&& meshes,
-                 model3d_mesh_textures&& texturer,
-                 model_rigger&& rigger,
+                 model3d_mesh_textures&& texturer, model_rigger&& rigger,
                  std::vector<model_material_data::material_meta>&& mats,
-                 std::unordered_map<std::string_view, u32>&& mat_reg,
-                 shogle::pipeline pip,
-                 std::vector<u32> mesh_mats,
-                 std::string&& name) noexcept;
+                 std::unordered_map<std::string_view, u32>&& mat_reg, shogle::pipeline pip,
+                 std::vector<u32> mesh_mats, std::string&& name) noexcept;
 
 public:
   static expect<rigged_model3d> create(data_t&& data);
 
 public:
   void tick() override;
-  u32 retrieve_render_data(const scene_render_data& scene, object_render_data& data) override;
+  u32 retrieve_render_data(const render::scene_render_data& scene,
+                           render::object_render_data& data) override;
 
 public:
   shogle::transform3d<f32>& transform() { return _transf; }
+
   std::string_view name() const { return _name; }
 
 private:

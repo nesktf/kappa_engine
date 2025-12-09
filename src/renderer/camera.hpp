@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../common.hpp"
+#include "../core.hpp"
 
 namespace kappa {
 
@@ -16,8 +16,10 @@ enum cam_movement {
 class camera {
 public:
   camera(vec3 pos_ = {0.f, 0.f, 0.f}, vec3 world_up_ = {0.f, 1.f, 0.f}) :
-    pos{pos_}, world_up{world_up_}, move_speed{2.5f},
-    _yaw{glm::radians(-90.f)}, _pitch(0.f), _mouse_sens{.0025f} { _do_cam_vecs(); }
+      pos{pos_}, world_up{world_up_}, move_speed{2.5f}, _yaw{glm::radians(-90.f)}, _pitch(0.f),
+      _mouse_sens{.0025f} {
+    _do_cam_vecs();
+  }
 
 public:
   void process_mouse_move(f32 xoff, f32 yoff, bool clamp_pitch = true) {
@@ -36,32 +38,30 @@ public:
   }
 
   void process_keyboard(cam_movement movement, f32 delta) {
-    f32 vel = move_speed*delta;
+    f32 vel = move_speed * delta;
     if (movement == CAM_FORWARD) {
-      pos += _front*vel;
+      pos += _front * vel;
     } else if (movement == CAM_BACKWARD) {
-      pos -= _front*vel;
-    } else if (movement == CAM_LEFT){
-      pos -= _right*vel;
+      pos -= _front * vel;
+    } else if (movement == CAM_LEFT) {
+      pos -= _right * vel;
     } else if (movement == CAM_RIGHT) {
-      pos += _right*vel;
+      pos += _right * vel;
     } else if (movement == CAM_UP) {
-      pos += world_up*vel;
-    } else if (movement == CAM_DOWN){
-      pos -= world_up*vel;
+      pos += world_up * vel;
+    } else if (movement == CAM_DOWN) {
+      pos -= world_up * vel;
     }
   }
 
-  mat4 view() const {
-    return glm::lookAt(pos, pos+_front, _up);
-  }
+  mat4 view() const { return glm::lookAt(pos, pos + _front, _up); }
 
 private:
   void _do_cam_vecs() {
-    const vec3 front {
-      glm::cos(_yaw)*glm::cos(_pitch),
+    const vec3 front{
+      glm::cos(_yaw) * glm::cos(_pitch),
       glm::sin(_pitch),
-      glm::sin(_yaw)*glm::cos(_pitch),
+      glm::sin(_yaw) * glm::cos(_pitch),
     };
     const vec3 right = glm::normalize(glm::cross(front, world_up));
 
