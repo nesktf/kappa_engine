@@ -139,17 +139,7 @@ void particle_force_registry::clear_forces() {
   }
 }
 
-void particle_force_registry::update_forces(real dt) {
-  for (auto& elem : _registry) {
-    if (!elem.has_value()) {
-      continue;
-    }
-    auto& [particle, generator] = *elem;
-    NTF_ASSERT(!generator.is_empty());
-    NTF_ASSERT(!particle.empty());
-    std::invoke(generator, *particle, dt);
-  }
-}
+void particle_force_registry::update_forces(real dt) {}
 
 particle_gravity::particle_gravity(vec3 gravity) noexcept : _gravity{gravity} {}
 

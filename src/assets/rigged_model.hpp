@@ -2,7 +2,7 @@
 
 #include "./model_data.hpp"
 
-namespace kappa {
+namespace kappa::assets {
 
 struct rigged_model_data {
 public:
@@ -95,76 +95,27 @@ public:
 
 static_assert(meta::mesh_data_type<rigged_model_data>);
 
-class model_rigger {
-private:
+class rigged_model3d :
+    public model3d_mesh_buffers<rigged_model_data>,
+    public model3d_mesh_textures {
+public:
   struct bone_t {
     std::string name;
     u32 parent;
   };
 
-public:
-  struct bone_transform {
-    vec3 pos;
-    vec3 scale;
-    quat rot;
+  struct rig_data {
+    ntf::unique_array<bone_t> _bones;
+    std::unordered_map<std::string_view, u32> _bone_reg;
+    ntf::unique_array<mat4> _bone_locals;
+    ntf::unique_array<mat4> _bone_inv_models;
   };
 
-public:
-  model_rigger(shogle::shader_storage_buffer&& ssbo, ntf::unique_array<bone_t>&& bones,
-               std::unordered_map<std::string_view, u32>&& bone_reg,
-               ntf::unique_array<mat4>&& bone_locals, ntf::unique_array<mat4>&& bone_inv_models,
-               ntf::unique_array<mat4>&& bone_transforms, ntf::unique_array<mat4>&& transf_cache,
-               ntf::unique_array<mat4>&& transf_output) noexcept;
-
-protected:
-  static expect<model_rigger> create(const model_rig_data& rigs, std::string_view armature);
-
-public:
-  bool set_transform(std::string_view bone, const bone_transform& transf);
-  bool set_transform(std::string_view bone, const mat4& transf);
-  bool set_transform(std::string_view bone, shogle::transform3d<f32>& transf);
-
-  void set_transform(u32 bone, const bone_transform& transf);
-  void set_transform(u32 bone, const mat4& transf);
-  void set_transform(u32 bone, shogle::transform3d<f32>& transf);
-
-  ntf::optional<u32> find_bone(std::string_view name);
-
-public:
-  void apply_animation(const model_anim_data& anims, std::string_view name, u32 tick);
-
-protected:
-  void tick_bones(const mat4& root);
-  u32 retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const;
-
-private:
-  shogle::shader_storage_buffer _ssbo;
-  ntf::unique_array<bone_t> _bones;
-  std::unordered_map<std::string_view, u32> _bone_reg;
-  ntf::unique_array<mat4> _bone_locals;
-  ntf::unique_array<mat4> _bone_inv_models;
-  ntf::unique_array<mat4> _bone_transforms;
-  ntf::unique_array<mat4> _transf_cache;
-  ntf::unique_array<mat4> _transf_output;
-};
-
-struct tickable {
-  virtual ~tickable() = default;
-  virtual void tick() = 0;
-};
-
-class rigged_model3d :
-    public model3d_mesh_buffers<rigged_model_data>,
-    public model3d_mesh_textures,
-    public model_rigger,
-    public render::renderable,
-    public tickable {
-public:
   using data_t = rigged_model_data;
 
 public:
   rigged_model3d(model3d_mesh_buffers<rigged_model_data>&& meshes,
-                 model3d_mesh_textures&& texturer, model_rigger&& rigger,
+                 model3d_mesh_textures&& texturer, rig_data&& rigs,
                  std::vector<model_material_data::material_meta>&& mats,
                  std::unordered_map<std::string_view, u32>&& mat_reg, shogle::pipeline pip,
                  std::vector<u32> mesh_mats, std::string&& name) noexcept;
@@ -173,14 +124,9 @@ public:
   static expect<rigged_model3d> create(data_t&& data);
 
 public:
-  void tick() override;
-  u32 retrieve_render_data(const render::scene_render_data& scene,
-                           render::object_render_data& data) override;
-
-public:
-  shogle::transform3d<f32>& transform() { return _transf; }
-
   std::string_view name() const { return _name; }
+
+  ntf::optional<u32> find_bone(std::string_view name);
 
 private:
   std::vector<model_material_data::material_meta> _mats;
@@ -188,7 +134,6 @@ private:
   shogle::pipeline _pip;
   std::vector<u32> _mesh_mats;
   std::string _name;
-  shogle::transform3d<f32> _transf;
 };
 
-} // namespace kappa
+} // namespace kappa::assets

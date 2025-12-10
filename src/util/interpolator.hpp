@@ -1,6 +1,6 @@
 #pragma once
 
-#include "./core.hpp"
+#include "../core.hpp"
 
 namespace kappa {
 
@@ -8,7 +8,7 @@ template<typename T, typename U>
 concept interpolable = requires(T a, T b, U scalar) {
   { a + b } -> std::convertible_to<T>;
   { a - b } -> std::convertible_to<T>;
-  { scalar* a } -> std::convertible_to<T>;
+  { scalar * a } -> std::convertible_to<T>;
 };
 
 template<typename F, typename T, typename U>
@@ -204,8 +204,7 @@ public:
   template<typename... Args>
   explicit constexpr steplerp_func(const T& first, const T& last, u32 steps, std::in_place_t t,
                                    Args&&... args) :
-      base_t{first, last, t, std::forward<Args>(args)...},
-      _steps{steps} {}
+      base_t{first, last, t, std::forward<Args>(args)...}, _steps{steps} {}
 
 private:
   constexpr T _eval(U delta) const { return base_t::evaluate(delta / static_cast<U>(steps())); }
@@ -254,8 +253,7 @@ public:
   template<typename... Args>
   explicit constexpr deltalerp(const T& first, const T& last, U age, std::in_place_t tag,
                                Args&&... args) :
-      base_t{first, last, tag, std::forward<Args>(args)...},
-      _t{age} {}
+      base_t{first, last, tag, std::forward<Args>(args)...}, _t{age} {}
 
 public:
   [[nodiscard]] constexpr T value() const { return base_t::evaluate(_t); }
@@ -306,8 +304,7 @@ public:
   template<typename... Args>
   explicit constexpr steplerp(const T& first, const T& last, i32 age, std::in_place_t t,
                               Args&&... args) :
-      base_t{first, last, t, std::forward<Args>(args)...},
-      _age{age} {}
+      base_t{first, last, t, std::forward<Args>(args)...}, _age{age} {}
 
 private:
   constexpr T _eval(U delta) const { return base_t::evaluate(delta / static_cast<U>(steps())); }
@@ -366,8 +363,7 @@ public:
   template<typename... Args>
   explicit constexpr steplerp(const T& first, const T& last, u32 steps, std::in_place_t tag,
                               Args&&... args) :
-      base_t{first, last, tag, std::forward<Args>(args)...},
-      _steps{steps}, _age{} {}
+      base_t{first, last, tag, std::forward<Args>(args)...}, _steps{steps}, _age{} {}
 
   explicit constexpr steplerp(const T& first, const T& last, u32 steps, i32 age) :
       base_t{first, last}, _steps{steps}, _age{age} {}
@@ -381,8 +377,7 @@ public:
   template<typename... Args>
   explicit constexpr steplerp(const T& first, const T& last, u32 steps, i32 age,
                               std::in_place_t tag, Args&&... args) :
-      base_t{first, last, tag, std::forward<Args>(args)...},
-      _steps{steps}, _age{age} {}
+      base_t{first, last, tag, std::forward<Args>(args)...}, _steps{steps}, _age{age} {}
 
 private:
   constexpr T _eval(U delta) const { return base_t::evaluate(delta / static_cast<U>(steps())); }

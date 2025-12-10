@@ -10,6 +10,8 @@
 #include <ntfstl/types.hpp>
 #include <ntfstl/unique_array.hpp>
 
+#define fn auto
+
 namespace kappa {
 
 using namespace ntf::numdefs;

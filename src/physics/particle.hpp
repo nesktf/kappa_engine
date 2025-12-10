@@ -62,7 +62,8 @@ private:
   using generator_func = ntf::function_view<void(particle_entity&, real)>;
 
   struct force_entry {
-    ntf::weak_ptr<particle_entity> particle;
+    u64 particle;
+    u32 tag;
     generator_func generator;
   };
 
@@ -80,7 +81,19 @@ public:
 
   void clear_forces();
 
-  void update_forces(real dt);
+  template<typename F>
+  requires(std::is_invocable_r_v<particle_entity&, F, u64, u32>)
+  void update_forces(real dt, F&& func) {
+    for (auto& elem : _registry) {
+      if (!elem.has_value()) {
+        continue;
+      }
+      auto& [particle_handle, tag, generator] = *elem;
+      particle_entity& particle = std::invoke(func, particle_handle, tag);
+      NTF_ASSERT(!generator.is_empty());
+      std::invoke(generator, particle, dt);
+    }
+  }
 
 private:
   u32 _add_force(ntf::weak_ptr<particle_entity> particle, generator_func generator);
