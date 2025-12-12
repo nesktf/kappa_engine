@@ -2,7 +2,7 @@
 
 #include "./model_data.hpp"
 
-namespace kappa {
+namespace kappa::assets {
 
 struct static_model_data {
 public:
@@ -21,13 +21,16 @@ public:
 
 public:
   u32 vertex_count() const { return meshes.positions.size(); }
+
   u32 index_count() const { return meshes.indices.size(); }
+
   u32 mesh_count() const { return meshes.meshes.size(); }
 
   vec_span mesh_index_range(u32 mesh_idx) const {
     NTF_ASSERT(mesh_idx < meshes.meshes.size());
     return meshes.meshes[mesh_idx].indices;
   }
+
   cspan<u32> index_data() const { return {meshes.indices.data(), meshes.indices.size()}; }
 
   std::pair<const void*, u32> vertex_data(u32 attr_idx, u32 mesh_idx) const {
@@ -40,10 +43,11 @@ public:
 
       ATTR_COUNT
     };
+
     NTF_ASSERT(mesh_idx < meshes.meshes.size());
     if (attr_idx >= ATTR_COUNT) {
       return std::make_pair(nullptr, 0u);
-    } 
+    }
 
     const auto& mesh_meta = meshes.meshes[mesh_idx];
     switch (attr_idx) {
@@ -67,18 +71,13 @@ public:
         const auto span = mesh_meta.tangents.to_cspan(meshes.bitangents.data());
         return std::make_pair(static_cast<const void*>(span.data()), span.size());
       } break;
-      default: break;
+      default:
+        break;
     }
     NTF_UNREACHABLE();
   }
 };
+
 static_assert(meta::mesh_data_type<static_model_data>);
 
-class static_model3d :
-  public model3d_mesh_buffers<static_model_data>,
-  public model3d_mesh_textures
-{
-
-};
-
-} // namespace kappa
+} // namespace kappa::assets

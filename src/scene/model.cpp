@@ -11,22 +11,21 @@ static constexpr i32 FRAG_SAMPLER_LOC = 8;
 
 } // namespace
 
-rigged_model3d::rigged_model3d(u32 model, const vec3& pos, real mass,
-                               shogle::shader_storage_buffer&& bone_buffer,
-                               ntf::unique_array<mat4>&& bone_transforms,
-                               shogle::transform3d<f32> transform) :
-    _bone_buffer{std::move(bone_buffer)},
-    _bone_transforms{std::move(bone_transforms)}, _particle{pos, mass}, _transform{transform},
-    _model{model} {}
+rigged_model::rigged_model(u32 model, const vec3& pos, real mass,
+                           shogle::shader_storage_buffer&& bone_buffer,
+                           ntf::unique_array<mat4>&& bone_transforms,
+                           shogle::transform3d<f32> transform) :
+    _bone_buffer{std::move(bone_buffer)}, _bone_transforms{std::move(bone_transforms)},
+    _particle{pos, mass}, _transform{transform}, _model{model} {}
 
-u32 rigged_model3d::retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const {
+u32 rigged_model::retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const {
   binds.emplace_back(_bone_buffer.get(), VERT_MODEL_TRANSFORM_LOC, _bone_buffer.size(), 0u);
   return 1u;
 }
 
-void rigged_model3d::update_bones(ntf::span<mat4> transform_cache, ntf::cspan<mat4> bone_locals,
-                                  ntf::cspan<mat4> bone_invs,
-                                  ntf::cspan<assets::rigged_model_bone> bones) {
+void rigged_model::update_bones(ntf::span<mat4> transform_cache, ntf::cspan<mat4> bone_locals,
+                                ntf::cspan<mat4> bone_invs,
+                                ntf::cspan<assets::rigged_model_bone> bones) {
   NTF_ASSERT(bone_locals.size() == bones.size());
   NTF_ASSERT(bone_invs.size() == bones.size());
   NTF_ASSERT(_bone_transforms.size() == bones.size());
@@ -65,7 +64,7 @@ void rigged_model3d::update_bones(ntf::span<mat4> transform_cache, ntf::cspan<ma
 }
 
 void entity_registry::update() {
-  _rigged_instances.for_each([&](rigged_model3d& instance) {
+  _rigged_instances.for_each([&](rigged_model& instance) {
     const u32 model_idx = instance.model_idx();
     NTF_ASSERT(model_idx < _rmodels.size());
     const auto& model = _rmodels[model_idx];
@@ -81,7 +80,7 @@ void entity_registry::update() {
 u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene,
                                           render::object_render_data& data) {
   u32 total_meshes = 0u;
-  _rigged_instances.for_each([&](rigged_model3d& instance) {
+  _rigged_instances.for_each([&](rigged_model& instance) {
     const u32 model_idx = instance.model_idx();
     NTF_ASSERT(model_idx < _rmodels.size());
     const auto& model = _rmodels[model_idx];
@@ -112,7 +111,7 @@ u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene
   return total_meshes;
 }
 
-// bool rigged_model3d::set_transform(std::string_view bone, const bone_transform& transf) {
+// bool rigged_model::set_transform(std::string_view bone, const bone_transform& transf) {
 //   auto it = _bone_reg.find(bone);
 //   if (it == _bone_reg.end()) {
 //     return false;
@@ -125,7 +124,7 @@ u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene
 //   return true;
 // }
 //
-// bool rigged_model3d::set_transform(std::string_view bone, const mat4& transf) {
+// bool rigged_model::set_transform(std::string_view bone, const mat4& transf) {
 //   auto it = _bone_reg.find(bone);
 //   if (it == _bone_reg.end()) {
 //     return false;
@@ -136,24 +135,24 @@ u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene
 //   return true;
 // }
 //
-// void rigged_model3d::set_transform(u32 bone, const mat4& transf) {
+// void rigged_model::set_transform(u32 bone, const mat4& transf) {
 //   NTF_ASSERT(bone < _bone_transforms.size());
 //   _bone_transforms[bone] = transf;
 // }
 //
-// void rigged_model3d::set_transform(u32 bone, const bone_transform& transf) {
+// void rigged_model::set_transform(u32 bone, const bone_transform& transf) {
 //   NTF_ASSERT(bone < _bone_transforms.size());
 //   constexpr vec3 pivot{0.f, 0.f, 0.f};
 //   _bone_transforms[bone] = shogle::build_trs_matrix(transf.pos, transf.scale, pivot,
 //   transf.rot);
 // }
 //
-// void rigged_model3d::set_transform(u32 bone, shogle::transform3d<f32>& transf) {
+// void rigged_model::set_transform(u32 bone, shogle::transform3d<f32>& transf) {
 //   NTF_ASSERT(bone < _bone_transforms.size());
 //   _bone_transforms[bone] = transf.local();
 // }
 //
-// ntf::optional<u32> rigged_model3d::find_bone(std::string_view name) {
+// ntf::optional<u32> rigged_model::find_bone(std::string_view name) {
 //   auto it = _bone_reg.find(name);
 //   if (it == _bone_reg.end()) {
 //     return ntf::nullopt;
@@ -162,7 +161,7 @@ u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene
 //   return it->second;
 // }
 //
-// bool rigged_model3d::set_transform(std::string_view bone, shogle::transform3d<f32>& transf) {
+// bool rigged_model::set_transform(std::string_view bone, shogle::transform3d<f32>& transf) {
 //   return set_transform(bone, transf.local());
 // }
 

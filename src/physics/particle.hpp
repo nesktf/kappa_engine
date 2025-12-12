@@ -52,10 +52,14 @@ private:
   vec3 _forces;
 };
 
+namespace meta {
+
 template<typename F>
 concept particle_force_generator = requires(F generator, particle_entity& particle, real dt) {
   { std::invoke(generator, particle, dt) } -> std::same_as<void>;
 };
+
+} // namespace meta
 
 class particle_force_registry {
 private:
@@ -71,7 +75,7 @@ public:
   particle_force_registry();
 
 public:
-  template<particle_force_generator F>
+  template<meta::particle_force_generator F>
   u32 add_force(particle_entity& particle, F& generator) {
     generator_func generator_func{generator};
     return _add_force(particle, generator);
@@ -116,7 +120,7 @@ private:
   vec3 _gravity;
 };
 
-static_assert(particle_force_generator<particle_gravity>);
+static_assert(meta::particle_force_generator<particle_gravity>);
 
 class particle_drag {
 public:
@@ -132,7 +136,7 @@ private:
   real _k2;
 };
 
-static_assert(particle_force_generator<particle_drag>);
+static_assert(meta::particle_force_generator<particle_drag>);
 
 class particle_spring {
 public:
@@ -147,7 +151,7 @@ private:
   real _rest_len;
 };
 
-static_assert(particle_force_generator<particle_spring>);
+static_assert(meta::particle_force_generator<particle_spring>);
 
 class particle_spring_anchor {
 public:
@@ -164,7 +168,7 @@ private:
   real _rest_len;
 };
 
-static_assert(particle_force_generator<particle_spring_anchor>);
+static_assert(meta::particle_force_generator<particle_spring_anchor>);
 
 class particle_bungee {
 public:
@@ -179,7 +183,7 @@ private:
   real _rest_len;
 };
 
-static_assert(particle_force_generator<particle_bungee>);
+static_assert(meta::particle_force_generator<particle_bungee>);
 
 class particle_bungee_anchor {
 public:
@@ -196,6 +200,6 @@ private:
   real _rest_len;
 };
 
-static_assert(particle_force_generator<particle_bungee_anchor>);
+static_assert(meta::particle_force_generator<particle_bungee_anchor>);
 
 } // namespace kappa::physics

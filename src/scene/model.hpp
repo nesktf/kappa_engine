@@ -23,7 +23,7 @@ concept scene_entity_type = requires() {
   requires std::same_as<entity_enum_mapper_t<Ent::ent_type>, Ent>;
 };
 
-class rigged_model3d {
+class rigged_model {
 public:
   static constexpr entity_type ent_type = entity_type::rigged3d;
 
@@ -34,25 +34,24 @@ public:
   };
 
 public:
-  rigged_model3d(u32 model, const vec3& pos, real mass,
-                 shogle::shader_storage_buffer&& bone_buffer,
-                 ntf::unique_array<mat4>&& bone_transforms, shogle::transform3d<f32> transform);
+  rigged_model(u32 model, const vec3& pos, real mass, shogle::shader_storage_buffer&& bone_buffer,
+               ntf::unique_array<mat4>&& bone_transforms, shogle::transform3d<f32> transform);
 
 public:
   void update_bones(ntf::span<mat4> transform_cache, ntf::cspan<mat4> bone_locals,
                     ntf::cspan<mat4> bone_invs, ntf::cspan<assets::rigged_model_bone> bones);
 
-  bool set_transform(ntf::cspan<assets::rigged_model3d> models, std::string_view bone,
+  bool set_transform(ntf::cspan<assets::rigged_model> models, std::string_view bone,
                      const bone_transform& transf);
-  bool set_transform(ntf::cspan<assets::rigged_model3d> models, std::string_view bone,
+  bool set_transform(ntf::cspan<assets::rigged_model> models, std::string_view bone,
                      const mat4& transf);
-  bool set_transform(ntf::cspan<assets::rigged_model3d> models, std::string_view bone,
+  bool set_transform(ntf::cspan<assets::rigged_model> models, std::string_view bone,
                      shogle::transform3d<f32>& transf);
 
-  void set_transform(ntf::cspan<assets::rigged_model3d> models, u32 bone,
+  void set_transform(ntf::cspan<assets::rigged_model> models, u32 bone,
                      const bone_transform& transf);
-  void set_transform(ntf::cspan<assets::rigged_model3d> models, u32 bone, const mat4& transf);
-  void set_transform(ntf::cspan<assets::rigged_model3d> models, u32 bone,
+  void set_transform(ntf::cspan<assets::rigged_model> models, u32 bone, const mat4& transf);
+  void set_transform(ntf::cspan<assets::rigged_model> models, u32 bone,
                      shogle::transform3d<f32>& transf);
 
 public:
@@ -70,10 +69,10 @@ private:
 
 template<>
 struct entity_enum_mapper<entity_type::rigged3d> {
-  using type = rigged_model3d;
+  using type = rigged_model;
 };
 
-static_assert(scene_entity_type<rigged_model3d>);
+static_assert(scene_entity_type<rigged_model>);
 
 class entity_registry {
 private:
@@ -85,15 +84,15 @@ public:
 
 public:
   template<scene_entity_type T, typename... Args>
-  fn add_entity(Args&&... args)->ent_handle<T> {
-    if constexpr (std::same_as<T, rigged_model3d>) {
+  fn add_entity(Args&&... args) -> ent_handle<T> {
+    if constexpr (std::same_as<T, rigged_model>) {
       return _rigged_instances.request_elem(std::forward<Args>(args)...);
     }
   }
 
   template<scene_entity_type T>
-  fn remove_entity(ent_handle<T> handle)->void {
-    if constexpr (std::same_as<T, rigged_model3d>) {
+  fn remove_entity(ent_handle<T> handle) -> void {
+    if constexpr (std::same_as<T, rigged_model>) {
       _rigged_instances.return_elem(handle);
     }
   }
@@ -104,8 +103,8 @@ public:
                            render::object_render_data& data);
 
 private:
-  std::vector<assets::rigged_model3d> _rmodels;
-  kappa::free_list<rigged_model3d> _rigged_instances;
+  std::vector<assets::rigged_model> _rmodels;
+  kappa::free_list<rigged_model> _rigged_instances;
   std::vector<mat4> _rig_cache;
 };
 

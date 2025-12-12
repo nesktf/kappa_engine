@@ -3,7 +3,7 @@
 #include "assets/rigged_model.hpp"
 #include <variant>
 
-namespace kappa {
+namespace kappa::assets {
 
 class asset_bundle {
 public:
@@ -13,16 +13,16 @@ public:
   asset_bundle() = default;
 
 public:
-  expect<rmodel_idx> put_rmodel(rigged_model3d::data_t&& model_data);
+  expect<rmodel_idx> put_rmodel(rigged_model::data_t&& model_data);
 
-  rigged_model3d* find_rmodel(std::string_view name);
-  const rigged_model3d* find_rmodel(std::string_view name) const;
+  rigged_model* find_rmodel(std::string_view name);
+  const rigged_model* find_rmodel(std::string_view name) const;
 
-  rigged_model3d& get_rmodel(rmodel_idx model);
-  const rigged_model3d& get_rmodel(rmodel_idx model) const;
+  rigged_model& get_rmodel(rmodel_idx model);
+  const rigged_model& get_rmodel(rmodel_idx model) const;
 
 private:
-  std::vector<rigged_model3d> _models;
+  std::vector<rigged_model> _models;
   std::unordered_map<std::string, u32> _model_map;
 };
 
@@ -35,12 +35,12 @@ private:
         bundle{&bundle_} {}
 
     template<typename F>
-    response_t(asset_bundle& bundle_, F&& callback_, rigged_model3d::data_t&& data_) :
+    response_t(asset_bundle& bundle_, F&& callback_, rigged_model::data_t&& data_) :
         callback{std::forward<F>(callback_)},
-        data{std::in_place_type_t<rigged_model3d::data_t>{}, std::move(data_)}, bundle{&bundle_} {}
+        data{std::in_place_type_t<rigged_model::data_t>{}, std::move(data_)}, bundle{&bundle_} {}
 
     ntf::inplace_function<void(expect<u32>, asset_bundle&), 8 * sizeof(void*)> callback;
-    std::variant<std::string_view, rigged_model3d::data_t> data;
+    std::variant<std::string_view, rigged_model::data_t> data;
     asset_bundle* bundle;
   };
 
@@ -78,9 +78,8 @@ public:
   void handle_requests();
 
 private:
-  static expect<rigged_model3d::data_t> _parse_rmodel(assimp_parser& parser,
-                                                      const std::string& path, std::string name,
-                                                      const model_opts& opts);
+  static expect<rigged_model::data_t> _parse_rmodel(assimp_parser& parser, const std::string& path,
+                                                    std::string name, const model_opts& opts);
 
 private:
   ntf::thread_pool _tpool;
@@ -88,4 +87,4 @@ private:
   std::queue<response_t> _responses;
 };
 
-} // namespace kappa
+} // namespace kappa::assets

@@ -2,18 +2,18 @@
 
 #include <ntfstl/utility.hpp>
 
-namespace kappa {
+namespace kappa::assets {
 
-auto asset_bundle::put_rmodel(rigged_model3d::data_t&& model_data) -> expect<rmodel_idx> {
-  return rigged_model3d::create(std::move(model_data))
-    .and_then([this](rigged_model3d&& model) -> expect<rmodel_idx> {
+auto asset_bundle::put_rmodel(rigged_model::data_t&& model_data) -> expect<rmodel_idx> {
+  return rigged_model::create(std::move(model_data))
+    .and_then([this](rigged_model&& model) -> expect<rmodel_idx> {
       _models.emplace_back(std::move(model));
       u32 pos = _models.size() - 1u;
       return static_cast<rmodel_idx>(pos);
     });
 }
 
-rigged_model3d* asset_bundle::find_rmodel(std::string_view name) {
+rigged_model* asset_bundle::find_rmodel(std::string_view name) {
   auto it = _model_map.find({name.data(), name.size()});
   if (it == _model_map.end()) {
     return nullptr;
@@ -22,7 +22,7 @@ rigged_model3d* asset_bundle::find_rmodel(std::string_view name) {
   return &_models[it->second];
 }
 
-const rigged_model3d* asset_bundle::find_rmodel(std::string_view name) const {
+const rigged_model* asset_bundle::find_rmodel(std::string_view name) const {
   auto it = _model_map.find({name.data(), name.size()});
   if (it == _model_map.end()) {
     return nullptr;
@@ -31,13 +31,13 @@ const rigged_model3d* asset_bundle::find_rmodel(std::string_view name) const {
   return &_models[it->second];
 }
 
-rigged_model3d& asset_bundle::get_rmodel(rmodel_idx model) {
+rigged_model& asset_bundle::get_rmodel(rmodel_idx model) {
   u32 idx = static_cast<u32>(model);
   NTF_ASSERT(idx < _models.size());
   return _models[idx];
 }
 
-const rigged_model3d& asset_bundle::get_rmodel(rmodel_idx model) const {
+const rigged_model& asset_bundle::get_rmodel(rmodel_idx model) const {
   u32 idx = static_cast<u32>(model);
   NTF_ASSERT(idx < _models.size());
   return _models[idx];
@@ -49,7 +49,7 @@ expect<asset_bundle::rmodel_idx> asset_loader::load_rmodel(asset_bundle& bundle,
                                                            const model_opts& opts) {
   assimp_parser parser;
   return _parse_rmodel(parser, path, name, opts)
-    .and_then([&](rigged_model3d::data_t&& data) -> expect<asset_bundle::rmodel_idx> {
+    .and_then([&](rigged_model::data_t&& data) -> expect<asset_bundle::rmodel_idx> {
       return bundle.put_rmodel(std::move(data));
     });
 }
@@ -61,7 +61,7 @@ void asset_loader::handle_requests() {
     NTF_ASSERT(!res.callback.empty());
     NTF_ASSERT(res.bundle);
     std::visit(
-      ntf::overload{[&](rigged_model3d::data_t&& model) {
+      ntf::overload{[&](rigged_model::data_t&& model) {
                       auto ret =
                         res.bundle->put_rmodel(std::move(model)).transform([](auto model) -> u32 {
                           return static_cast<u32>(model);
@@ -77,7 +77,7 @@ void asset_loader::handle_requests() {
 }
 
 auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path, std::string name,
-                                 const model_opts& opt) -> expect<rigged_model3d::data_t> {
+                                 const model_opts& opt) -> expect<rigged_model::data_t> {
   if (auto ret = parser.load(path, opt.flags); !ret) {
     return ntf::unexpected{std::move(ret.error())};
   }
@@ -98,9 +98,9 @@ auto asset_loader::_parse_rmodel(assimp_parser& parser, const std::string& path,
   model_mesh_data meshes;
   parser.parse_meshes(rigs, meshes, name);
 
-  return expect<rigged_model3d::data_t>{ntf::in_place,     std::move(name), opt.armature,
-                                        std::move(meshes), std::move(mats), std::move(rigs),
-                                        std::move(anims)};
+  return expect<rigged_model::data_t>{ntf::in_place,     std::move(name), opt.armature,
+                                      std::move(meshes), std::move(mats), std::move(rigs),
+                                      std::move(anims)};
 }
 
-} // namespace kappa
+} // namespace kappa::assets

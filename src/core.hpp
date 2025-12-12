@@ -70,4 +70,14 @@ struct vec_span {
   u32 size() const { return count; }
 };
 
+namespace meta {
+
+template<typename Arr, typename T>
+struct is_std_array_of : public std::false_type {};
+
+template<typename T, size_t N>
+struct is_std_array_of<std::array<T, N>, T> : public std::true_type {};
+
+} // namespace meta
+
 } // namespace kappa

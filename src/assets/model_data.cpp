@@ -596,12 +596,11 @@ auto assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
   return {};
 }
 
-model3d_mesh_textures::model3d_mesh_textures(ntf::unique_array<texture_t>&& textures,
-                                             std::unordered_map<std::string_view, u32>&& tex_reg,
-                                             ntf::unique_array<vec_span>&& mat_spans,
-                                             ntf::unique_array<u32>&& mat_texes) noexcept :
-    _textures{std::move(textures)},
-    _tex_reg{std::move(tex_reg)}, _mat_spans{std::move(mat_spans)},
+model_mesh_textures::model_mesh_textures(ntf::unique_array<texture_t>&& textures,
+                                         std::unordered_map<std::string_view, u32>&& tex_reg,
+                                         ntf::unique_array<vec_span>&& mat_spans,
+                                         ntf::unique_array<u32>&& mat_texes) noexcept :
+    _textures{std::move(textures)}, _tex_reg{std::move(tex_reg)}, _mat_spans{std::move(mat_spans)},
     _mat_texes{std::move(mat_texes)} {}
 
 template<u32 tex_extent>
@@ -653,7 +652,7 @@ static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::cont
                                         });
 }
 
-expect<model3d_mesh_textures> model3d_mesh_textures::create(const model_material_data& mat_data) {
+expect<model_mesh_textures> model_mesh_textures::create(const model_material_data& mat_data) {
   ntf::unique_array<u32> mat_texes{ntf::uninitialized, mat_data.material_textures.size()};
   for (u32 i = 0u; i < mat_data.material_textures.size(); ++i) {
     mat_texes[i] = mat_data.material_textures[i];
@@ -685,7 +684,7 @@ expect<model3d_mesh_textures> model3d_mesh_textures::create(const model_material
           std::move(mat_texes)};
 }
 
-ntf::optional<u32> model3d_mesh_textures::find_texture_idx(std::string_view name) const {
+ntf::optional<u32> model_mesh_textures::find_texture_idx(std::string_view name) const {
   auto it = _tex_reg.find(name);
   if (it == _tex_reg.end()) {
     return ntf::nullopt;
@@ -693,7 +692,7 @@ ntf::optional<u32> model3d_mesh_textures::find_texture_idx(std::string_view name
   return it->second;
 }
 
-shogle::texture2d_view model3d_mesh_textures::find_texture(std::string_view name) {
+shogle::texture2d_view model_mesh_textures::find_texture(std::string_view name) {
   auto idx = find_texture_idx(name);
   if (!idx) {
     return {};
@@ -702,7 +701,7 @@ shogle::texture2d_view model3d_mesh_textures::find_texture(std::string_view name
   return _textures[*idx].tex;
 }
 
-u32 model3d_mesh_textures::retrieve_material_textures(
+u32 model_mesh_textures::retrieve_material_textures(
   u32 mat_idx, std::vector<shogle::texture_binding>& texs) const {
   NTF_ASSERT(mat_idx < _mat_spans.size());
 

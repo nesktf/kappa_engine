@@ -100,35 +100,39 @@ struct rigged_model_bone {
   u32 parent;
 };
 
-class rigged_model3d :
-    public model3d_mesh_buffers<rigged_model_data>,
-    public model3d_mesh_textures {
+class rigged_model {
 public:
-  struct rig_data {
+  struct model_rigs {
     ntf::unique_array<rigged_model_bone> bones;
     std::unordered_map<std::string_view, u32> bone_reg;
     ntf::unique_array<mat4> bone_locals;
     ntf::unique_array<mat4> bone_inv_models;
   };
 
-  struct instance_data {
-    shogle::shader_storage_buffer bone_buffer;
-    ntf::unique_array<mat4> bone_transforms;
+  struct bone_mats {
+    ntf::cspan<mat4> locals;
+    ntf::cspan<mat4> invs;
+    ntf::cspan<rigged_model_bone> bones;
   };
 
   using data_t = rigged_model_data;
 
 public:
-  rigged_model3d(model3d_mesh_buffers<rigged_model_data>&& meshes,
-                 model3d_mesh_textures&& texturer, rig_data&& rigs,
-                 std::vector<model_material_data::material_meta>&& mats,
-                 std::unordered_map<std::string_view, u32>&& mat_reg, std::vector<u32>&& mesh_mats,
-                 shogle::pipeline&& pip, std::string&& name);
+  rigged_model(model_meshes<rigged_model_data>&& meshes, model_textures&& textures,
+               model_rigs&& rigs, std::vector<model_material_data::material_meta>&& mats,
+               std::unordered_map<std::string_view, u32>&& mat_reg, std::vector<u32>&& mesh_mats,
+               shogle::pipeline&& pip, std::string&& name) noexcept;
 
 public:
-  static expect<rigged_model3d> create(rigged_model_data&& data);
+  static expect<rigged_model> create(rigged_model_data&& data);
 
 public:
+  bone_mats bones() const;
+
+  u32 bone_count() const { return static_cast<u32>(_rigs.bones.size()); }
+
+  ntf::optional<u32> find_bone(std::string_view name);
+
   std::string_view name() const { return _name; }
 
   shogle::pipeline_view pipeline() const { return _pip.get(); }
@@ -138,18 +142,10 @@ public:
     return _mesh_mats[mesh_idx];
   }
 
-  ntf::optional<u32> find_bone(std::string_view name);
-  instance_data make_instance_data() const;
-
-  std::tuple<ntf::cspan<mat4>, ntf::cspan<mat4>, ntf::cspan<rigged_model_bone>> bones() const {
-    ntf::cspan<mat4> locals{_rigs.bone_locals.data(), _rigs.bone_locals.size()};
-    ntf::cspan<mat4> invs{_rigs.bone_inv_models.data(), _rigs.bone_inv_models.size()};
-    ntf::cspan<rigged_model_bone> bones{_rigs.bones.data(), _rigs.bones.size()};
-    return {locals, invs, bones};
-  }
-
 private:
-  rig_data _rigs;
+  model_meshes<rigged_model_data> _meshes;
+  model_textures _textures;
+  model_rigs _rigs;
   std::vector<model_material_data::material_meta> _mats;
   std::unordered_map<std::string_view, u32> _mat_reg;
   std::vector<u32> _mesh_mats;
