@@ -408,7 +408,6 @@ protected:
 public:
   shogle::texture2d_view find_texture(std::string_view name);
 
-protected:
   ntf::optional<u32> find_texture_idx(std::string_view name) const;
   u32 retrieve_material_textures(u32 mat_idx, std::vector<shogle::texture_binding>& texs) const;
 

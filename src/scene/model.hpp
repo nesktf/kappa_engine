@@ -34,12 +34,13 @@ public:
   };
 
 public:
-  rigged_model3d(u32 model, shogle::shader_storage_buffer&& bone_buffer,
+  rigged_model3d(u32 model, const vec3& pos, real mass,
+                 shogle::shader_storage_buffer&& bone_buffer,
                  ntf::unique_array<mat4>&& bone_transforms, shogle::transform3d<f32> transform);
 
 public:
-  void apply_animation(const model_anim_data& anims, std::string_view name, u32 tick);
-  void update_bones(ntf::span<mat4> transform_cache, const mat4& root);
+  void update_bones(ntf::span<mat4> transform_cache, ntf::cspan<mat4> bone_locals,
+                    ntf::cspan<mat4> bone_invs, ntf::cspan<assets::rigged_model_bone> bones);
 
   bool set_transform(ntf::cspan<assets::rigged_model3d> models, std::string_view bone,
                      const bone_transform& transf);
@@ -56,6 +57,8 @@ public:
 
 public:
   u32 retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const;
+
+  u32 model_idx() const { return _model; }
 
 private:
   shogle::shader_storage_buffer _bone_buffer;
@@ -82,14 +85,14 @@ public:
 
 public:
   template<scene_entity_type T, typename... Args>
-  fn add_entity(Args&&... args) -> ent_handle<T> {
+  fn add_entity(Args&&... args)->ent_handle<T> {
     if constexpr (std::same_as<T, rigged_model3d>) {
       return _rigged_instances.request_elem(std::forward<Args>(args)...);
     }
   }
 
   template<scene_entity_type T>
-  fn remove_entity(ent_handle<T> handle) -> void {
+  fn remove_entity(ent_handle<T> handle)->void {
     if constexpr (std::same_as<T, rigged_model3d>) {
       _rigged_instances.return_elem(handle);
     }
