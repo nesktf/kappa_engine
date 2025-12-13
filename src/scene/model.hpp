@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../assets/loader.hpp"
 #include "../assets/rigged_model.hpp"
 #include "../physics/particle.hpp"
 #include "../util/free_list.hpp"
@@ -10,6 +11,8 @@ enum class entity_type {
   static3d = 0,
   rigged3d,
 };
+
+namespace meta {
 
 template<entity_type Ent>
 struct entity_enum_mapper {};
@@ -22,6 +25,8 @@ concept scene_entity_type = requires() {
   requires std::same_as<std::remove_cv_t<decltype(Ent::ent_type)>, entity_type>;
   requires std::same_as<entity_enum_mapper_t<Ent::ent_type>, Ent>;
 };
+
+} // namespace meta
 
 class rigged_model {
 public:
@@ -41,23 +46,12 @@ public:
   void update_bones(ntf::span<mat4> transform_cache, ntf::cspan<mat4> bone_locals,
                     ntf::cspan<mat4> bone_invs, ntf::cspan<assets::rigged_model_bone> bones);
 
-  bool set_transform(ntf::cspan<assets::rigged_model> models, std::string_view bone,
-                     const bone_transform& transf);
-  bool set_transform(ntf::cspan<assets::rigged_model> models, std::string_view bone,
-                     const mat4& transf);
-  bool set_transform(ntf::cspan<assets::rigged_model> models, std::string_view bone,
-                     shogle::transform3d<f32>& transf);
-
-  void set_transform(ntf::cspan<assets::rigged_model> models, u32 bone,
-                     const bone_transform& transf);
-  void set_transform(ntf::cspan<assets::rigged_model> models, u32 bone, const mat4& transf);
-  void set_transform(ntf::cspan<assets::rigged_model> models, u32 bone,
-                     shogle::transform3d<f32>& transf);
-
 public:
   u32 retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const;
 
   u32 model_idx() const { return _model; }
+
+  physics::particle_entity& particle() { return _particle; }
 
 private:
   shogle::shader_storage_buffer _bone_buffer;
@@ -67,45 +61,56 @@ private:
   u32 _model;
 };
 
+namespace meta {
+
 template<>
 struct entity_enum_mapper<entity_type::rigged3d> {
   using type = rigged_model;
 };
 
-static_assert(scene_entity_type<rigged_model>);
+} // namespace meta
 
-class entity_registry {
-private:
-  template<typename T>
-  using ent_handle = kappa::free_list<T>::element;
+static_assert(meta::scene_entity_type<rigged_model>);
 
+template<typename T>
+using ent_handle = kappa::free_list<T>::element;
+
+class entity_registry : public render::renderable {
 public:
   entity_registry() = default;
 
 public:
-  template<scene_entity_type T, typename... Args>
-  fn add_entity(Args&&... args) -> ent_handle<T> {
-    if constexpr (std::same_as<T, rigged_model>) {
-      return _rigged_instances.request_elem(std::forward<Args>(args)...);
-    }
-  }
-
-  template<scene_entity_type T>
-  fn remove_entity(ent_handle<T> handle) -> void {
-    if constexpr (std::same_as<T, rigged_model>) {
-      _rigged_instances.return_elem(handle);
-    }
-  }
-
-public:
   void update();
   u32 retrieve_render_data(const render::scene_render_data& scene,
-                           render::object_render_data& data);
+                           render::object_render_data& data) override;
+
+public:
+  template<typename F>
+  void request_model(assets::asset_loader& loader, const std::string& path,
+                     const std::string& name, const assets::asset_loader::model_opts& opts,
+                     F&& cb) {
+    auto callback = [cb = std::forward<F>(cb)](expect<u32> idx, auto&) {
+      if (!idx) {
+        logger::error("Can't load model, {}", idx.error());
+        return;
+      }
+      std::invoke(cb, *idx);
+    };
+    loader.request_rmodel(_bundle, path, name, opts, std::move(callback));
+  }
+
+  ent_handle<rigged_model> add_entity(u32 model_idx, const vec3& pos, real mass);
+
+  template<physics::meta::particle_force_generator F>
+  u32 add_force(ent_handle<rigged_model> entity, F& generator) {
+    return _forces.add_force(static_cast<u64>(entity), 0u, generator);
+  }
 
 private:
-  std::vector<assets::rigged_model> _rmodels;
+  assets::asset_bundle _bundle;
   kappa::free_list<rigged_model> _rigged_instances;
   std::vector<mat4> _rig_cache;
+  physics::particle_force_registry _forces;
 };
 
 } // namespace kappa::scene

@@ -101,13 +101,11 @@ particle_entity& particle_entity::integrate(real dt) {
 
 particle_force_registry::particle_force_registry() : _registry{}, _free{} {}
 
-u32 particle_force_registry::_add_force(ntf::weak_ptr<particle_entity> particle,
-                                        generator_func generator) {
+u32 particle_force_registry::_add_force(u64 particle, u32 tag, generator_func generator) {
   NTF_ASSERT(!generator.is_empty());
-  NTF_ASSERT(!particle.empty());
   if (_free.empty()) {
     const u32 pos = static_cast<u32>(_registry.size());
-    auto& elem = _registry.emplace_back(ntf::in_place, particle, generator);
+    auto& elem = _registry.emplace_back(ntf::in_place, particle, tag, generator);
     NTF_ASSERT(elem.has_value());
     return pos;
   }
@@ -117,7 +115,7 @@ u32 particle_force_registry::_add_force(ntf::weak_ptr<particle_entity> particle,
   NTF_ASSERT(idx < _registry.size());
   auto& elem = _registry[idx];
   NTF_ASSERT(!elem.has_value());
-  elem.emplace(particle, generator);
+  elem.emplace(particle, tag, generator);
   return idx;
 }
 
@@ -138,8 +136,6 @@ void particle_force_registry::clear_forces() {
     _free.push(i);
   }
 }
-
-void particle_force_registry::update_forces(real dt) {}
 
 particle_gravity::particle_gravity(vec3 gravity) noexcept : _gravity{gravity} {}
 

@@ -1,8 +1,9 @@
 #include "assets/loader.hpp"
-#include "interpolator.hpp"
 #include "physics/particle.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/context.hpp"
+#include "scene/model.hpp"
+#include "util/interpolator.hpp"
 
 #include <ntfstl/logger.hpp>
 #include <ntfstl/utility.hpp>
@@ -60,56 +61,44 @@ static void run_engine() {
   // hack
   glfwSetInputMode((GLFWwindow*)win.get(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-  asset_bundle bundle;
-  asset_loader loader;
-  const asset_loader::model_opts koosh_opts{
-    .flags = assimp_parser::DEFAULT_ASS_FLAGS,
-    .armature = "Koishi V1.0_arm",
-  };
-  const asset_loader::model_opts cirno_opts{
-    .flags = assimp_parser::DEFAULT_ASS_FLAGS,
+  assets::asset_loader loader;
+  scene::entity_registry registry;
+  const assets::asset_loader::model_opts cirno_opts{
+    .flags = assets::assimp_parser::DEFAULT_ASS_FLAGS,
     .armature = "model",
   };
-
-  std::vector<std::pair<asset_bundle::rmodel_idx, vec3>> rmodels;
-
-  physics::particle_force_registry force_registry;
-  physics::particle_gravity gravity;
-
-  physics::particle_entity chiruno_particle{vec3{-.9f, -.75f, -1.f}, 1.f};
-  physics::particle_bungee_anchor spring{chiruno_particle.pos(), 5.f, 1.f};
-
-  auto model_callback = [&](expect<u32> idx, asset_bundle& bundle) {
-    if (!idx) {
-      ntf::logger::error("Can't load model, {}", idx.error());
-      return;
-    }
-
-    const auto id = static_cast<asset_bundle::rmodel_idx>(*idx);
-    auto& m = bundle.get_rmodel(id);
-    vec3 pos;
-    if (m.name() == "Koishi V1.0") {
-      pos = {.9f, -.75f, -1.f};
-    } else if (m.name() == "cirno") {
-      pos = {-.9f, -.75f, -1.f};
-      force_registry.add_force(chiruno_particle, gravity);
-      force_registry.add_force(chiruno_particle, spring);
-    } else {
-      pos = {0, -.75f, -1.f};
-    }
-    m.transform().pos(pos).scale(1.f, 1.f, 1.f);
-    rmodels.emplace_back(id, pos);
+  const assets::asset_loader::model_opts koosh_opts{
+    .flags = assets::assimp_parser::DEFAULT_ASS_FLAGS,
+    .armature = "Koishi V1.0_arm",
   };
+  const assets::asset_loader::model_opts mari_opts = cirno_opts;
 
-  loader.request_rmodel(bundle, "./res/chiruno/chiruno.gltf", "cirno", cirno_opts, model_callback);
-  loader.request_rmodel(bundle, "./res/koishi/koishi.gltf", "Koishi V1.0", koosh_opts,
-                        model_callback);
-  loader.request_rmodel(bundle, "./res/mari/mari.gltf", "marisa", cirno_opts, model_callback);
-  // loader.request_rmodel(bundle, "./lib/shogle/demos/res/cirno_fumo/cirno_fumo.obj", "fumo",
-  //                       cirno_opts, model_callback);
+  ntf::nullable<scene::ent_handle<scene::rigged_model>> cirno;
+  decltype(cirno) cirno2;
+  physics::particle_gravity gravity;
+  const vec3 cirno_pos{-.9f, -.75f, -1.f};
+  physics::particle_bungee_anchor spring{cirno_pos, 5.f, 1.f};
+  const auto cirno_cb = [&](u32 model_idx) {
+    cirno.emplace(registry.add_entity(model_idx, cirno_pos, 1.f));
+    cirno2.emplace(registry.add_entity(model_idx, cirno_pos + vec3{-1.f, 0.f, 0.f}, 1.f));
+    registry.add_force(*cirno, gravity);
+    registry.add_force(*cirno, spring);
+  };
+  registry.request_model(loader, "./res/chiruno/chiruno.gltf", "cirno", cirno_opts, cirno_cb);
 
-  auto rarm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
-  auto larm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+  decltype(cirno) koosh;
+  const auto koosh_cb = [&](u32 model_idx) {
+    const vec3 koosh_pos{.9f, -.75f, -1.f};
+    koosh.emplace(registry.add_entity(model_idx, koosh_pos, 1.f));
+  };
+  registry.request_model(loader, "./res/koishi/koishi.gltf", "Koishi V1.0", koosh_opts, koosh_cb);
+
+  decltype(cirno) mari;
+  const auto mari_cb = [&](u32 model_idx) {
+    const vec3 mari_pos{0, -.75f, -1.f};
+    mari.emplace(registry.add_entity(model_idx, mari_pos, 1.f));
+  };
+  registry.request_model(loader, "./res/mari/mari.gltf", "marisa", mari_opts, mari_cb);
 
   auto scene_transf = [&]() {
     mat4 transf_mats[2u] = {
@@ -119,15 +108,17 @@ static void run_engine() {
     return render::create_ubo(sizeof(transf_mats), transf_mats).value();
   }();
 
+  // auto rarm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
+  // auto larm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
   // const quat q1{1.f, 0.f, 0.f, 0.f};
-  const auto q1 = shogle::axisquat(glm::radians(45.f), vec3{1.f, 0.f, 0.f});
-  const quat q2 = shogle::axisquat(glm::radians(-45.f), vec3{1.f, 0.f, 0.f});
-  steplerp<quat, f32, glm_mixer<quat, f32>, 120> rarm_rotlerp{q1, q2};
-  steplerp<quat, f32, glm_mixer<quat, f32>, 120> larm_rotlerp{q2, q1};
-
-  const vec3 p1{0.f, 0.f, 0.f};
-  const vec3 p2{2.f, 0.f, 0.f};
-  steplerp<vec3, f32, easing_back_inout<vec3>, 60> poslerp{p1, p2};
+  // const auto q1 = shogle::axisquat(glm::radians(45.f), vec3{1.f, 0.f, 0.f});
+  // const quat q2 = shogle::axisquat(glm::radians(-45.f), vec3{1.f, 0.f, 0.f});
+  // steplerp<quat, f32, glm_mixer<quat, f32>, 120> rarm_rotlerp{q1, q2};
+  // steplerp<quat, f32, glm_mixer<quat, f32>, 120> larm_rotlerp{q2, q1};
+  //
+  // const vec3 p1{0.f, 0.f, 0.f};
+  // const vec3 p2{2.f, 0.f, 0.f};
+  // steplerp<vec3, f32, easing_back_inout<vec3>, 60> poslerp{p1, p2};
 
   f32 t = 0.f;
   auto loop = ntf::overload{
@@ -158,36 +149,34 @@ static void run_engine() {
         return;
       }
       // rotlerp.tick_loop();
-      rarm_transform.rot(rarm_rotlerp.value());
-      larm_transform.rot(larm_rotlerp.value());
-      force_registry.update_forces(delta);
+      // rarm_transform.rot(rarm_rotlerp.value());
+      // larm_transform.rot(larm_rotlerp.value());
+      registry.update();
 
-      for (auto& [idx, pos] : rmodels) {
-        auto& model = bundle.get_rmodel(idx);
-        // model.transform().pos(pos+*poslerp).rot(*rotlerp);
-        model.set_transform("Arm_R", rarm_transform);
-        model.set_transform("Arm_L", larm_transform);
-        if (model.name() == "cirno") {
-          chiruno_particle.integrate(delta);
-          model.transform().pos(chiruno_particle.pos());
-        }
-        model.tick();
-      }
+      // force_registry.update_forces(delta);
+      //
+      // for (auto& [idx, pos] : rmodels) {
+      //   auto& model = bundle.get_rmodel(idx);
+      //   // model.transform().pos(pos+*poslerp).rot(*rotlerp);
+      //   model.set_transform("Arm_R", rarm_transform.local());
+      //   model.set_transform("Arm_L", larm_transform.local());
+      //   if (model.name() == "cirno") {
+      //     chiruno_particle.integrate(delta);
+      //     model.transform().pos(chiruno_particle.pos());
+      //   }
+      //   model.tick();
+      // }
       // poslerp.tick_loop();
-      rarm_rotlerp.tick_loop();
-      larm_rotlerp.tick_loop();
+      // rarm_rotlerp.tick_loop();
+      // larm_rotlerp.tick_loop();
     },
     [&](f32 dt, f32 alpha) {
       NTF_UNUSED(dt);
       NTF_UNUSED(alpha);
-
       const render::scene_render_data rdata{.transform = scene_transf};
       scene_transf.upload(proj_mat, 0u);
       scene_transf.upload(cam.view(), sizeof(mat4));
-
-      for (auto& [idx, _] : rmodels) {
-        render::render_thing(fbo, 0u, rdata, bundle.get_rmodel(idx));
-      }
+      render::render_thing(fbo, 0u, rdata, registry);
     }};
   render::render_loop(GAME_UPS, loop);
 }

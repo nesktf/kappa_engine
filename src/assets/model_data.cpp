@@ -11,14 +11,14 @@
     RET_ERR(_msg);              \
   }
 
-namespace kappa {
+namespace kappa::assets {
 
 assimp_parser::assimp_parser() {
   _imp.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, true);
   _imp.SetPropertyInteger(AI_CONFIG_PP_SBBC_MAX_BONES, model_mesh_data::VERTEX_BONE_COUNT);
 }
 
-auto assimp_parser::load(const std::string& path, uint32 assimp_flags) -> expect<void> {
+fn assimp_parser::load(const std::string& path, uint32 assimp_flags) -> expect<void> {
   auto dir = shogle::file_dir(path);
   RET_ERR_IF(!dir, "Failed to parse directory path");
 
@@ -84,7 +84,7 @@ static quat asscast(const aiQuaternion& q) {
   return {q.w, q.x, q.y, q.z};
 }
 
-auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
+fn assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
   const aiScene* scene = _imp.GetScene();
   RET_ERR_IF(!scene->HasMaterials(), "No materials found");
 
@@ -218,8 +218,8 @@ auto assimp_parser::parse_materials(model_material_data& mats) -> expect<void> {
   return {};
 }
 
-auto assimp_parser::parse_meshes(const model_rig_data& rigs, model_mesh_data& data,
-                                 std::string_view model_name) -> expect<void> {
+fn assimp_parser::parse_meshes(const model_rig_data& rigs, model_mesh_data& data,
+                               std::string_view model_name) -> expect<void> {
   const aiScene* scene = _imp.GetScene();
 
   // Reserve space for all vertex data
@@ -449,7 +449,7 @@ void assimp_parser::_parse_bone_nodes(const bone_inv_map& bone_invs, u32 parent,
   }
 }
 
-auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
+fn assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
   const aiScene* scene = _imp.GetScene();
 
   // Store the inverse model matrix for each bone
@@ -531,7 +531,7 @@ auto assimp_parser::parse_rigs(model_rig_data& data) -> expect<void> {
   return {};
 }
 
-auto assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
+fn assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
   const aiScene* scene = _imp.GetScene();
   RET_ERR_IF(!scene->HasAnimations(), "No animations found");
 
@@ -596,63 +596,14 @@ auto assimp_parser::parse_animations(model_anim_data& data) -> expect<void> {
   return {};
 }
 
-model_mesh_textures::model_mesh_textures(ntf::unique_array<texture_t>&& textures,
-                                         std::unordered_map<std::string_view, u32>&& tex_reg,
-                                         ntf::unique_array<vec_span>&& mat_spans,
-                                         ntf::unique_array<u32>&& mat_texes) noexcept :
+model_textures::model_textures(ntf::unique_array<texture_t>&& textures,
+                               std::unordered_map<std::string_view, u32>&& tex_reg,
+                               ntf::unique_array<vec_span>&& mat_spans,
+                               ntf::unique_array<u32>&& mat_texes) noexcept :
     _textures{std::move(textures)}, _tex_reg{std::move(tex_reg)}, _mat_spans{std::move(mat_spans)},
     _mat_texes{std::move(mat_texes)} {}
 
-template<u32 tex_extent>
-[[maybe_unused]] static constexpr auto missing_albedo_bitmap = [] {
-  std::array<u8, 4u * tex_extent * tex_extent> out;
-  const u8 pixels[]{
-    0x00, 0x00, 0x00, 0xFF, // black
-    0xFE, 0x00, 0xFE, 0xFF, // pink
-    0x00, 0x00, 0x00, 0xFF, // black again
-  };
-
-  for (u32 i = 0; i < tex_extent; ++i) {
-    const u8* start = i % 2 == 0 ? &pixels[0] : &pixels[4]; // Start row with a different color
-    u32 pos = 0;
-    for (u32 j = 0; j < tex_extent; ++j) {
-      pos = (pos + 4) % 8;
-      for (u32 k = 0; k < 4; ++k) {
-        out[(4 * i * tex_extent) + (4 * j) + k] = start[pos + k];
-      }
-    }
-  }
-
-  return out;
-}();
-
-template<u32 tex_extent = 16u>
-static shogle::render_expect<shogle::texture2d> make_missing_albedo(shogle::context_view ctx) {
-  const shogle::image_data image{
-    .bitmap = missing_albedo_bitmap<tex_extent>.data(),
-    .format = shogle::image_format::rgba8u,
-    .alignment = 4u,
-    .extent = {tex_extent, tex_extent, 1},
-    .offset = {0, 0, 0},
-    .layer = 0u,
-    .level = 0u,
-  };
-  const shogle::texture_data data{
-    .images = {image},
-    .generate_mipmaps = false,
-  };
-  return shogle::texture2d::create(ctx, {
-                                          .format = shogle::image_format::rgba8u,
-                                          .sampler = shogle::texture_sampler::nearest,
-                                          .addressing = shogle::texture_addressing::repeat,
-                                          .extent = {tex_extent, tex_extent, 1},
-                                          .layers = 1u,
-                                          .levels = 1u,
-                                          .data = data,
-                                        });
-}
-
-expect<model_mesh_textures> model_mesh_textures::create(const model_material_data& mat_data) {
+expect<model_textures> model_textures::create(const model_material_data& mat_data) {
   ntf::unique_array<u32> mat_texes{ntf::uninitialized, mat_data.material_textures.size()};
   for (u32 i = 0u; i < mat_data.material_textures.size(); ++i) {
     mat_texes[i] = mat_data.material_textures[i];
@@ -684,7 +635,7 @@ expect<model_mesh_textures> model_mesh_textures::create(const model_material_dat
           std::move(mat_texes)};
 }
 
-ntf::optional<u32> model_mesh_textures::find_texture_idx(std::string_view name) const {
+ntf::optional<u32> model_textures::find_texture_idx(std::string_view name) const {
   auto it = _tex_reg.find(name);
   if (it == _tex_reg.end()) {
     return ntf::nullopt;
@@ -692,7 +643,7 @@ ntf::optional<u32> model_mesh_textures::find_texture_idx(std::string_view name) 
   return it->second;
 }
 
-shogle::texture2d_view model_mesh_textures::find_texture(std::string_view name) {
+shogle::texture2d_view model_textures::find_texture(std::string_view name) {
   auto idx = find_texture_idx(name);
   if (!idx) {
     return {};
@@ -701,8 +652,8 @@ shogle::texture2d_view model_mesh_textures::find_texture(std::string_view name) 
   return _textures[*idx].tex;
 }
 
-u32 model_mesh_textures::retrieve_material_textures(
-  u32 mat_idx, std::vector<shogle::texture_binding>& texs) const {
+u32 model_textures::retrieve_material_textures(u32 mat_idx,
+                                               std::vector<shogle::texture_binding>& texs) const {
   NTF_ASSERT(mat_idx < _mat_spans.size());
 
   const auto tex_span = _mat_spans[mat_idx].to_cspan(_mat_texes.data());
@@ -715,4 +666,4 @@ u32 model_mesh_textures::retrieve_material_textures(
   return tex_span.size();
 }
 
-} // namespace kappa
+} // namespace kappa::assets

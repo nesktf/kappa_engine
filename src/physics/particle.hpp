@@ -76,9 +76,9 @@ public:
 
 public:
   template<meta::particle_force_generator F>
-  u32 add_force(particle_entity& particle, F& generator) {
+  u32 add_force(u64 particle, u32 tag, F& generator) {
     generator_func generator_func{generator};
-    return _add_force(particle, generator);
+    return _add_force(particle, tag, generator);
   }
 
   void remove_force(u32 force_idx);
@@ -100,7 +100,7 @@ public:
   }
 
 private:
-  u32 _add_force(ntf::weak_ptr<particle_entity> particle, generator_func generator);
+  u32 _add_force(u64 particle, u32 tag, generator_func generator);
 
 private:
   std::vector<ntf::nullable<force_entry>> _registry;

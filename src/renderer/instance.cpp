@@ -129,8 +129,7 @@ ntf::nullable<render_ctx> g_renderer;
 render_ctx::render_ctx(shogle::window&& win_, shogle::context&& ctx_,
                        shogle::texture2d&& missing_tex_, vert_shader_array&& vert_shaders_) :
 
-    win{std::move(win_)},
-    ctx{std::move(ctx_)}, missing_tex{std::move(missing_tex_)},
+    win{std::move(win_)}, ctx{std::move(ctx_)}, missing_tex{std::move(missing_tex_)},
     vert_shaders{std::move(vert_shaders_)} {}
 
 [[nodiscard]] handle_t initialize() {
@@ -283,7 +282,7 @@ void render_thing(shogle::framebuffer_view target, u32 sort, const scene_render_
   if (!mesh_count) {
     return;
   }
-  NTF_ASSERT(mesh_count && !render_data.meshes.empty());
+  NTF_ASSERT(!render_data.meshes.empty());
   for (const auto& mesh : render_data.meshes) {
     auto tex_span = mesh.textures.to_cspan(render_data.textures.data());
     auto unif_span = mesh.uniforms.to_cspan(render_data.uniforms.data());

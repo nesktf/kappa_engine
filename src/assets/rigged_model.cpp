@@ -142,13 +142,28 @@ fn rigged_model::bones() const -> bone_mats {
   return {locals, invs, bones};
 }
 
-// constexpr mat4 IDENTITY_MAT{1.f};
-// fn rigged_model3d::make_instance_data() const -> instance_data {
-//   const size_t bone_count = _rigs.bones.size();
-//   const size_t bone_size = bone_count * sizeof(mat4);
-//   auto ssbo = render::create_ssbo(bone_size, nullptr).value();
-//   ntf::unique_array<mat4> mats{bone_count, IDENTITY_MAT};
-//   return {std::move(ssbo), std::move(mats)};
-// }
+u32 rigged_model::retrieve_model_data(render::object_render_data& render_data,
+                                      vec_span rigger_bind) const {
+  static constexpr i32 FRAG_SAMPLER_LOC = 8;
+  const u32 mesh_count = _meshes.mesh_count();
+  for (u32 mesh_idx = 0; mesh_idx < mesh_count; ++mesh_idx) {
+    auto& mesh = _meshes.retrieve_mesh_data(mesh_idx, render_data.meshes);
+    mesh.pipeline = _pip.get();
+
+    const i32 sampler = 0;
+    NTF_ASSERT(mesh_idx < _mesh_mats.size());
+    const u32 mat_idx = _mesh_mats[mesh_idx];
+    mesh.textures.idx = render_data.textures.size();
+    const u32 tex_count = _textures.retrieve_material_textures(mat_idx, render_data.textures);
+    mesh.textures.count = tex_count;
+
+    render_data.uniforms.emplace_back(shogle::format_uniform_const(FRAG_SAMPLER_LOC, sampler));
+    mesh.uniforms.count = 1u;
+    mesh.uniforms.idx = render_data.uniforms.size() - 1u;
+
+    mesh.bindings = rigger_bind;
+  }
+  return mesh_count;
+}
 
 } // namespace kappa::assets

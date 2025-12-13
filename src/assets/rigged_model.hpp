@@ -129,18 +129,14 @@ public:
 public:
   bone_mats bones() const;
 
-  u32 bone_count() const { return static_cast<u32>(_rigs.bones.size()); }
+  u32 bone_count() const { return _rigs.bones.size(); }
 
+  u32 retrieve_model_data(render::object_render_data& render_data, vec_span rigger_bind) const;
+
+public:
   ntf::optional<u32> find_bone(std::string_view name);
 
   std::string_view name() const { return _name; }
-
-  shogle::pipeline_view pipeline() const { return _pip.get(); }
-
-  u32 mat_idx(u32 mesh_idx) const {
-    NTF_ASSERT(mesh_idx < _mesh_mats.size());
-    return _mesh_mats[mesh_idx];
-  }
 
 private:
   model_meshes<rigged_model_data> _meshes;
