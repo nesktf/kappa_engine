@@ -68,11 +68,11 @@ void rigged_model::update_bones(ntf::span<mat4> cache, ntf::cspan<mat4> bone_loc
 void entity_registry::update() {
   _forces.update_forces(1.f / GAME_UPS, [&](u64 particle, u32 tag) -> physics::particle_entity& {
     NTF_UNUSED(tag);
-    const auto ent = static_cast<ent_handle<rigged_model>>(particle);
-    return _rigged_instances.elem_at(ent).particle();
+    const auto ent = ent_handle::from_u64(particle);
+    return _rigged_instances.at(ent).particle();
   });
 
-  _rigged_instances.for_each([&](rigged_model& instance) {
+  for (auto& [instance, _] : _rigged_instances) {
     instance.particle().integrate(1.f / GAME_UPS);
     const auto model_idx = static_cast<assets::asset_bundle::rmodel_idx>(instance.model_idx());
     const auto& model = _bundle.get_rmodel(model_idx);
@@ -81,13 +81,13 @@ void entity_registry::update() {
     _rig_cache.resize(3 * bones.size(), IDENTITY_MAT);
     const ntf::span<mat4> cache{_rig_cache.data(), _rig_cache.size()};
     instance.update_bones(cache, locals, invs, bones);
-  });
+  };
 }
 
 u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene,
                                           render::object_render_data& render_data) {
   u32 total_meshes = 0u;
-  _rigged_instances.for_each([&](rigged_model& instance) {
+  for (auto& [instance, handle] : _rigged_instances) {
     const auto model_idx = static_cast<assets::asset_bundle::rmodel_idx>(instance.model_idx());
     const auto& model = _bundle.get_rmodel(model_idx);
 
@@ -96,7 +96,7 @@ u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene
     const u32 rigger_bind_count = instance.retrieve_buffer_bindings(render_data.bindings);
     const u32 rigger_bind_idx = render_data.bindings.size() - rigger_bind_count;
     total_meshes += model.retrieve_model_data(render_data, {rigger_bind_count, rigger_bind_idx});
-  });
+  }
   return total_meshes;
 }
 
@@ -110,22 +110,18 @@ struct instance_buffs {
 fn make_instance_buffers(u32 bone_count) -> instance_buffs {
   const size_t bone_size = bone_count * sizeof(mat4);
   auto ssbo = render::create_ssbo(bone_size, nullptr).value();
-  ntf::unique_array<mat4> mats{bone_count, IDENTITY_MAT};
+  ntf::unique_array<mat4> mats(bone_count, IDENTITY_MAT);
   return {std::move(ssbo), std::move(mats)};
 }
 
 } // namespace
 
-fn entity_registry::add_entity(u32 model_idx, const vec3& pos, real mass)
-  -> ent_handle<rigged_model> {
+fn entity_registry::add_entity(u32 model_idx, const vec3& pos, real mass) -> ent_handle {
   const auto& model = _bundle.get_rmodel(static_cast<assets::asset_bundle::rmodel_idx>(model_idx));
   auto transform = shogle::transform3d<f32>{}.pos(pos).scale(1.f, 1.f, 1.f);
   auto [bone_buffer, bone_transforms] = make_instance_buffers(model.bone_count());
-  auto handle = _rigged_instances
-                  .request_elem(model_idx, pos, mass, std::move(bone_buffer),
-                                std::move(bone_transforms), transform)
-                  .value();
-  return handle;
+  return _rigged_instances.emplace(model_idx, pos, mass, std::move(bone_buffer),
+                                   std::move(bone_transforms), transform);
 }
 
 } // namespace kappa::scene

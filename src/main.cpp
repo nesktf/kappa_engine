@@ -73,7 +73,7 @@ static void run_engine() {
   };
   const assets::asset_loader::model_opts mari_opts = cirno_opts;
 
-  ntf::nullable<scene::ent_handle<scene::rigged_model>> cirno;
+  ntf::nullable<scene::ent_handle> cirno;
   decltype(cirno) cirno2;
   physics::particle_gravity gravity;
   const vec3 cirno_pos{-.9f, -.75f, -1.f};

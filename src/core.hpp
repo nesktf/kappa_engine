@@ -3,6 +3,7 @@
 #define SHOGLE_EXPOSE_GLFW 1
 #include <shogle/shogle.hpp>
 
+#include <ntfstl/freelist.hpp>
 #include <ntfstl/logger.hpp>
 #include <ntfstl/optional.hpp>
 #include <ntfstl/span.hpp>

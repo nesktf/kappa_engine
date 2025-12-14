@@ -72,8 +72,7 @@ struct entity_enum_mapper<entity_type::rigged3d> {
 
 static_assert(meta::scene_entity_type<rigged_model>);
 
-template<typename T>
-using ent_handle = kappa::free_list<T>::element;
+using ent_handle = ntf::freelist_handle;
 
 class entity_registry : public render::renderable {
 public:
@@ -99,16 +98,16 @@ public:
     loader.request_rmodel(_bundle, path, name, opts, std::move(callback));
   }
 
-  ent_handle<rigged_model> add_entity(u32 model_idx, const vec3& pos, real mass);
+  ent_handle add_entity(u32 model_idx, const vec3& pos, real mass);
 
   template<physics::meta::particle_force_generator F>
-  u32 add_force(ent_handle<rigged_model> entity, F& generator) {
-    return _forces.add_force(static_cast<u64>(entity), 0u, generator);
+  u32 add_force(ent_handle entity, F& generator) {
+    return _forces.add_force(entity.as_u64(), 0u, generator);
   }
 
 private:
   assets::asset_bundle _bundle;
-  kappa::free_list<rigged_model> _rigged_instances;
+  ntf::freelist<rigged_model> _rigged_instances;
   std::vector<mat4> _rig_cache;
   physics::particle_force_registry _forces;
 };
