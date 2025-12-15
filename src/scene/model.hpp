@@ -3,7 +3,6 @@
 #include "../assets/loader.hpp"
 #include "../assets/rigged_model.hpp"
 #include "../physics/particle.hpp"
-#include "../util/free_list.hpp"
 
 namespace kappa::scene {
 
