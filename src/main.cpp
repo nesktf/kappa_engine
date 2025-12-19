@@ -14,6 +14,8 @@ using namespace kappa;
 
 static void run_engine() {
   auto _rh = render::initialize();
+  auto _ah = assets::initialize();
+
   auto fbo = render::default_fb();
   auto& win = render::window();
 
@@ -61,44 +63,54 @@ static void run_engine() {
   // hack
   glfwSetInputMode((GLFWwindow*)win.get(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-  assets::asset_loader loader;
   scene::entity_registry registry;
-  const assets::asset_loader::model_opts cirno_opts{
+  const assets::rigged_model_opts cirno_opts{
     .flags = assets::assimp_parser::DEFAULT_ASS_FLAGS,
     .armature = "model",
   };
-  const assets::asset_loader::model_opts koosh_opts{
+  const assets::rigged_model_opts koosh_opts{
     .flags = assets::assimp_parser::DEFAULT_ASS_FLAGS,
     .armature = "Koishi V1.0_arm",
   };
-  const assets::asset_loader::model_opts mari_opts = cirno_opts;
+  const assets::rigged_model_opts mari_opts = cirno_opts;
 
   ntf::nullable<scene::ent_handle> cirno;
-  decltype(cirno) cirno2;
-  physics::particle_gravity gravity;
-  const vec3 cirno_pos{-.9f, -.75f, -1.f};
-  physics::particle_bungee_anchor spring{cirno_pos, 5.f, 1.f};
-  const auto cirno_cb = [&](u32 model_idx) {
-    cirno.emplace(registry.add_entity(model_idx, cirno_pos, 1.f));
-    cirno2.emplace(registry.add_entity(model_idx, cirno_pos + vec3{-1.f, 0.f, 0.f}, 1.f));
-    registry.add_force(*cirno, gravity);
-    registry.add_force(*cirno, spring);
+  ntf::nullable<scene::ent_handle> cirno2;
+  const auto cirno_cb = [&](expect<assets::rigged_model_handle> model) {
+    if (!model) {
+      logger::error("Failed to load Cirno: {}", model.error());
+      return;
+    }
+    const vec3 cirno_pos{-.9f, -.75f, -1.f};
+    cirno.emplace(registry.add_entity(*model, cirno_pos, 1.f));
+    cirno2.emplace(registry.add_entity(*model, cirno_pos + vec3{-1.f, 0.f, 0.f}, 1.f));
   };
-  registry.request_model(loader, "./res/chiruno/chiruno.gltf", "cirno", cirno_opts, cirno_cb);
+  assets::request_asset<assets::rigged_model>("cirno", "./res/chiruno_chiruno.gltf", cirno_opts,
+                                              cirno_cb);
 
-  decltype(cirno) koosh;
-  const auto koosh_cb = [&](u32 model_idx) {
+  ntf::nullable<scene::ent_handle> koosh;
+  const auto koosh_cb = [&](expect<assets::rigged_model_handle> model) {
+    if (!model) {
+      logger::error("Failed to load Koishi: {}", model.error());
+      return;
+    }
     const vec3 koosh_pos{.9f, -.75f, -1.f};
-    koosh.emplace(registry.add_entity(model_idx, koosh_pos, 1.f));
+    koosh.emplace(registry.add_entity(*model, koosh_pos, 1.f));
   };
-  registry.request_model(loader, "./res/koishi/koishi.gltf", "Koishi V1.0", koosh_opts, koosh_cb);
+  assets::request_asset<assets::rigged_model>("Koishi V1.0", "./res/koishi/koishi.gltf",
+                                              koosh_opts, koosh_cb);
 
-  decltype(cirno) mari;
-  const auto mari_cb = [&](u32 model_idx) {
+  ntf::nullable<scene::ent_handle> mari;
+  const auto mari_cb = [&](expect<assets::rigged_model_handle> model) {
+    if (!model) {
+      logger::error("Failed to load Marisa: {}", model.error());
+      return;
+    }
     const vec3 mari_pos{0, -.75f, -1.f};
-    mari.emplace(registry.add_entity(model_idx, mari_pos, 1.f));
+    mari.emplace(registry.add_entity(*model, mari_pos, 1.f));
   };
-  registry.request_model(loader, "./res/mari/mari.gltf", "marisa", mari_opts, mari_cb);
+  assets::request_asset<assets::rigged_model>("marisa", "./res/mari/mari.gltf", mari_opts,
+                                              mari_cb);
 
   auto scene_transf = [&]() {
     mat4 transf_mats[2u] = {
@@ -124,7 +136,7 @@ static void run_engine() {
   auto loop = ntf::overload{
     [&](u32 fdt) {
       f32 delta = 1 / (f32)fdt;
-      loader.handle_requests();
+      assets::handle_requests();
       t += delta;
 
       if (win.poll_key(shogle::win_key::w) == shogle::win_action::press) {

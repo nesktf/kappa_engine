@@ -10,7 +10,7 @@ constexpr mat4 IDENTITY_MAT{1.f};
 
 } // namespace
 
-rigged_model::rigged_model(u32 model, const vec3& pos, real mass,
+rigged_model::rigged_model(assets::rigged_model_handle model, const vec3& pos, real mass,
                            shogle::shader_storage_buffer&& bone_buffer,
                            ntf::unique_array<mat4>&& bone_transforms,
                            shogle::transform3d<f32> transform) :
@@ -74,10 +74,7 @@ void entity_registry::update() {
 
   for (auto& [instance, _] : _rigged_instances) {
     instance.particle().integrate(1.f / GAME_UPS);
-    const auto model_idx = static_cast<assets::asset_bundle::rmodel_idx>(instance.model_idx());
-    const auto& model = _bundle.get_rmodel(model_idx);
-
-    const auto [locals, invs, bones] = model.bones();
+    const auto [locals, invs, bones] = instance.model()->bones();
     _rig_cache.resize(3 * bones.size(), IDENTITY_MAT);
     const ntf::span<mat4> cache{_rig_cache.data(), _rig_cache.size()};
     instance.update_bones(cache, locals, invs, bones);
@@ -88,9 +85,7 @@ u32 entity_registry::retrieve_render_data(const render::scene_render_data& scene
                                           render::object_render_data& render_data) {
   u32 total_meshes = 0u;
   for (auto& [instance, handle] : _rigged_instances) {
-    const auto model_idx = static_cast<assets::asset_bundle::rmodel_idx>(instance.model_idx());
-    const auto& model = _bundle.get_rmodel(model_idx);
-
+    const auto& model = *instance.model();
     render_data.bindings.emplace_back(scene.transform, VERT_SCENE_TRANSFORM_LOC,
                                       scene.transform.size(), 0u);
     const u32 rigger_bind_count = instance.retrieve_buffer_bindings(render_data.bindings);
@@ -116,11 +111,11 @@ fn make_instance_buffers(u32 bone_count) -> instance_buffs {
 
 } // namespace
 
-fn entity_registry::add_entity(u32 model_idx, const vec3& pos, real mass) -> ent_handle {
-  const auto& model = _bundle.get_rmodel(static_cast<assets::asset_bundle::rmodel_idx>(model_idx));
+fn entity_registry::add_entity(assets::rigged_model_handle model, const vec3& pos, real mass)
+  -> ent_handle {
   auto transform = shogle::transform3d<f32>{}.pos(pos).scale(1.f, 1.f, 1.f);
-  auto [bone_buffer, bone_transforms] = make_instance_buffers(model.bone_count());
-  return _rigged_instances.emplace(model_idx, pos, mass, std::move(bone_buffer),
+  auto [bone_buffer, bone_transforms] = make_instance_buffers(model->bone_count());
+  return _rigged_instances.emplace(model, pos, mass, std::move(bone_buffer),
                                    std::move(bone_transforms), transform);
 }
 

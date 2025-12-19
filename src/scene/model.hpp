@@ -38,7 +38,8 @@ public:
   };
 
 public:
-  rigged_model(u32 model, const vec3& pos, real mass, shogle::shader_storage_buffer&& bone_buffer,
+  rigged_model(assets::rigged_model_handle model, const vec3& pos, real mass,
+               shogle::shader_storage_buffer&& bone_buffer,
                ntf::unique_array<mat4>&& bone_transforms, shogle::transform3d<f32> transform);
 
 public:
@@ -48,7 +49,7 @@ public:
 public:
   u32 retrieve_buffer_bindings(std::vector<shogle::shader_binding>& binds) const;
 
-  u32 model_idx() const { return _model; }
+  assets::rigged_model_handle model() const { return _model; }
 
   physics::particle_entity& particle() { return _particle; }
 
@@ -57,7 +58,7 @@ private:
   ntf::unique_array<mat4> _bone_transforms;
   physics::particle_entity _particle;
   shogle::transform3d<f32> _transform;
-  u32 _model;
+  assets::rigged_model_handle _model;
 };
 
 namespace meta {
@@ -83,21 +84,7 @@ public:
                            render::object_render_data& data) override;
 
 public:
-  template<typename F>
-  void request_model(assets::asset_loader& loader, const std::string& path,
-                     const std::string& name, const assets::asset_loader::model_opts& opts,
-                     F&& cb) {
-    auto callback = [cb = std::forward<F>(cb)](expect<u32> idx, auto&) {
-      if (!idx) {
-        logger::error("Can't load model, {}", idx.error());
-        return;
-      }
-      std::invoke(cb, *idx);
-    };
-    loader.request_rmodel(_bundle, path, name, opts, std::move(callback));
-  }
-
-  ent_handle add_entity(u32 model_idx, const vec3& pos, real mass);
+  ent_handle add_entity(assets::rigged_model_handle model, const vec3& pos, real mass);
 
   template<physics::meta::particle_force_generator F>
   u32 add_force(ent_handle entity, F& generator) {
@@ -105,7 +92,6 @@ public:
   }
 
 private:
-  assets::asset_bundle _bundle;
   ntf::freelist<rigged_model> _rigged_instances;
   std::vector<mat4> _rig_cache;
   physics::particle_force_registry _forces;
