@@ -39,7 +39,12 @@ ntf::nullable<loader_t> g_loader;
   return {};
 }
 
-void* get_asset(u64 handle, asset_tag tag) {
+handle_t::~handle_t() {
+  NTF_ASSERT(g_loader.has_value());
+  g_loader.reset();
+}
+
+void* do_get_asset(u64 handle, asset_tag tag) {
   NTF_ASSERT(g_loader.has_value());
   const auto h = ntf::freelist_handle::from_u64(handle);
   switch (tag) {
@@ -91,13 +96,11 @@ void handle_requests() {
         }
         return {ntf::in_place, val, asset_tag::rigged_model};
       };
-      auto ret = rigged_model::create(std::move(model)).and_then(put_rig);
-      res.callback(ret);
+      res.callback(rigged_model::create(std::move(model)).and_then(put_rig));
     };
 
     const auto handle_error = [&](std::string&& err) {
-      expect<asset_handle> ret{ntf::unexpect, std::move(err)};
-      res.callback(std::move(ret));
+      res.callback(expect<asset_handle>{ntf::unexpect, std::move(err)});
     };
 
     const ntf::overload visitor{upload_model, handle_error};
@@ -123,32 +126,32 @@ void handle_rigged_model(const std::string& name, const std::string& path,
                          asset_callback&& callback, const rigged_model_opts* opts) {
   const u32 flags = opts ? opts->flags : assimp_parser::DEFAULT_ASS_FLAGS;
   std::string armature = opts ? std::string{opts->armature.data(), opts->armature.size()} : "";
-  g_loader->tpool.enqueue([name, path, flags, armature, cb = std::move(callback)]() mutable {
-    assimp_parser parser;
-    if (auto ret = parser.load(path, flags); !ret) {
-      emplace_error(std::move(cb), std::move(ret.error()));
-      return;
-    }
+  g_loader->tpool.enqueue(
+    [name = name, path = path, flags, armature, cb = std::move(callback)]() mutable {
+      assimp_parser parser;
+      if (auto ret = parser.load(path, flags); !ret) {
+        emplace_error(std::move(cb), std::move(ret.error()));
+        return;
+      }
 
-    model_rig_data rigs;
-    model_anim_data anims;
-    if (!armature.empty()) {
+      model_rig_data rigs;
+      model_anim_data anims;
       parser.parse_rigs(rigs);
       if (rigs.armature_registry.find(armature) == rigs.armature_registry.end()) {
         emplace_error(std::move(cb), fmt::format("Armature \"{}\" not found", armature));
         return;
       }
       parser.parse_animations(anims);
-    }
-    model_material_data mats;
-    parser.parse_materials(mats);
+      model_material_data mats;
+      parser.parse_materials(mats);
 
-    model_mesh_data meshes;
-    parser.parse_meshes(rigs, meshes, name);
+      model_mesh_data meshes;
+      parser.parse_meshes(rigs, meshes, name);
 
-    emplace_data<rigged_model::data_t>(std::move(cb), name, armature, std::move(meshes),
-                                       std::move(mats), std::move(rigs), std::move(anims));
-  });
+      emplace_data<rigged_model::data_t>(std::move(cb), std::move(name), std::move(armature),
+                                         std::move(meshes), std::move(mats), std::move(rigs),
+                                         std::move(anims));
+    });
 }
 
 } // namespace

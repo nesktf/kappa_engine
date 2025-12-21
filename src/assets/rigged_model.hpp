@@ -18,7 +18,7 @@ public:
 
 public:
   std::string name;
-  std::string_view armature;
+  std::string armature;
   model_mesh_data meshes;
   model_material_data materials;
   model_rig_data rigs;

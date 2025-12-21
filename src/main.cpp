@@ -85,7 +85,7 @@ static void run_engine() {
     cirno.emplace(registry.add_entity(*model, cirno_pos, 1.f));
     cirno2.emplace(registry.add_entity(*model, cirno_pos + vec3{-1.f, 0.f, 0.f}, 1.f));
   };
-  assets::request_asset<assets::rigged_model>("cirno", "./res/chiruno_chiruno.gltf", cirno_opts,
+  assets::request_asset<assets::rigged_model>("cirno", "./res/chiruno/chiruno.gltf", cirno_opts,
                                               cirno_cb);
 
   ntf::nullable<scene::ent_handle> koosh;
