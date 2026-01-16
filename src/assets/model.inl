@@ -1,27 +1,12 @@
-#define KAPPA_MODEL_DATA_INL
-#include "./model_data.hpp"
-#undef KAPPA_MODEL_DATA_INL
+#define KAPPA_ASSETS_MODEL_INL
+#include "./model.hpp"
+#undef KAPPA_ASSETS_MODEL_INL
 
 namespace kappa::assets {
 
-template<meta::mesh_data_type MeshDataT>
-model_meshes<MeshDataT>::model_meshes(vert_buffs buffs, u32 vertex_count,
-                                      shogle::index_buffer&& idx_buff, u32 index_count,
-                                      ntf::unique_array<mesh_offset>&& offsets) :
-    _buffs{buffs}, _offsets{std::move(offsets)}, _idx_buff{std::move(idx_buff)},
-    _vertex_count{vertex_count}, _index_count{index_count} {
-  NTF_ASSERT(!_idx_buff.empty());
-  NTF_ASSERT(vertex_count > 0);
-  for (u32 i = 0; i < _buffs.size(); ++i) {
-    NTF_ASSERT(_buffs[i], "Vertex \"{}\" missing", MeshDataT::VERT_CONFIG[i].name);
-    _binds[i].buffer = _buffs[i];
-    _binds[i].layout = i;
-  }
-}
-
-template<meta::mesh_data_type MeshDataT>
-fn model_meshes<MeshDataT>::create(const MeshDataT& mesh_data) -> expect<model_meshes> {
-  vert_buffs buffs{}; // init as nullptr
+template<mesh_data_type MeshData>
+fn make_model_meshes(const MeshData& mesh_data) -> expect<model_meshes<MeshData::attr_count>> {
+  typename model_meshes<MeshData::attr_count>::vert_buffs buffs{}; // init as nullptr
 
   auto free_buffs = [&]() {
     for (shogle::buffer_t buff : buffs) {
@@ -33,7 +18,7 @@ fn model_meshes<MeshDataT>::create(const MeshDataT& mesh_data) -> expect<model_m
 
   // Create vertex buffers
   const size_t vertex_count = mesh_data.vertex_count();
-  for (u32 i = 0; const auto& [conf_size, conf_name] : MeshDataT::VERT_CONFIG) {
+  for (u32 i = 0; const auto& [conf_size, conf_name] : MeshData::attr_config) {
     ntf::logger::debug("Creating vertex buffer \"{}\"", conf_name);
     auto buff = render::create_vbo(vertex_count * conf_size, nullptr);
     if (!buff) {
@@ -59,7 +44,7 @@ fn model_meshes<MeshDataT>::create(const MeshDataT& mesh_data) -> expect<model_m
     mesh_offsets[mesh_idx].vertex_offset = offset;
 
     u32 vertex_elems = 0u;
-    for (u32 attr_idx = 0; const auto& [conf_size, conf_name] : MeshDataT::VERT_CONFIG) {
+    for (u32 attr_idx = 0; const auto& [conf_size, conf_name] : MeshData::attr_config) {
       ntf::logger::debug("Uploading vertex data \"{}\" in mesh {}", conf_name, mesh_idx);
       const auto [data_ptr, data_count] = mesh_data.vertex_data(attr_idx, mesh_idx);
       if (!data_ptr) {
@@ -100,8 +85,22 @@ fn model_meshes<MeshDataT>::create(const MeshDataT& mesh_data) -> expect<model_m
           std::move(mesh_offsets)};
 }
 
-template<meta::mesh_data_type MeshDataT>
-fn model_meshes<MeshDataT>::retrieve_mesh_data(u32 mesh_idx,
+template<u32 AttrCount>
+model_meshes<AttrCount>::model_meshes(vert_buffs buffs, u32 vertex_count,
+                                      shogle::index_buffer&& idx_buff, u32 index_count,
+                                      ntf::unique_array<mesh_offset>&& offsets) :
+    _buffs{buffs}, _offsets{std::move(offsets)}, _idx_buff{std::move(idx_buff)},
+    _vertex_count{vertex_count}, _index_count{index_count} {
+  NTF_ASSERT(!_idx_buff.empty());
+  NTF_ASSERT(vertex_count > 0);
+  for (u32 i = 0; i < _buffs.size(); ++i) {
+    _binds[i].buffer = _buffs[i];
+    _binds[i].layout = i;
+  }
+}
+
+template<u32 AttrCount>
+fn model_meshes<AttrCount>::retrieve_mesh_data(u32 mesh_idx,
                                                std::vector<render::mesh_render_data>& data) const
   -> render::mesh_render_data& {
   NTF_ASSERT(mesh_idx < mesh_count());
@@ -111,16 +110,16 @@ fn model_meshes<MeshDataT>::retrieve_mesh_data(u32 mesh_idx,
                            offset.index_offset, 0u);
 }
 
-template<meta::mesh_data_type MeshDataT>
-model_meshes<MeshDataT>::model_meshes(model_meshes&& other) noexcept :
+template<u32 AttrCount>
+model_meshes<AttrCount>::model_meshes(model_meshes&& other) noexcept :
     _buffs{std::move(other._buffs)}, _binds{std::move(other._binds)},
     _offsets{std::move(other._offsets)}, _idx_buff{std::move(other._idx_buff)},
     _vertex_count{std::move(other._vertex_count)}, _index_count{std::move(other._index_count)} {
   other._reset_buffs();
 }
 
-template<meta::mesh_data_type MeshDataT>
-fn model_meshes<MeshDataT>::operator=(model_meshes&& other) noexcept -> model_meshes& {
+template<u32 AttrCount>
+fn model_meshes<AttrCount>::operator=(model_meshes&& other) noexcept -> model_meshes& {
   _free_buffs();
 
   _buffs = std::move(other._buffs);
@@ -134,16 +133,21 @@ fn model_meshes<MeshDataT>::operator=(model_meshes&& other) noexcept -> model_me
   return *this;
 }
 
-template<meta::mesh_data_type MeshDataT>
-void model_meshes<MeshDataT>::_reset_buffs() noexcept {
+template<u32 AttrCount>
+model_meshes<AttrCount>::~model_meshes() noexcept {
+  _free_buffs();
+}
+
+template<u32 AttrCount>
+void model_meshes<AttrCount>::_reset_buffs() noexcept {
   std::memset(_buffs.data(), 0, _buffs.size() * sizeof(shogle::buffer_t));
   std::memset(_binds.data(), 0, _binds.size() * sizeof(shogle::vertex_binding));
   _index_count = 0u;
   _vertex_count = 0u;
 }
 
-template<meta::mesh_data_type MeshDataT>
-void model_meshes<MeshDataT>::_free_buffs() noexcept {
+template<u32 AttrCount>
+fn model_meshes<AttrCount>::_free_buffs() noexcept -> void {
   if (!_buffs[0]) {
     return;
   }
@@ -152,6 +156,12 @@ void model_meshes<MeshDataT>::_free_buffs() noexcept {
       shogle::destroy_buffer(buff);
     }
   }
+}
+
+template<u32 AttrCount>
+fn model_meshes<AttrCount>::vertex_buffer(u32 idx) const -> shogle::vertex_buffer_view {
+  NTF_ASSERT(idx < _buffs.size());
+  return shogle::to_typed<shogle::buffer_type::vertex>(shogle::buffer_view{_buffs[idx]});
 }
 
 } // namespace kappa::assets
