@@ -1,6 +1,6 @@
 #pragma once
 
-#include "./model.hpp"
+#include <chimatools/chimatools.hpp>
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -8,7 +8,28 @@
 
 #include <unordered_map>
 
+#include "./model.hpp"
+#include "./texture.hpp"
+
 namespace kappa::assets {
+
+struct texture_data::texture_internal {
+  texture_internal(chima::context&& chima_, chima::image image_) :
+      chima(std::move(chima_)), image(image_), image_destroyer(chima, image) {}
+
+  char name_data[buffer_name::buffer_size];
+  char path_data[buffer_path::buffer_size];
+  chima::context chima;
+  chima::image image;
+  chima::scoped_resource<chima::image> image_destroyer;
+};
+
+struct texture_loader::loader_internal {
+  buffer_name texture_name;
+  buffer_path texture_path;
+  bits32 chima_flags;
+  optional<texture_type> type;
+};
 
 struct model_allocator {
   template<typename T>

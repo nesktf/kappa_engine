@@ -1,4 +1,4 @@
-#include "./model_internal.hpp"
+#include "./internal.hpp"
 
 #define MODEL_LOG(level_, fmt_, ...) \
   ::kappa::logger::level_("[MODEL_IMPORT] " fmt_ __VA_OPT__(, ) __VA_ARGS__)

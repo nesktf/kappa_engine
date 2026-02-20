@@ -1,17 +1,8 @@
 #pragma once
 
-#include "../core.hpp"
+#include "./texture.hpp"
 
 namespace kappa::assets {
-
-enum class image_format {
-  rgb8 = 0,
-  rgba8,
-  rgb16,
-  rgba16,
-  rgb32f,
-  rgba32f,
-};
 
 struct model3d_data {
 public:

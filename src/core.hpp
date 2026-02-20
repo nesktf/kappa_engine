@@ -30,8 +30,12 @@ using shogle::unexpect;
 
 template<size_t MaxSize>
 struct buffer_str {
+  static constexpr size_t buffer_size = MaxSize;
+
   char data[MaxSize];
   size_t len;
+
+  const char* c_str() const noexcept { return data; }
 
   std::string_view as_view() const noexcept { return {&data[0], len}; }
 
