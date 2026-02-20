@@ -1,84 +1,102 @@
 #pragma once
 
-#define SHOGLE_EXPOSE_GLFW 1
-#include <shogle/shogle.hpp>
+#include <shogle/core.hpp>
+#include <shogle/util/expected.hpp>
+#include <shogle/util/logger.hpp>
+#include <shogle/util/ptr.hpp>
 
-#include <ntfstl/freelist.hpp>
-#include <ntfstl/logger.hpp>
-#include <ntfstl/optional.hpp>
-#include <ntfstl/span.hpp>
-#include <ntfstl/threadpool.hpp>
-#include <ntfstl/types.hpp>
-#include <ntfstl/unique_array.hpp>
+#include <shogle/math/matrix4x4.hpp>
+#include <shogle/math/quaternion.hpp>
+#include <shogle/math/vector3.hpp>
+#include <shogle/math/vector4.hpp>
 
-#define fn auto
+#ifdef assert
+#undef assert
+#endif
+#define assert(cond, ...) SHOGLE_ASSERT(cond __VA_OPT__(, ) __VA_ARGS__)
 
 namespace kappa {
 
-using namespace ntf::numdefs;
+using shogle::logger;
 
-using shogle::ivec4;
-using shogle::mat4;
-using shogle::vec2;
-using shogle::vec3;
-using shogle::vec4;
+using namespace shogle::numdefs;
+using shogle::expected;
+using shogle::in_place;
+using shogle::nullopt;
+using shogle::optional;
+using shogle::ptr_view;
+using shogle::ref_view;
+using shogle::unexpect;
 
-using ntf::cspan;
-using ntf::span;
-using shogle::color4;
-using shogle::extent3d;
-using shogle::mat4;
-using shogle::quat;
-using shogle::vec2;
-using shogle::vec3;
+template<size_t MaxSize>
+struct buffer_str {
+  char data[MaxSize];
+  size_t len;
 
-using ntf::logger;
+  std::string_view as_view() const noexcept { return {&data[0], len}; }
 
-using real = f32;
-
-template<typename T>
-using expect = ntf::expected<T, std::string>;
-
-constexpr u32 GAME_UPS = 60u;
-
-inline std::string shogle_to_str(shogle::render_error&& err) {
-  return err.what();
-}
-
-struct vec_span {
-  static constexpr u32 INDEX_TOMB = std::numeric_limits<u32>::max();
-
-  u32 idx, count;
-
-  template<typename T>
-  span<T> to_span(T* data) const {
-    if (empty()) {
-      return {};
-    }
-    return {data + idx, count};
+  size_t copy_from(const char* src, size_t size) {
+    std::memset(data, 0, MaxSize);
+    len = std::min(MaxSize - 1, size);
+    std::memcpy(data, src, len);
+    data[MaxSize - 1] = '\0'; // Make sure we have a null terminator
+    return len;
   }
 
-  template<typename T>
-  cspan<T> to_cspan(const T* data) const {
-    if (empty()) {
-      return {};
-    }
-    return {data + idx, count};
+  size_t copy_from(const char* src) { return copy_from(src, std::strlen(src)); }
+
+  template<typename... Args>
+  size_t format_from(fmt::format_string<Args...> fmt, Args&&... args) {
+    std::memset(data, 0, MaxSize);
+    const auto res = fmt::format_to_n(data, MaxSize - 1, fmt, std::forward<Args>(args)...);
+    return res.size;
   }
-
-  bool empty() const { return idx == INDEX_TOMB || count == 0u; }
-
-  u32 size() const { return count; }
 };
 
-namespace meta {
+template<size_t MaxSize>
+buffer_str<MaxSize> buffer_str_copy(const char* data, size_t len) {
+  buffer_str<MaxSize> out;
+  out.copy_from(data, len);
+  return out;
+}
 
-template<typename Arr, typename T>
-struct is_std_array_of : public std::false_type {};
+template<size_t MaxSize>
+buffer_str<MaxSize> buffer_str_copy(const char* data) {
+  buffer_str<MaxSize> out;
+  out.copy_from(data);
+  return out;
+}
 
-template<typename T, size_t N>
-struct is_std_array_of<std::array<T, N>, T> : public std::true_type {};
+template<size_t MaxSize, typename... Args>
+buffer_str<MaxSize> buffer_str_fmt(fmt::format_string<Args...> fmt, Args&&... args) {
+  buffer_str<MaxSize> out;
+  out.format_from(fmt, std::forward<Args>(args)...);
+  return out;
+}
 
-} // namespace meta
+using buffer_name = buffer_str<128>;
+using buffer_path = buffer_str<256>;
+
+template<typename T, size_t MaxSize>
+using bs_expect = expected<T, buffer_str<MaxSize>>;
+
+struct array_span {
+  static constexpr u32 index_tomb = static_cast<u32>(-1);
+
+  u32 start;
+  u32 count;
+};
+
+using shogle::m4f32;
+using shogle::qf32;
+using shogle::v2f32;
+using shogle::v3f32;
+using shogle::v4f32;
+using v4i32 = shogle::numvec<4, i32>;
+using shogle::extent2d;
+using shogle::extent3d;
+
+using bits32 = u32;
+using bits64 = u64;
 
 } // namespace kappa
