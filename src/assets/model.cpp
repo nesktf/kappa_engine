@@ -1,4 +1,5 @@
 #include "./internal.hpp"
+#include <assimp/mesh.h>
 
 #define MODEL_LOG(level_, fmt_, ...) \
   ::kappa::logger::level_("[MODEL_IMPORT] " fmt_ __VA_OPT__(, ) __VA_ARGS__)
@@ -193,7 +194,7 @@ std::pair<bool, std::string_view> parse_rigs(model_allocator& al, model3d_data& 
   return std::make_pair(true, "");
 }
 
-bool parse_meshes(model_allocator& al, model3d_data& data, const aiScene& scene) {
+bool allocate_meshes(model_allocator& al, model3d_data& data, const aiScene& scene) {
   size_t index_count = 0;
   size_t vertex_count = 0;
   size_t face_count = 0;
@@ -251,19 +252,39 @@ bool parse_meshes(model_allocator& al, model3d_data& data, const aiScene& scene)
       data.mesh_weights = al.alloc<v4f32>(data.bone_count);
       // Set all parents to -1
       std::memset(data.mesh_bones, 0xFF, sizeof(data.mesh_bones[0]) * data.bone_count);
+      // Set all weights to 0
+      std::memset(data.mesh_weights, 0x00, sizeof(data.mesh_weights[0] * data.bone_count));
     } else {
       data.mesh_bones = nullptr;
       data.mesh_weights = nullptr;
     }
   }
 
-  const auto try_place_weight = [&](size_t mesh_start, size_t idx, const aiVertexWeight& weight) {
-    const size_t vertex_pos = mesh_start + weight.mVertexId;
+  data.mesh_count = scene.mNumMeshes;
+  std::memset(data.meshes, 0x00, sizeof(data.meshes[0]) * data.mesh_count);
+  data._impl->mesh_registry.reserve(data.mesh_count);
+  data.vertex_count = vertex_count;
+  data.face_count = face_count;
+  data.index_count = index_count;
+  return true;
+}
+
+bool parse_meshes(model_allocator& al, model3d_data& data, const aiScene& scene) {
+  if (!allocate_meshes(al, data, scene)) {
+    return false;
+  }
+
+  u32 vert_pos = 0;
+  u32 index_pos = 0;
+  const auto& bone_reg = data._impl->bone_registry;
+
+  const auto try_place_weight = [&](u32 mesh_pos, size_t idx, const aiVertexWeight& weight) {
+    const u32 vertex_pos = mesh_pos + weight.mVertexId;
     auto& vertex_bone_indices = data.mesh_bones[vertex_pos];
     auto& vertex_bone_weights = data.mesh_weights[vertex_pos];
 
     assert(vertex_pos < data.vertex_count);
-    for (size_t i = 0; i < 4; ++i) {
+    for (u32 i = 0; i < 4; ++i) {
       if (weight.mWeight == 0.f) {
         return;
       }
@@ -276,118 +297,118 @@ bool parse_meshes(model_allocator& al, model3d_data& data, const aiScene& scene)
     MODEL_LOG(warning, "Bone weigths out of range in vertex {}", vertex_pos);
   };
 
-  data.mesh_count = scene.mNumMeshes;
-  data._impl->mesh_registry.reserve(data.mesh_count);
-  data.vertex_count = vertex_count;
-  data.face_count = face_count;
-  data.index_count = index_count;
-  for (size_t i = 0; i < scene.mNumMeshes; ++i) {
-    const aiMesh* mesh = scene.mMeshes[i];
-    const size_t nverts = mesh->mNumVertices;
-    std::string_view name{mesh->mName.data, mesh->mName.length};
-    ntf::logger::warning("{}", name);
-    if (name.find(model_name) == std::string::npos) {
-      continue;
+  const auto do_attrib = [&](bool cond, u32 nverts, auto&& op) -> array_span {
+    auto out = array_span::null_span();
+    if (cond) {
+      out.start = vert_pos;
+      out.count = nverts;
+      for (u32 i = 0; i < nverts; ++i) {
+        op(vert_pos + i, i);
+      }
     }
+    return out;
+  };
+
+  for (u32 mesh_idx = 0; mesh_idx < scene.mNumMeshes; ++mesh_idx) {
+    const aiMesh* mesh = scene.mMeshes[mesh_idx];
+    const u32 nverts = mesh->mNumVertices;
 
     // Positions
-    vec_span pos{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasPositions()) {
-      pos.idx = data.positions.size();
-      pos.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.positions.emplace_back(asscast(mesh->mVertices[j]));
-      }
-    }
-
+    const auto pos = do_attrib(mesh->HasPositions(), nverts, [&](u32 pos, u32 vert) {
+      data.mesh_pos[pos] = asscast(mesh->mVertices[vert]);
+    });
     // Normals
-    vec_span norm{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasNormals()) {
-      norm.idx = data.normals.size();
-      norm.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.normals.emplace_back(asscast(mesh->mNormals[j]));
-      }
-    }
-
+    const auto norm = do_attrib(mesh->HasNormals(), nverts, [&](u32 pos, u32 vert) {
+      data.mesh_norm[pos] = asscast(mesh->mNormals[vert]);
+    });
     // UVs
-    vec_span uv{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasTextureCoords(0)) {
-      uv.idx = data.uvs.size();
-      uv.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        const auto& uv_vec = mesh->mTextureCoords[0][j];
-        data.uvs.emplace_back(uv_vec.x, uv_vec.y);
-      }
-    }
-
+    const auto uv0 = do_attrib(mesh->HasTextureCoords(0), nverts, [&](u32 pos, u32 vert) {
+      const auto& uv_vec = mesh->mTextureCoords[0][vert];
+      data.mesh_uv0[pos].x = uv_vec.x;
+      data.mesh_uv0[pos].y = uv_vec.y;
+    });
+    const auto uv1 = do_attrib(mesh->HasTextureCoords(1), nverts, [&](u32 pos, u32 vert) {
+      const auto& uv_vec = mesh->mTextureCoords[1][vert];
+      data.mesh_uv0[pos].x = uv_vec.x;
+      data.mesh_uv0[pos].y = uv_vec.y;
+    });
     // Tangents & bitangents
-    vec_span tang{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasTangentsAndBitangents()) {
-      tang.idx = data.tangents.size();
-      tang.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.tangents.emplace_back(asscast(mesh->mTangents[j]));
-        data.bitangents.emplace_back(asscast(mesh->mBitangents[j]));
-      }
-    }
-
+    const auto tang = do_attrib(mesh->HasTangentsAndBitangents(), nverts, [&](u32 pos, u32 vert) {
+      data.mesh_tan[pos] = asscast(mesh->mTangents[vert]);
+      data.mesh_bitan[pos] = asscast(mesh->mBitangents[vert]);
+    });
     // Colors
-    vec_span col{vec_span::INDEX_TOMB, 0u};
-    if (mesh->HasVertexColors(0)) {
-      col.idx = data.colors.size() - nverts;
-      col.count = nverts;
-      for (size_t j = 0; j < nverts; ++j) {
-        data.colors.emplace_back(asscast(mesh->mColors[0][j]));
-      }
-    }
+    const auto col = do_attrib(mesh->HasVertexColors(0), nverts, [&](u32 pos, u32 vert) {
+      data.mesh_col[pos] = asscast(mesh->mColors[0][vert]);
+    });
 
     // Bone indices & weigths
-    vec_span bone{vec_span::INDEX_TOMB, 0u};
-    if (!rigs.bone_registry.empty() && mesh->HasBones()) {
-      const size_t mesh_start = data.weights.size();
-      bone.idx = data.weights.size();
+    auto bone = array_span::null_span();
+    if (!bone_reg.empty() && mesh->HasBones()) {
+      bone.start = vert_pos;
       bone.count = nverts;
 
-      // Fill with empty data
-      for (size_t i = 0; i < nverts; ++i) {
-        data.bones.emplace_back(model_mesh_data::EMPTY_BONE_INDEX);
-        data.weights.emplace_back(model_mesh_data::EMPTY_BONE_WEIGHT);
-      }
-
-      for (size_t i = 0; i < mesh->mNumBones; ++i) {
+      for (u32 i = 0; i < mesh->mNumBones; ++i) {
         const aiBone* ai_bone = mesh->mBones[i];
-        NTF_ASSERT(rigs.bone_registry.find(ai_bone->mName.C_Str()) != rigs.bone_registry.end());
-
-        const size_t bone_idx = rigs.bone_registry.at(ai_bone->mName.C_Str());
-        for (size_t j = 0; j < ai_bone->mNumWeights; ++j) {
-          try_place_weight(mesh_start, bone_idx, ai_bone->mWeights[j]);
+        auto it = bone_reg.find(ai_bone->mName.C_Str());
+        assert(it != bone_reg.end()); // At this point everything *should* be valid
+        const u32 bone_idx = it->second;
+        for (u32 j = 0; j < ai_bone->mNumWeights; ++j) {
+          try_place_weight(vert_pos, bone_idx, ai_bone->mWeights[j]);
         }
       }
     }
 
-    // Indices
-    vec_span indices{vec_span::INDEX_TOMB, 0u};
-    const u32 mesh_faces = mesh->mNumFaces;
-    if (mesh->HasFaces()) {
-      indices.idx = data.indices.size();
+    // Face indices
+    auto indices = array_span::null_span();
+    const u32 nfaces = mesh->mNumFaces;
+    if (nfaces > 0) {
+      indices.start = index_pos;
       u32 idx_count = 0u;
-      for (size_t j = 0; j < mesh->mNumFaces; ++j) {
-        const aiFace& face = mesh->mFaces[j];
-        for (size_t k = 0; k < face.mNumIndices; ++k) {
-          data.indices.emplace_back(face.mIndices[k]);
+      for (u32 face_idx = 0; face_idx < mesh->mNumFaces; ++face_idx) {
+        const aiFace& face = mesh->mFaces[face_idx];
+        for (u32 i = 0; i < face.mNumIndices; ++i) {
+          data.mesh_indices[index_pos + idx_count + i] = face.mIndices[i];
         }
         idx_count += face.mNumIndices;
       }
       indices.count = idx_count;
-      face_count += mesh_faces;
+      index_pos += idx_count;
     }
 
-    const char* mesh_name = mesh->mName.C_Str();
-    aiString mat_name = scene->mMaterials[mesh->mMaterialIndex]->GetName();
+    // Set indices and sizes
+    data.meshes[mesh_idx].positions = pos;
+    data.meshes[mesh_idx].normals = norm;
+    data.meshes[mesh_idx].uvs0 = uv0;
+    data.meshes[mesh_idx].uvs1 = uv1;
+    data.meshes[mesh_idx].colors = col;
+    data.meshes[mesh_idx].tangents = tang;
+    data.meshes[mesh_idx].bones = bone;
+    data.meshes[mesh_idx].indices = indices;
+    data.meshes[mesh_idx].vertex_count = nverts;
+    data.meshes[mesh_idx].face_count = nfaces;
 
-    data.meshes.emplace_back(pos, norm, uv, tang, col, bone, indices, mesh_name, mat_name.C_Str(),
-                             mesh_faces);
+    // Set names
+    const aiString& mesh_name = mesh->mName;
+    const aiString& mat_name = scene.mMaterials[mesh->mMaterialIndex]->GetName();
+    data.meshes[mesh_idx].name.copy_from(mesh_name.data, mesh_name.length);
+    data.meshes[mesh_idx].mat_name.copy_from(mat_name.data, mat_name.length);
+    if (mesh->HasTextureCoordsName(0)) {
+      const aiString& name = *mesh->mTextureCoordsNames[0];
+      data.meshes[mesh_idx].uv0_name.copy_from(name.data, name.length);
+    }
+    if (mesh->HasTextureCoordsName(1)) {
+      const aiString& name = *mesh->mTextureCoordsNames[1];
+      data.meshes[mesh_idx].uv0_name.copy_from(name.data, name.length);
+    }
+
+    // Set props
+    data.meshes[mesh_idx].props = 0; // TODO
+
+    data.meshes[mesh_idx].bbox_max = asscast(mesh->mAABB.mMax);
+    data.meshes[mesh_idx].bbox_min = asscast(mesh->mAABB.mMin);
+
+    switch (mesh->mMethod) {}
   }
   return true;
 }

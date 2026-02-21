@@ -87,6 +87,8 @@ using bs_expect = expected<T, buffer_str<MaxSize>>;
 struct array_span {
   static constexpr u32 index_tomb = static_cast<u32>(-1);
 
+  static constexpr array_span null_span() noexcept { return {index_tomb, index_tomb}; }
+
   u32 start;
   u32 count;
 };

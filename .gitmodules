@@ -4,3 +4,6 @@
 [submodule "lib/chimatools"]
 	path = lib/chimatools
 	url = https://github.com/nesktf/chimatools.git
+[submodule "lib/assimp"]
+	path = lib/assimp
+	url = https://github.com/assimp/assimp.git

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -O0 -g2 -ggdb -Wno-psabi")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -O3 -Wno-psabi")
+set(BUILD_SHARED_LIBS OFF)
 
 project(kappa CXX C)
 
@@ -17,6 +18,12 @@ list(APPEND LIB_LINK shogle)
 # chimatools
 add_subdirectory("lib/chimatools")
 list(APPEND LIB_LINK chimatools)
+
+# assimp
+set(ASSIMP_NO_EXPORT ON)
+set(ASSIMP_INSTALL OFF)
+add_subdirectory("lib/assimp")
+list(APPEND LIB_LINK assimp)
 
 # Project files
 file(GLOB_RECURSE SOURCE_FILES "src/**.cpp")
