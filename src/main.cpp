@@ -20,8 +20,7 @@ int main() {
   std::vector<std::variant<kappa::assets::model3d_data::texture_data, kappa::assets::texture_data>>
     texes;
 
-  for (size_t i = 0; i < cirno.texture_count; ++i) {
-    const auto& tex = cirno.textures[i];
+  for (const auto& tex : cirno.textures()) {
     if (tex.data) {
       texes.emplace_back(tex);
     } else {
@@ -35,7 +34,7 @@ int main() {
                fmt::print("- tex: {}, {}\n", tex.name.as_view(), tex.path.as_view());
              },
              [](const kappa::assets::texture_data& tex) {
-               fmt::print("- tex: {}, {}\n", tex.name, tex.path);
+               fmt::print("- tex: {}, {}\n", tex.name().as_view(), tex.path().as_view());
              }};
   for (const auto& tex : texes) {
     std::visit(visitor, tex);

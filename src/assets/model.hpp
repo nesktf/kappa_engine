@@ -5,19 +5,49 @@
 namespace kappa::assets {
 
 struct model3d_data {
-public:
+public: // enum mappings from assimp
   enum mesh_morph_method {
-    MESH_MORPH_METHOD_VERTEX_BLEND = 0x0001,
-    MESH_MORPH_METHOD_NORMALIZED = 0x0002,
-    MESH_MORPH_METHOD_RELATIVE = 0x0004,
+    MESH_MORPH_METHOD_VERTEX_BLEND = 0,
+    MESH_MORPH_METHOD_NORMALIZED,
+    MESH_MORPH_METHOD_RELATIVE,
   };
 
   enum mesh_primitive {
-    MESH_PRIMITIVE_POINT = 0x0001,
-    MESH_PRIMITIVE_LINE = 0x0002,
-    MESH_PRIMITIVE_TRIANGLE = 0x0004,
-    MESH_PRIMITIVE_POLYGON = 0x0008,
+    MESH_PRIMITIVE_POINT = 0,
+    MESH_PRIMITIVE_LINE,
+    MESH_PRIMITIVE_TRIANGLE,
+    MESH_PRIMITIVE_POLYGON,
   };
+
+  enum texture_map_mode {
+    TEXTURE_MAP_MODE_WRAP = 0,
+    TEXTURE_MAP_MODE_CLAMP,
+    TEXTURE_MAP_MODE_DECAL,
+    TEXTURE_MAP_MODE_MIRROR,
+  };
+
+  enum texture_color_flags {
+    TEXTURE_COLOR_FLAG_INVERT = 0x0000,
+    TEXTURE_COLOR_FLAG_USE_ALPHA = 0x0001,
+    TEXTURE_COLOR_FLAG_IGNORE_ALPHA = 0x0002,
+  };
+
+  enum texture_blend_mode {
+    TEXTURE_BLEND_DEFAULT = 0,
+    TEXTURE_BLEND_ADDITIVE,
+  };
+
+  enum material_shading {
+    MATERIAL_SHADING_NONE = 0,
+    MATERIAL_SHADING_FLAT,
+    MATERIAL_SHADING_PHONG,
+    MATERIAL_SHADING_BLINN,
+    MATERIAL_SHADING_TOON,
+    MATERIAL_SHADING_PBR_BRDF,
+  };
+
+  static constexpr size_t MAX_MODEL_UVS = 2;
+  static constexpr size_t MAX_MODEL_COLORS = 1;
 
 public:
   template<typename T>
@@ -28,47 +58,34 @@ public:
 
   struct anim_data {
     buffer_name name;
-    array_span frames;
+    array_range keyframes;
     f64 duration;
     f64 tps;
   };
 
   struct anim_keyframe {
-    buffer_name bone_name;
-    array_span pos_keys;
-    array_span rot_keys;
-    array_span scale_keys;
+    u32 bone_index;
+    array_range pos_keys;
+    array_range rot_keys;
+    array_range scale_keys;
   };
 
   struct blend_shape_data {
     buffer_name name;
-    array_span positions;
-    array_span normals;
-    array_span uvs0;
-    array_span uvs1;
-    array_span colors;
-    array_span tangents;
-    u32 vertex_count;
+    array_range range;
     f32 weight;
   };
 
   struct mesh_data {
     buffer_name name;
-    buffer_name mat_name;
-    buffer_name uv0_name;
-    buffer_name uv1_name;
+    buffer_name uv_name[MAX_MODEL_UVS];
     v3f32 bbox_max;
     v3f32 bbox_min;
-    array_span positions;
-    array_span normals;
-    array_span uvs0;
-    array_span uvs1;
-    array_span colors;
-    array_span tangents;
-    array_span bones;
-    array_span indices;
-    u32 vertex_count;
+    array_range vertex_range;
+    array_range indices;
+    array_range blend_shapes;
     u32 face_count;
+    u32 material_index;
     mesh_morph_method morph_method;
     mesh_primitive primitive;
   };
@@ -79,12 +96,16 @@ public:
     void* data;
     extent2d extent;
     image_format format;
+    texture_map_mode mapping_mode;
+    texture_blend_mode blending_mode;
+    bits32 color_flags;
   };
 
   struct material_data {
     buffer_name name;
-    array_span textures;
-    bits32 props;
+    u32 texture_start;
+    u32 texture_count;
+    material_shading shading_mode;
   };
 
   struct bone_data {
@@ -94,79 +115,157 @@ public:
 
   struct armature_data {
     buffer_name name;
-    array_span bones;
+    array_range bones;
   };
 
   struct model_internal;
 
 public:
-  model3d_data() noexcept;
+  model3d_data(model_internal& data) noexcept;
 
   void destroy() noexcept;
 
 public:
-  optional<u32> find_animation(std::string_view animation_name) noexcept;
-  optional<u32> find_mesh(std::string_view mesh_name) noexcept;
-  optional<u32> find_material(std::string_view material_name) noexcept;
-  optional<u32> find_bone(std::string_view bone_name) noexcept;
-  optional<u32> find_armature(std::string_view armature_name) noexcept;
+  buffer_name& name() const;
+  buffer_path& path() const;
 
-  bool has_materials() noexcept;
-  bool has_textures() noexcept;
-  bool has_armatures() noexcept;
-  bool has_animations() noexcept;
+  mesh_data& mesh_at(u32 idx) const;
+  span<mesh_data> meshes() const;
+  span<v3f32> mesh_positions() const;
+  span<v3f32> mesh_positions(array_range range) const;
+  span<v3f32> mesh_normals() const;
+  span<v3f32> mesh_normals(array_range range) const;
+  span<v2f32> mesh_uvs(u32 idx) const;
+  span<v2f32> mesh_uvs(u32 idx, array_range range) const;
+  span<v4f32> mesh_colors() const;
+  span<v4f32> mesh_colors(array_range range) const;
+  span<v3f32> mesh_tangents() const;
+  span<v3f32> mesh_tangents(array_range range) const;
+  span<v3f32> mesh_bitangents() const;
+  span<v3f32> mesh_bitangents(array_range range) const;
+  span<v4i32> mesh_bones() const;
+  span<v4i32> mesh_bones(array_range range) const;
+  span<v4f32> mesh_bone_weights() const;
+  span<v4f32> mesh_bone_weights(array_range range) const;
+  span<u32> mesh_indices() const;
+  span<u32> mesh_indices(array_range range) const;
+  u32 index_count() const;
+  u32 mesh_count() const;
+  u32 vertex_count() const;
+  u32 face_count() const;
 
-public:
-  buffer_name name;
-  buffer_path path;
-  model_internal* _impl;
+  optional<u32> find_mesh_idx(std::string_view mesh_name) const;
 
-  mesh_data* meshes;
-  v3f32* mesh_positions;
-  v3f32* mesh_normals;
-  v2f32* mesh_uvs0;
-  v2f32* mesh_uvs1;
-  v4f32* mesh_colors;
-  v3f32* mesh_tangents;
-  v3f32* mesh_bitangents;
-  v4i32* mesh_bones;
-  v4f32* mesh_bone_weights;
-  u32* mesh_indices;
-  u32 index_count;
-  u32 mesh_count;
-  u32 vertex_count;
-  u32 face_count;
+  mesh_data* find_mesh(std::string_view mesh_name) const {
+    return find_mesh_idx(mesh_name)
+      .transform([this](u32 idx) -> mesh_data* { return &mesh_at(idx); })
+      .value_or(nullptr);
+  }
 
-  blend_shape_data* blend_shapes;
-  v3f32* blend_positions;
-  v3f32* blend_normals;
-  v3f32* blend_uvs0;
-  v3f32* blend_uvs1;
-  v3f32* blend_colors;
-  v3f32* blend_tangents;
-  v3f32* blend_bitangents;
+  blend_shape_data& blend_shape_at(u32 idx) const;
+  span<blend_shape_data> blend_shapes() const;
+  span<blend_shape_data> blend_shapes(array_range range) const;
+  span<v3f32> blend_positions() const;
+  span<v3f32> blend_positions(array_range range) const;
+  span<v3f32> blend_normals() const;
+  span<v3f32> blend_normals(array_range range) const;
+  span<v2f32> blend_uvs(u32 idx) const;
+  span<v2f32> blend_uvs(u32 idx, array_range range) const;
+  span<v4f32> blend_colors(u32 idx) const;
+  span<v4f32> blend_colors(u32 idx, array_range range) const;
+  span<v3f32> blend_tangents() const;
+  span<v3f32> blend_tangents(array_range range) const;
+  span<v3f32> blend_bitangents() const;
+  span<v3f32> blend_bitangents(array_range range) const;
+  u32 blend_shape_count() const;
 
-  anim_data* animations;
-  anim_keyframe* anim_keyframes;
-  size_t animation_count;
-  keyframe_data<v3f32>* anim_positions;
-  keyframe_data<v3f32>* anim_scales;
-  keyframe_data<qf32>* anim_rotations;
-  size_t anim_keyframe_count;
+  bool has_blend_shapes() const { return (blend_shape_count() > 0); }
 
-  texture_data* textures;
-  u32 texture_count;
-  u32* material_textures;
-  u32 material_textures_count;
-  material_data* materials;
-  u32 material_count;
+  anim_data& animation_at(u32 idx) const;
+  span<anim_data> animations() const;
+  span<anim_keyframe> keyframes() const;
+  span<anim_keyframe> keyframes(array_range range) const;
+  span<keyframe_data<v3f32>> anim_positions() const;
+  span<keyframe_data<v3f32>> anim_positions(array_range range) const;
+  span<keyframe_data<v3f32>> anim_scales() const;
+  span<keyframe_data<v3f32>> anim_scales(array_range range) const;
+  span<keyframe_data<qf32>> anim_rotations() const;
+  span<keyframe_data<qf32>> anim_rotations(array_range range) const;
+  u32 animation_count() const;
 
-  armature_data* armatures;
-  u32 armature_count;
-  bone_data* bones;
-  u32 bone_count;
-  m4f32* bone_locals;
-  m4f32* bone_inv_models;
+  bool has_animations() const { return (animation_count() > 0); }
+
+  optional<u32> find_animation_idx(std::string_view animation_name) const;
+
+  anim_data* find_animation(std::string_view animation_name) const {
+    return find_animation_idx(animation_name)
+      .transform([this](u32 idx) -> anim_data* { return &animation_at(idx); })
+      .value_or(nullptr);
+  }
+
+  armature_data& armature_at(u32 idx) const;
+  span<armature_data> armatures() const;
+  bone_data& bone_at(u32 idx) const;
+  span<bone_data> bones() const;
+  span<bone_data> bones(array_range range) const;
+  span<m4f32> bone_locals() const;
+  span<m4f32> bone_locals(array_range range) const;
+  span<m4f32> bone_inverse_models() const;
+  span<m4f32> bone_inverse_models(array_range range) const;
+  u32 bone_count() const;
+  u32 armature_count() const;
+
+  bool has_armatures() const { return (armature_count() > 0); }
+
+  bool has_bones() const { return (bone_count() > 0); }
+
+  optional<u32> find_armature_idx(std::string_view armature_name) const;
+
+  armature_data* find_armature(std::string_view armature_name) const {
+    return find_armature_idx(armature_name)
+      .transform([this](u32 idx) -> armature_data* { return &armature_at(idx); })
+      .value_or(nullptr);
+  }
+
+  optional<u32> find_bone_idx(std::string_view bone_name) const;
+
+  bone_data* find_bone(std::string_view bone_name) const {
+    return find_bone_idx(bone_name)
+      .transform([this](u32 idx) -> bone_data* { return &bone_at(idx); })
+      .value_or(nullptr);
+  }
+
+  material_data& material_at(u32 idx) const;
+  span<material_data> materials() const;
+  span<texture_data> material_textures(u32 idx) const;
+  texture_data& texture_at(u32 idx) const;
+  span<texture_data> textures() const;
+
+  u32 texture_count() const;
+  u32 material_count() const;
+
+  bool has_materials() const { return (material_count() > 0); }
+
+  bool has_textures() const { return (texture_count() > 0); }
+
+  optional<u32> find_material_idx(std::string_view material_name) const;
+
+  material_data* find_material(std::string_view material_name) const {
+    return find_material_idx(material_name)
+      .transform([this](u32 idx) -> material_data* { return &material_at(idx); })
+      .value_or(nullptr);
+  }
+
+  optional<u32> find_texture_idx(std::string_view texture_name) const;
+
+  texture_data* find_texture(std::string_view texture_name) const {
+    return find_texture_idx(texture_name)
+      .transform([this](u32 idx) -> texture_data* { return &texture_at(idx); })
+      .value_or(nullptr);
+  }
+
+private:
+  model_internal* _data;
 };
 
 class model3d_loader {
@@ -175,12 +274,18 @@ private:
 
 public:
   enum load_flags {
-    FLAGS_NONE = 0x0000,
+    FLAGS_NONE = 0x00000000,
+    FLAG_TRIANGULATE = 0x00000001,
+    FLAG_EMBED_TEXTURES = 0x00000002,
+    FLAG_CALC_TANGENTS = 0x00000004,
+    FLAG_GEN_UVS = 0x00000008,
   };
+
+  static constexpr bits32 FLAGS_DEFAULT = FLAG_TRIANGULATE | FLAG_CALC_TANGENTS | FLAG_GEN_UVS;
 
 public:
   model3d_loader(std::string_view model_path, std::string_view model_name,
-                 bits32 load_flags = FLAGS_NONE);
+                 bits32 load_flags = FLAGS_DEFAULT);
 
 public:
   // Should be only called ONCE, preferably in a threadpool

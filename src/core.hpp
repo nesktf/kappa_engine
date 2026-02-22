@@ -84,10 +84,10 @@ using buffer_path = buffer_str<256>;
 template<typename T, size_t MaxSize>
 using bs_expect = expected<T, buffer_str<MaxSize>>;
 
-struct array_span {
+struct array_range {
   static constexpr u32 index_tomb = static_cast<u32>(-1);
 
-  static constexpr array_span null_span() noexcept { return {index_tomb, index_tomb}; }
+  static constexpr array_range null_range() noexcept { return {index_tomb, index_tomb}; }
 
   u32 start;
   u32 count;
@@ -101,6 +101,7 @@ using shogle::v4f32;
 using v4i32 = shogle::numvec<4, i32>;
 using shogle::extent2d;
 using shogle::extent3d;
+using shogle::span;
 
 using bits32 = u32;
 using bits64 = u64;

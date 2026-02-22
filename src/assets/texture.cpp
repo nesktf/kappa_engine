@@ -67,19 +67,16 @@ bs_expect<texture_data, 256> texture_loader::load() {
     return {unexpect, std::move(errstr)};
   }
 
-  texture_data out;
-  out.data = image->get().data;
-  out.extent.width = image->get().extent.width;
-  out.extent.height = image->get().extent.height;
-  out.format = parse_chima_format(image->get().depth, image->get().channels);
-  out.type = _impl->type ? *_impl->type : parse_type_from_name(_impl->texture_name.as_view());
   try {
     auto* ptr = new texture_data::texture_internal(*std::move(chima), *image);
-    std::memcpy(ptr->name_data, _impl->texture_name.data, sizeof(ptr->name_data));
-    out.name = {ptr->name_data, _impl->texture_name.len};
-    std::memcpy(ptr->path_data, _impl->texture_path.data, sizeof(ptr->path_data));
-    out.path = {ptr->path_data, _impl->texture_path.len};
-    out._impl = ptr;
+    std::memcpy(ptr->name.data, _impl->texture_name.data, sizeof(ptr->name.data));
+    ptr->name.len = _impl->texture_name.len;
+    std::memcpy(ptr->path.data, _impl->texture_path.data, sizeof(ptr->path.data));
+    ptr->path.len = _impl->texture_path.len;
+    ptr->format = parse_chima_format(image->get().depth, image->get().channels);
+    ptr->type = _impl->type ? *_impl->type : parse_type_from_name(_impl->texture_name.as_view());
+
+    return {in_place, *ptr};
   } catch (const std::bad_alloc&) {
     chima::image::destroy(*chima, *image);
     auto errstr = buffer_str_fmt<256>("Failed to allocate texture internals for \"{}\"",
@@ -87,17 +84,46 @@ bs_expect<texture_data, 256> texture_loader::load() {
     TEX_LOG(error, "{}", errstr.as_view());
     return {unexpect, std::move(errstr)};
   }
-  return {in_place, std::move(out)};
 }
 
-texture_data::texture_data() noexcept : _impl(nullptr) {}
+texture_data::texture_data(texture_internal& data) noexcept : _data(&data) {}
 
 void texture_data::destroy() noexcept {
-  if (!_impl) {
+  if (!_data) {
     return;
   }
-  delete _impl;
-  _impl = nullptr;
+  delete _data;
+  _data = nullptr;
+}
+
+buffer_name& texture_data::name() const {
+  assert(_data, "texture_data use after free");
+  return _data->name;
+}
+
+buffer_path& texture_data::path() const {
+  assert(_data, "texture_data use after free");
+  return _data->path;
+}
+
+void* texture_data::data() const {
+  assert(_data, "texture_data use after free");
+  return _data->image.data();
+}
+
+extent2d texture_data::extent() const {
+  assert(_data, "texture_data use after free");
+  return {_data->image.get().extent.width, _data->image.get().extent.height};
+}
+
+image_format texture_data::format() const {
+  assert(_data, "texture_data use after free");
+  return _data->format;
+}
+
+texture_type texture_data::type() const {
+  assert(_data, "texture_data use after free");
+  return _data->type;
 }
 
 } // namespace kappa::assets
