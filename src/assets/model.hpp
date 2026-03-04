@@ -76,30 +76,34 @@ public:
 
   struct blend_shape_data {
     buffer_name name;
-    array_range positions;
-    array_range normals;
-    array_range tangents;
-    array_range uvs[MAX_MESH_UVS];
-    array_range colors[MAX_MESH_COLORS];
+    u32 nverts;
+    u32 positions_start;
+    u32 normals_start;
+    u32 tangents_start;
+    u32 uvs_start[MAX_MESH_UVS];
+    u32 colors_start[MAX_MESH_COLORS];
     f32 weight;
   };
 
   struct mesh_data {
     buffer_name name;
     buffer_name uv_name[MAX_MESH_UVS];
-    array_range positions;
-    array_range normals;
-    array_range tangents;
-    array_range uvs[MAX_MESH_UVS];
-    array_range colors[MAX_MESH_COLORS];
-    array_range bones;
-    array_range indices;
+    u32 nverts;
+    u32 positions_start;
+    u32 normals_start;
+    u32 tangents_start;
+    u32 bones_start;
+    u32 uvs_start[MAX_MESH_UVS];
+    u32 colors_start[MAX_MESH_COLORS];
+    u32 index_start;
+    u32 index_count;
     u32 face_count;
-    array_range blend_shapes;
-    mesh_blend_method blend_method;
+    u32 blend_start;
+    u32 blend_count;
     v3f32 bbox_min, bbox_max;
     u32 material_index;
     mesh_primitive primitive;
+    mesh_blend_method blend_method;
   };
 
   struct texture_data {
@@ -109,6 +113,7 @@ public:
     extent2d extent;
     image_format format;
     texture_map_mode mapping_mode;
+    texture_type type;
   };
 
   struct material_data {
@@ -274,15 +279,16 @@ private:
   struct loader_internal;
 
 public:
-  enum load_flags {
-    FLAGS_NONE = 0x00000000,
-    FLAG_TRIANGULATE = 0x00000001,
-    FLAG_EMBED_TEXTURES = 0x00000002,
-    FLAG_CALC_TANGENTS = 0x00000004,
-    FLAG_GEN_UVS = 0x00000008,
+  enum load_flags : bits32 {
+    FLAGS_NONE = 0x0000,
+    FLAG_TRIANGULATE = 0x0001,
+    FLAG_EMBED_TEXTURES = 0x0002,
+    FLAG_GEN_TANGENTS = 0x0004,
+    FLAG_GEN_UVS = 0x0008,
+    FLAG_GEN_NORMALS = 0x0010,
   };
 
-  static constexpr bits32 FLAGS_DEFAULT = FLAG_TRIANGULATE | FLAG_CALC_TANGENTS | FLAG_GEN_UVS;
+  static constexpr bits32 FLAGS_DEFAULT = FLAG_TRIANGULATE | FLAG_GEN_TANGENTS | FLAG_GEN_UVS;
 
 public:
   model3d_loader(std::string_view model_path, std::string_view model_name,

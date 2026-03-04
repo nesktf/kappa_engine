@@ -41,12 +41,15 @@ struct model_allocator {
 
   template<typename T>
   void dealloc(T* ptr, size_t count) {
+    if (!ptr) {
+      return;
+    }
     std::allocator<T>().deallocate(ptr, count);
   }
 };
 
 struct model3d_data::model_internal {
-  model_internal();
+  model_internal(const buffer_name& name_, const buffer_path& path_);
   ~model_internal();
 
   buffer_name name;
@@ -61,35 +64,48 @@ struct model3d_data::model_internal {
   std::vector<texture_data> texture_cache;
 
   mesh_data* meshes;
+  size_t mesh_count;
   v3f32* mesh_positions;
+  size_t mesh_position_count;
   v3f32* mesh_normals;
+  size_t mesh_normal_count;
   v2f32* mesh_uvs[MAX_MESH_UVS];
+  size_t mesh_uv_count[MAX_MESH_UVS];
   v4f32* mesh_colors[MAX_MESH_COLORS];
+  size_t mesh_color_count[MAX_MESH_COLORS];
   v3f32* mesh_tangents;
   v3f32* mesh_bitangents;
-  v4i32* mesh_bones;
+  size_t mesh_tangent_count;
+  v4i32* mesh_bone_indices;
   v4f32* mesh_bone_weights;
+  size_t mesh_bone_count;
   u32* mesh_indices;
-  size_t vertex_count;
-  size_t index_count;
-  size_t mesh_count;
+  size_t mesh_index_count;
 
   blend_shape_data* blend_shapes;
+  size_t blend_shape_count;
   v3f32* blend_positions;
+  size_t blend_position_count;
   v3f32* blend_normals;
+  size_t blend_normal_count;
   v2f32* blend_uvs[MAX_MESH_UVS];
+  size_t blend_uv_count[MAX_MESH_UVS];
   v4f32* blend_colors[MAX_MESH_COLORS];
+  size_t blend_color_count[MAX_MESH_COLORS];
   v3f32* blend_tangents;
   v3f32* blend_bitangents;
-  size_t blend_shape_count;
+  size_t blend_tangent_count;
 
   anim_data* animations;
-  bone_keyframes* anim_bone_keys;
-  keyframe_data<v3f32>* anim_positions;
-  keyframe_data<v3f32>* anim_scales;
-  keyframe_data<qf32>* anim_rotations;
   size_t animation_count;
-  size_t anim_bone_key_count;
+  bone_keyframes* anim_bone_keyframes;
+  size_t anim_bone_keyframe_count;
+  keyframe_data<v3f32>* anim_bone_positions;
+  size_t anim_bone_position_count;
+  keyframe_data<v3f32>* anim_bone_scales;
+  size_t anim_bone_scale_count;
+  keyframe_data<qf32>* anim_bone_rotations;
+  size_t anim_bone_rotation_count;
 
   bone_data* bones;
   m4f32* bone_locals;
@@ -97,11 +113,11 @@ struct model3d_data::model_internal {
   size_t bone_count;
 
   texture_data* textures;
-  u32* material_textures;
-  material_data* materials;
-  size_t material_textures_count;
   size_t texture_count;
+  material_data* materials;
   size_t material_count;
+  u32* material_textures;
+  size_t material_textures_count;
 };
 
 struct model3d_loader::loader_internal {
