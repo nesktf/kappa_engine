@@ -18,6 +18,236 @@ model3d_loader::model3d_loader(std::string_view model_path, std::string_view mod
 
 namespace {
 
+m4f32 asscast(const aiMatrix4x4& mat) {
+  // Assimp is row major. The a,b,c,d is the row and the 1,2,3,4 is the column.
+  return shogle::math::transpose(std::bit_cast<m4f32>(mat)); // Just transpose it lol
+}
+
+using bone_inv_map = std::unordered_map<std::string, m4f32>;
+
+model3d_data::model_internal* initialize_data(const buffer_name& name, const buffer_path& path,
+                                              const aiScene& scene, bone_inv_map& bone_invs,
+                                              buffer_str<256>& err) {
+  if (!scene.mNumMeshes) {
+    err.format_from("No meshes in scene");
+    return nullptr;
+  }
+
+  // TODO: Handle bad_alloc on allocated arrays
+  auto ptr = std::make_unique<model3d_data::model_internal>();
+  auto& data = *ptr;
+  auto& al = ptr->alloc;
+  // Copy name & path
+  std::memset(data.name.data, 0, sizeof(data.name.data));
+  std::memcpy(data.name.data, name.data, name.len);
+  data.name.len = name.len;
+  std::memset(data.path.data, 0, sizeof(data.path.data));
+  std::memcpy(data.path.data, path.data, path.len);
+  data.path.len = path.len;
+
+  // First mesh pass. Count blend shapes, bones & meshes.
+  data.mesh_count = 0;
+  data.blend_shape_count = 0;
+  for (size_t i = 0; i < scene.mNumMeshes; ++i) {
+    const aiMesh* mesh = scene.mMeshes[i];
+    data.blend_shape_count += mesh->mNumAnimMeshes;
+    ++data.mesh_count;
+
+    // Store the inverse model matrix for each bone (if any)
+    for (size_t j = 0; j < mesh->mNumBones; ++j) {
+      const aiBone* bone = mesh->mBones[j];
+      if (bone_invs.find(bone->mName.C_Str()) != bone_invs.end()) {
+        continue;
+      }
+      auto [_, empl] = bone_invs.try_emplace(bone->mName.C_Str(), asscast(bone->mOffsetMatrix));
+      if (!empl) {
+        err.format_from("Duplicate bone \"{}\" in scene", bone->mName.C_Str());
+        return nullptr;
+      }
+    }
+  }
+  data.meshes = al.alloc<model3d_data::mesh_data>(data.mesh_count);
+  std::memset(data.meshes, 0x00, sizeof(data.meshes[0]) * data.mesh_count);
+  if (data.blend_shape_count) {
+    data.blend_shapes = al.alloc<model3d_data::blend_shape_data>(data.blend_shape_count);
+    std::memset(data.blend_shapes, 0x00, sizeof(data.blend_shapes[0]) * data.blend_shape_count);
+  } else {
+    data.blend_shapes = nullptr;
+  }
+
+  static_assert(model3d_data::MAX_MESH_UVS <= AI_MAX_NUMBER_OF_TEXTURECOORDS);
+  static_assert(model3d_data::MAX_MESH_COLORS <= AI_MAX_NUMBER_OF_COLOR_SETS);
+  // Second mesh pass. Count meshes and blend shapes for each mesh & copy names.
+  {
+    size_t anim_pos = 0;
+    size_t index_count = 0;
+    size_t vertex_count = 0, vertex_anim_count = 0;
+    size_t normal_count = 0, normal_anim_count = 0;
+    size_t tangent_count = 0, tangent_anim_count = 0;
+    size_t weight_count = 0;
+    size_t uv_counts[model3d_data::MAX_MESH_UVS] = {0};
+    size_t uv_anim_counts[model3d_data::MAX_MESH_UVS] = {0};
+    size_t color_counts[model3d_data::MAX_MESH_COLORS] = {0};
+    size_t color_anim_counts[model3d_data::MAX_MESH_COLORS] = {0};
+
+    for (size_t i = 0; i < scene.mNumMeshes; ++i) {
+      const aiMesh* mesh = scene.mMeshes[i];
+      const size_t verts = mesh->mNumVertices;
+      if (!mesh->HasPositions()) {
+        err.format_from("Invalid position data at mesh \"{}\"", mesh->mName.C_Str());
+        return nullptr;
+      }
+      const aiString& mesh_name = mesh->mName;
+      if (mesh_name.length) {
+        data.meshes[i].name.copy_from(mesh_name.data, mesh_name.length);
+      } else {
+        data.meshes[i].name.format_from("__mesh{}", i);
+      }
+      auto [_, empl] = data.mesh_registry.try_emplace(data.meshes[i].name.as_view(), i);
+      assert(empl, "Mesh name duplicate");
+
+      vertex_count += verts;
+      if (mesh->HasNormals()) {
+        normal_count += verts;
+      }
+      if (mesh->HasTangentsAndBitangents()) {
+        tangent_count += verts;
+      }
+      for (size_t uv = 0; uv < model3d_data::MAX_MESH_UVS; ++uv) {
+        if (mesh->HasTextureCoords(uv)) {
+          uv_counts[uv] += verts;
+        }
+      }
+      for (size_t col = 0; col < model3d_data::MAX_MESH_COLORS; ++col) {
+        if (mesh->HasVertexColors(col)) {
+          color_counts[col] += verts;
+        }
+      }
+      if (mesh->HasBones()) {
+        weight_count += verts;
+      }
+      for (size_t j = 0; j < mesh->mNumFaces; ++j) {
+        index_count += mesh->mFaces[j].mNumIndices;
+      }
+
+      if (mesh->mNumAnimMeshes) {
+        for (size_t j = 0; j < mesh->mNumAnimMeshes; ++j) {
+          const aiAnimMesh* ai_anim = mesh->mAnimMeshes[j];
+          const size_t animverts = ai_anim->mNumVertices;
+          auto& anim = data.blend_shapes[anim_pos++];
+          const aiString& anim_name = ai_anim->mName;
+          if (anim_name.length) {
+            anim.name.copy_from(anim_name.data, anim_name.length);
+          } else {
+            anim.name.format_from("__blend_shape{}", anim_pos - 1);
+          }
+          auto [_, emplb] =
+            data.blend_shape_registry.try_emplace(anim.name.as_view(), anim_pos - 1);
+          assert(emplb, "Duplicate name in blend shape registry");
+
+          if (!ai_anim->HasPositions()) {
+            vertex_anim_count += animverts;
+          }
+          if (ai_anim->HasNormals()) {
+            normal_anim_count += animverts;
+          }
+          if (ai_anim->HasTangentsAndBitangents()) {
+            tangent_anim_count += animverts;
+          }
+          for (size_t uv = 0; uv < model3d_data::MAX_MESH_UVS; ++uv) {
+            if (ai_anim->HasTextureCoords(uv)) {
+              uv_anim_counts[uv] += animverts;
+            }
+          }
+          for (size_t col = 0; col < model3d_data::MAX_MESH_COLORS; ++col) {
+            if (ai_anim->HasVertexColors(col)) {
+              color_anim_counts[col] += animverts;
+            }
+          }
+        }
+      }
+    }
+
+    assert(vertex_count > 0, "No vertices");
+    data.mesh_positions = al.alloc<v3f32>(vertex_count);
+    data.blend_positions = vertex_anim_count ? al.alloc<v3f32>(vertex_anim_count) : nullptr;
+
+    data.mesh_normals = normal_count ? al.alloc<v3f32>(normal_count) : nullptr;
+    data.blend_normals = normal_anim_count ? al.alloc<v3f32>(normal_anim_count) : nullptr;
+
+    for (size_t uv = 0; uv < model3d_data::MAX_MESH_UVS; ++uv) {
+      data.mesh_uvs[uv] = uv_counts[uv] ? al.alloc<v2f32>(uv_counts[uv]) : nullptr;
+      data.blend_uvs[uv] = uv_anim_counts[uv] ? al.alloc<v2f32>(uv_anim_counts[uv]) : nullptr;
+    }
+    for (size_t col = 0; col < model3d_data::MAX_MESH_COLORS; ++col) {
+      data.mesh_colors[col] = color_counts[col] ? al.alloc<v4f32>(color_counts[col]) : nullptr;
+      data.blend_colors[col] =
+        color_anim_counts[col] ? al.alloc<v4f32>(color_anim_counts[col]) : nullptr;
+    }
+    if (tangent_count) {
+      data.mesh_tangents = al.alloc<v3f32>(tangent_count);
+      data.mesh_bitangents = al.alloc<v3f32>(tangent_count);
+    } else {
+      data.mesh_tangents = nullptr;
+      data.mesh_bitangents = nullptr;
+    }
+    if (tangent_anim_count) {
+      data.blend_tangents = al.alloc<v3f32>(tangent_anim_count);
+      data.blend_bitangents = al.alloc<v3f32>(tangent_anim_count);
+    } else {
+      data.blend_tangents = nullptr;
+      data.blend_bitangents = nullptr;
+    }
+    if (!bone_invs.empty() && weight_count) {
+      // We need to parse the bone hierarchy before we parse the meshes!!11!1
+      data.mesh_bones = al.alloc<v4i32>(weight_count);
+      data.mesh_bone_weights = al.alloc<v4f32>(weight_count);
+      // Set all parents to -1
+      std::memset(data.mesh_bones, 0xFF, sizeof(data.mesh_bones[0]) * weight_count);
+      // Set all weights to 0
+      std::memset(data.mesh_bone_weights, 0x00, sizeof(data.mesh_bone_weights[0] * weight_count));
+    } else {
+      data.mesh_bones = nullptr;
+      data.mesh_bone_weights = nullptr;
+    }
+    if (index_count) {
+      data.mesh_indices = al.alloc<u32>(index_count);
+    } else {
+      data.mesh_indices = nullptr;
+    }
+    data.vertex_count = vertex_count;
+    data.index_count = index_count;
+  }
+
+  // Preallocate bones
+  data.bone_count = bone_invs.size();
+  if (data.bone_count) {
+    data.bones = al.alloc<model3d_data::bone_data>(data.bone_count);
+    data.bone_inv_models = al.alloc<m4f32>(data.bone_count);
+    data.bone_locals = al.alloc<m4f32>(data.bone_count);
+    data.bone_registry.reserve(data.bone_count); // We fill the registry at parse_bones()
+  } else {
+    data.bones = nullptr;
+    data.bone_inv_models = nullptr;
+    data.bone_locals = nullptr;
+  }
+
+  // Preallocate animations
+  data.animation_count = scene.mNumAnimations;
+  if (data.animation_count) {
+    size_t keyframe_count = 0;
+    size_t pos_count = 0, scale_count = 0, rot_count = 0;
+    for (size_t i = 0; i < scene.mNumAnimations; ++i) {
+    }
+    data.animations = al.alloc<model3d_data::anim_data>(data.animation_count);
+    data.anim_registry.reserve(data.animation_count);
+  } else {
+    data.animations = nullptr;
+  }
+
+  return ptr.release();
+}
+
 bool is_identity(const m4f32& mat) {
   static constexpr m4f32 id(1.f);
   for (size_t i = 0; i < 4; ++i) {
@@ -32,11 +262,6 @@ bool is_identity(const m4f32& mat) {
   return true;
 }
 
-m4f32 asscast(const aiMatrix4x4& mat) {
-  // Assimp is row major. The a,b,c,d is the row and the 1,2,3,4 is the column.
-  return shogle::math::transpose(std::bit_cast<m4f32>(mat)); // Just transpose it lol
-}
-
 v3f32 asscast(const aiVector3D& vec) {
   return {vec.x, vec.y, vec.z};
 }
@@ -48,8 +273,6 @@ v4f32 asscast(const aiColor4D& col) {
 qf32 asscast(const aiQuaternion& q) {
   return {q.w, q.x, q.y, q.z};
 }
-
-using bone_inv_map = std::unordered_map<std::string, m4f32>;
 
 void parse_bone_nodes(const bone_inv_map& bone_invs, i32 parent, i32& bone_idx, const aiNode* node,
                       model3d_data::model_internal& data) {
@@ -86,328 +309,264 @@ m4f32 node_model(const aiNode* node) {
 std::pair<bool, std::string_view> parse_rigs(model_allocator& al,
                                              model3d_data::model_internal& data,
                                              const aiScene& scene, std::string_view path) {
-  // Store the inverse model matrix for each bone
-  bone_inv_map bone_invs;
-  for (size_t i = 0; i < scene.mNumMeshes; ++i) {
-    const aiMesh* mesh = scene.mMeshes[i];
-    for (size_t j = 0; j < mesh->mNumBones; ++j) {
-      const aiBone* bone = mesh->mBones[j];
-      if (bone_invs.find(bone->mName.C_Str()) != bone_invs.end()) {
-        continue;
-      }
-      auto [_, empl] = bone_invs.try_emplace(bone->mName.C_Str(), asscast(bone->mOffsetMatrix));
-      if (!empl) {
-        return std::make_pair(false, "Duplicate bones in rig hierarchy");
-      }
-    }
-  }
-
-  // Map root bones to a node in the scene graph
-  static constexpr size_t MAX_POSSIBLE_ROOTS = 8;
-  const auto* scene_root = scene.mRootNode;
-  const aiNode* possible_roots[MAX_POSSIBLE_ROOTS];
-  size_t root_count = 0;
-  for (const auto& [name, _] : bone_invs) {
-    const aiNode* bone_node = scene_root->FindNode(name.c_str());
-    // We assume the bone and the node have the same name
-    if (bone_invs.find(bone_node->mParent->mName.C_Str()) != bone_invs.end()) {
-      continue;
-    }
-    // Assume all bone nodes with a parent not present in the map is a root node
-    if (root_count == MAX_POSSIBLE_ROOTS) {
-      MODEL_LOG(warning, "Bone root count out of range at \"{}\"", path);
-      break;
-    }
-    possible_roots[root_count++] = bone_node;
-  }
-
-  if (!root_count) {
-    return std::make_pair(false, "No root nodes found");
-  }
-  MODEL_LOG(debug, "Found {} possible bone root(s) at \"{}\"", root_count, path);
 
   // Create a bone tree from each root node
-  auto& reg = data.bone_registry;
-  data.bone_count = bone_invs.size();
-  data.bones = al.alloc<model3d_data::bone_data>(bone_invs.size());
-  data.bone_inv_models = al.alloc<m4f32>(bone_invs.size());
-  data.bone_locals = al.alloc<m4f32>(bone_invs.size());
-  reg.reserve(bone_invs.size());
-
-  std::vector<model3d_data::armature_data> armatures;
-  i32 bone_idx = 0;
-  for (size_t i = 0; i < root_count; ++i) {
-    const aiNode* root = possible_roots[i];
-    // Check for name dupes
-    auto bone_it = reg.find(root->mName.C_Str());
-    if (bone_it != reg.end()) {
-      const size_t bone_index = bone_it->second;
-      if (bone_index != array_range::index_tomb) {
-        MODEL_LOG(warning, "Bone root \"{}\" already parsed, possible node dupe at \"{}\"",
-                  root->mName.C_Str(), path);
-        continue;
-      }
-    }
-
-    const char* armature_name = root->mParent->mName.C_Str();
-    const i32 root_idx = bone_idx;
+  {
+    auto& reg = data.bone_registry;
+    i32 bone_idx = 0;
     // Will set -1 as the parent index for the root bone
-    parse_bone_nodes(bone_invs, -1, bone_idx, root, data);
+    parse_bone_nodes(bone_invs, -1, bone_idx, root_bone_node, data);
 
     // Make sure the root local transform is its node model transform
-    if (!is_identity(data.bone_locals[root_idx] * data.bone_inv_models[root_idx])) {
-      MODEL_LOG(warning, "Malformed transform in root \"{}\" at \"{}\", correction applied",
-                root->mName.C_Str(), path);
-      data.bone_locals[root_idx] = node_model(root->mParent) * data.bone_locals[root_idx];
-    }
-
-    auto& armature = armatures.emplace_back();
-    armature.name.copy_from(armature_name);
-    armature.bones.start = static_cast<u32>(root_idx);
-    armature.bones.count = static_cast<u32>(bone_idx - root_idx);
-  }
-  if (armatures.empty()) {
-    data.bone_registry.clear();
-    al.dealloc(data.bones, data.bone_count);
-    al.dealloc(data.bone_inv_models, data.bone_count);
-    al.dealloc(data.bone_locals, data.bone_count);
-    return std::make_pair(false, "No valid armatures found in model");
-  }
-  data.armature_count = armatures.size();
-  data.armatures = al.alloc<model3d_data::armature_data>(data.armature_count);
-  std::memcpy(data.armatures, armatures.data(), sizeof(armatures[0]) * armatures.size());
-
-  // We didn't know the number of armatures before this so we reserve here
-  data.armature_registry.reserve(data.armature_count);
-  for (u32 i = 0; i < data.armature_count; ++i) {
-    auto& arm = data.armatures[i];
-    auto [_, empl] = data.armature_registry.try_emplace(arm.name.as_view(), i++);
-    if (!empl) {
-      MODEL_LOG(warning, "Armature \"{}\" parsed twice at \"{}\", generating new name for dupe",
-                arm.name.as_view(), path);
-      decltype(arm.name) old_name;
-      old_name.copy_from(arm.name.data, arm.name.len);
-      arm.name.format_from("{}_bis", old_name.as_view());
-      data.armature_registry.try_emplace(arm.name.as_view(), i);
+    if (!is_identity(data.bone_locals[0] * data.bone_inv_models[0])) {
+      MODEL_LOG(warning, "Malformed transform in bone root at \"{}\", correction applied", path);
+      data.bone_locals[0] = node_model(root_bone_node->mParent) * data.bone_locals[0];
     }
   }
   return std::make_pair(true, "");
 }
 
-bool allocate_meshes(model_allocator& al, model3d_data::model_internal& data,
-                     const aiScene& scene) {
-  size_t index_count = 0;
-  size_t vertex_count = 0;
-  size_t face_count = 0;
-
-  {
-    size_t pos_count = 0;
-    size_t norm_count = 0;
-    size_t uv0_count = 0;
-    size_t uv1_count = 0;
-    size_t tang_count = 0;
-    size_t col_count = 0;
-    for (size_t i = 0u; i < scene.mNumMeshes; ++i) {
-      const aiMesh* mesh = scene.mMeshes[i];
-      const size_t verts = mesh->mNumVertices;
-      if (!mesh->HasPositions()) {
-        return false;
-      }
-
-      pos_count += verts;
-      if (mesh->HasNormals()) {
-        norm_count += verts;
-      }
-      if (mesh->HasTextureCoords(0)) {
-        uv0_count += verts;
-      }
-      if (mesh->HasTextureCoords(1)) {
-        uv1_count += verts;
-      }
-      if (mesh->HasTangentsAndBitangents()) {
-        tang_count += verts;
-      }
-      if (mesh->HasVertexColors(0)) {
-        col_count += verts;
-      }
-
-      for (size_t j = 0; j < mesh->mNumFaces; ++j) {
-        index_count += mesh->mFaces[j].mNumIndices;
-      }
-      vertex_count += verts;
-    }
-
-    assert(pos_count > 0);
-    data.mesh_positions = al.alloc<v3f32>(pos_count);
-    data.mesh_normals = norm_count ? al.alloc<v3f32>(norm_count) : nullptr;
-    data.mesh_uvs[0] = uv0_count ? al.alloc<v2f32>(uv0_count) : nullptr;
-    data.mesh_uvs[1] = uv1_count ? al.alloc<v2f32>(uv1_count) : nullptr;
-    data.mesh_tangents = tang_count ? al.alloc<v3f32>(tang_count) : nullptr;
-    data.mesh_bitangents = tang_count ? al.alloc<v3f32>(tang_count) : nullptr;
-    data.mesh_colors[0] = col_count ? al.alloc<v4f32>(col_count) : nullptr;
-
-    // We need to parse bones before we parse the meshes!!11!1
-    if (data.armature_count > 0) {
-      assert(data.bone_count > 0);
-      data.mesh_bones = al.alloc<v4i32>(data.bone_count);
-      data.mesh_bone_weights = al.alloc<v4f32>(data.bone_count);
-      // Set all parents to -1
-      std::memset(data.mesh_bones, 0xFF, sizeof(data.mesh_bones[0]) * data.bone_count);
-      // Set all weights to 0
-      std::memset(data.mesh_bone_weights, 0x00,
-                  sizeof(data.mesh_bone_weights[0] * data.bone_count));
-    } else {
-      data.mesh_bones = nullptr;
-      data.mesh_bone_weights = nullptr;
-    }
-  }
-
-  data.mesh_count = scene.mNumMeshes;
-  std::memset(data.meshes, 0x00, sizeof(data.meshes[0]) * data.mesh_count);
-  data.mesh_registry.reserve(data.mesh_count);
-  data.vertex_count = vertex_count;
-  data.face_count = face_count;
-  data.index_count = index_count;
-  return true;
-}
-
 bool parse_meshes(model_allocator& al, model3d_data::model_internal& data, const aiScene& scene) {
-  if (!allocate_meshes(al, data, scene)) {
-    return false;
-  }
 
-  u32 vert_pos = 0;
-  u32 index_pos = 0;
   const auto& bone_reg = data.bone_registry;
 
-  const auto try_place_weight = [&](u32 mesh_pos, size_t idx, const aiVertexWeight& weight) {
-    const u32 vertex_pos = mesh_pos + weight.mVertexId;
-    auto& vertex_bone_indices = data.mesh_bones[vertex_pos];
-    auto& vertex_bone_weights = data.mesh_bone_weights[vertex_pos];
+  size_t vertex_pos = 0, vertex_anim_pos = 0;
+  size_t normal_pos = 0, normal_anim_pos = 0;
+  size_t tangent_pos = 0, tangent_anim_pos = 0;
+  size_t bone_pos = 0;
+  size_t uv_pos[model3d_data::MAX_MESH_UVS] = {0};
+  size_t uv_anim_pos[model3d_data::MAX_MESH_UVS] = {0};
+  size_t color_pos[model3d_data::MAX_MESH_COLORS] = {0};
+  size_t color_anim_pos[model3d_data::MAX_MESH_COLORS] = {0};
+  size_t index_pos = 0;
+  size_t shape_pos = 0;
 
-    assert(vertex_pos < data.vertex_count);
-    for (u32 i = 0; i < 4; ++i) {
+  const auto try_place_weight = [&](i32 bone_idx, const aiVertexWeight& weight) {
+    const size_t offset = bone_pos + weight.mVertexId;
+    assert(offset < data.vertex_count);
+
+    for (size_t i = 0; i < 4; ++i) {
       if (weight.mWeight == 0.f) {
         return;
       }
-      if (vertex_bone_indices[i] == -1) {
-        vertex_bone_indices[i] = idx;
-        vertex_bone_weights[i] = weight.mWeight;
+      if (data.mesh_bones[offset][i] == -1) {
+        data.mesh_bones[offset][i] = bone_idx;
+        data.mesh_bone_weights[offset][i] = weight.mWeight;
         return;
       }
     }
-    MODEL_LOG(warning, "Bone weigths out of range in vertex {}", vertex_pos);
+    MODEL_LOG(warning, "Bone weights out of range in vertex index {}", vertex_pos);
   };
 
-  const auto do_attrib = [&](bool cond, u32 nverts, auto&& op) -> array_range {
-    auto out = array_range::null_range();
-    if (cond) {
-      out.start = vert_pos;
-      out.count = nverts;
-      for (u32 i = 0; i < nverts; ++i) {
-        op(vert_pos + i, i);
-      }
-    }
-    return out;
-  };
-
-  for (u32 mesh_idx = 0; mesh_idx < scene.mNumMeshes; ++mesh_idx) {
-    const aiMesh* mesh = scene.mMeshes[mesh_idx];
-    const u32 nverts = mesh->mNumVertices;
+  for (size_t mesh_idx = 0; mesh_idx < scene.mNumMeshes; ++mesh_idx) {
+    const aiMesh* ai_mesh = scene.mMeshes[mesh_idx];
+    const u32 nverts = ai_mesh->mNumVertices;
+    auto& mesh = data.meshes[mesh_idx];
 
     // Positions
-    const auto pos = do_attrib(mesh->HasPositions(), nverts, [&](u32 pos, u32 vert) {
-      data.mesh_positions[pos] = asscast(mesh->mVertices[vert]);
-    });
+    {
+      for (size_t vert = 0; vert < nverts; ++vert) {
+        data.mesh_positions[vertex_pos] = asscast(ai_mesh->mVertices[vert]);
+      }
+      mesh.positions.start = static_cast<u32>(vertex_pos);
+      mesh.positions.count = nverts;
+      vertex_pos += nverts;
+    }
     // Normals
-    const auto norm = do_attrib(mesh->HasNormals(), nverts, [&](u32 pos, u32 vert) {
-      data.mesh_normals[pos] = asscast(mesh->mNormals[vert]);
-    });
-    // UVs
-    const auto uv0 = do_attrib(mesh->HasTextureCoords(0), nverts, [&](u32 pos, u32 vert) {
-      const auto& uv_vec = mesh->mTextureCoords[0][vert];
-      data.mesh_uvs[0][pos].x = uv_vec.x;
-      data.mesh_uvs[0][pos].y = uv_vec.y;
-    });
-    const auto uv1 = do_attrib(mesh->HasTextureCoords(1), nverts, [&](u32 pos, u32 vert) {
-      const auto& uv_vec = mesh->mTextureCoords[1][vert];
-      data.mesh_uvs[1][pos].x = uv_vec.x;
-      data.mesh_uvs[1][pos].y = uv_vec.y;
-    });
+    if (ai_mesh->HasNormals()) {
+      for (size_t vert = 0; vert < nverts; ++vert) {
+        data.mesh_normals[normal_pos] = asscast(ai_mesh->mNormals[vert]);
+      }
+      mesh.normals.start = static_cast<u32>(normal_pos);
+      mesh.normals.count = nverts;
+      normal_pos += nverts;
+    } else {
+      mesh.normals = array_range::null_range();
+    }
     // Tangents & bitangents
-    const auto tang = do_attrib(mesh->HasTangentsAndBitangents(), nverts, [&](u32 pos, u32 vert) {
-      data.mesh_tangents[pos] = asscast(mesh->mTangents[vert]);
-      data.mesh_bitangents[pos] = asscast(mesh->mBitangents[vert]);
-    });
-    // Colors
-    const auto col = do_attrib(mesh->HasVertexColors(0), nverts, [&](u32 pos, u32 vert) {
-      data.mesh_colors[0][pos] = asscast(mesh->mColors[0][vert]);
-    });
-
-    // Bone indices & weigths
-    auto bone = array_range::null_range();
-    if (!bone_reg.empty() && mesh->HasBones()) {
-      bone.start = vert_pos;
-      bone.count = nverts;
-
-      for (u32 i = 0; i < mesh->mNumBones; ++i) {
-        const aiBone* ai_bone = mesh->mBones[i];
-        auto it = bone_reg.find(ai_bone->mName.C_Str());
-        assert(it != bone_reg.end()); // At this point everything *should* be valid
-        const u32 bone_idx = it->second;
-        for (u32 j = 0; j < ai_bone->mNumWeights; ++j) {
-          try_place_weight(vert_pos, bone_idx, ai_bone->mWeights[j]);
+    if (ai_mesh->HasTangentsAndBitangents()) {
+      for (size_t vert = 0; vert < nverts; ++vert) {
+        data.mesh_tangents[tangent_pos] = asscast(ai_mesh->mTangents[vert]);
+        data.mesh_bitangents[tangent_pos] = asscast(ai_mesh->mBitangents[vert]);
+      }
+      mesh.tangents.start = static_cast<u32>(tangent_pos);
+      mesh.tangents.count = nverts;
+      tangent_pos += nverts;
+    } else {
+      mesh.tangents = array_range::null_range();
+    }
+    // UVs
+    for (size_t uv = 0; uv < model3d_data::MAX_MESH_UVS; ++uv) {
+      if (ai_mesh->HasTextureCoords(uv)) {
+        for (size_t vert = 0; vert < nverts; ++vert) {
+          const auto& uv_vec = ai_mesh->mTextureCoords[uv][vert];
+          data.mesh_uvs[uv][uv_pos[uv]].x = uv_vec.x;
+          data.mesh_uvs[uv][uv_pos[uv]].y = uv_vec.y;
         }
+        mesh.uvs[uv].start = static_cast<u32>(uv_pos[uv]);
+        mesh.uvs[uv].count = nverts;
+        uv_pos[uv] += nverts;
+      } else {
+        mesh.uvs[uv] = array_range::null_range();
+      }
+    };
+    // Colors
+    for (size_t col = 0; col < model3d_data::MAX_MESH_COLORS; ++col) {
+      if (ai_mesh->HasVertexColors(col)) {
+        for (size_t vert = 0; vert < nverts; ++vert) {
+          data.mesh_colors[col][color_pos[col]] = asscast(ai_mesh->mColors[col][vert]);
+        }
+        mesh.colors[col].start = static_cast<u32>(color_pos[col]);
+        mesh.colors[col].count = nverts;
+        color_pos[col] += nverts;
+      } else {
+        mesh.colors[col] = array_range::null_range();
       }
     }
-
+    // Bone indices & weigths
+    if (!bone_reg.empty() && ai_mesh->HasBones()) {
+      for (size_t bone = 0; bone < ai_mesh->mNumBones; ++bone) {
+        const aiBone* ai_bone = ai_mesh->mBones[bone];
+        auto it = bone_reg.find(ai_bone->mName.C_Str());
+        assert(it != bone_reg.end()); // At this point everything *should* be valid
+        const i32 bone_idx = static_cast<i32>(it->second);
+        for (size_t weight = 0; weight < ai_bone->mNumWeights; ++weight) {
+          try_place_weight(bone_idx, ai_bone->mWeights[weight]);
+        }
+      }
+      mesh.bones.start = static_cast<u32>(bone_pos);
+      mesh.bones.count = nverts;
+      bone_pos += nverts;
+    } else {
+      mesh.bones = array_range::null_range();
+    }
     // Face indices
-    auto indices = array_range::null_range();
-    const u32 nfaces = mesh->mNumFaces;
-    if (nfaces > 0) {
-      indices.start = index_pos;
+    mesh.face_count = ai_mesh->mNumFaces;
+    if (mesh.face_count > 0) {
       u32 idx_count = 0u;
-      for (u32 face_idx = 0; face_idx < mesh->mNumFaces; ++face_idx) {
-        const aiFace& face = mesh->mFaces[face_idx];
-        for (u32 i = 0; i < face.mNumIndices; ++i) {
+      for (size_t face_idx = 0; face_idx < ai_mesh->mNumFaces; ++face_idx) {
+        const aiFace& face = ai_mesh->mFaces[face_idx];
+        for (size_t i = 0; i < face.mNumIndices; ++i) {
           data.mesh_indices[index_pos + idx_count + i] = face.mIndices[i];
         }
         idx_count += face.mNumIndices;
       }
-      indices.count = idx_count;
+      mesh.indices.start = index_pos;
+      mesh.indices.count = idx_count;
       index_pos += idx_count;
+    } else {
+      mesh.indices = array_range::null_range();
     }
-
-    // Set indices and sizes
-    data.meshes[mesh_idx].vertex_range.start = pos.start;
-    data.meshes[mesh_idx].vertex_range.count = nverts;
-    data.meshes[mesh_idx].indices = indices;
-    data.meshes[mesh_idx].face_count = nfaces;
 
     // Set names
-    const aiString& mesh_name = mesh->mName;
-    const aiString& mat_name = scene.mMaterials[mesh->mMaterialIndex]->GetName();
-    data.meshes[mesh_idx].name.copy_from(mesh_name.data, mesh_name.length);
-    data.meshes[mesh_idx].mat_name.copy_from(mat_name.data, mat_name.length);
-    if (mesh->HasTextureCoordsName(0)) {
-      const aiString& name = *mesh->mTextureCoordsNames[0];
-      data.meshes[mesh_idx].uv_name[0].copy_from(name.data, name.length);
-    }
-    if (mesh->HasTextureCoordsName(1)) {
-      const aiString& name = *mesh->mTextureCoordsNames[1];
-      data.meshes[mesh_idx].uv_name[1].copy_from(name.data, name.length);
+    const aiString& mesh_name = ai_mesh->mName;
+    mesh.name.copy_from(mesh_name.data, mesh_name.length);
+    for (size_t uv = 0; uv < model3d_data::MAX_MESH_UVS; ++uv) {
+      if (ai_mesh->HasTextureCoordsName(uv)) {
+        const aiString& name = *ai_mesh->mTextureCoordsNames[uv];
+        mesh.uv_name[uv].copy_from(name.data, name.length);
+      } else {
+        std::memset(&mesh.uv_name[uv], 0x00, sizeof(mesh.uv_name[0])); // No name
+      }
     }
 
-    // Set props
-    data.meshes[mesh_idx].bbox_max = asscast(mesh->mAABB.mMax);
-    data.meshes[mesh_idx].bbox_min = asscast(mesh->mAABB.mMin);
+    // Blend shapes, almost a duplicate of the mesh data
+    for (size_t j = 0; j < ai_mesh->mNumAnimMeshes; ++j) {
+      const aiAnimMesh* ai_anim = ai_mesh->mAnimMeshes[j];
+      const u32 nanimvert = ai_anim->mNumVertices;
+      auto& anim = data.blend_shapes[shape_pos++];
+
+      // Positions (can be optional this time)
+      if (ai_anim->HasPositions()) {
+        for (size_t vert = 0; vert < nanimvert; ++vert) {
+          data.blend_positions[vertex_anim_pos] = asscast(ai_anim->mVertices[vert]);
+        }
+        anim.positions.start = static_cast<u32>(vertex_anim_pos);
+        anim.positions.count = nanimvert;
+        vertex_anim_pos += nanimvert;
+      } else {
+        anim.positions = array_range::null_range();
+      }
+
+      // Normals
+      if (ai_anim->HasNormals()) {
+        for (size_t vert = 0; vert < nanimvert; ++vert) {
+          data.blend_normals[normal_anim_pos] = asscast(ai_anim->mNormals[vert]);
+        }
+        anim.normals.start = static_cast<u32>(normal_anim_pos);
+        anim.tangents.count = nanimvert;
+        normal_anim_pos += nanimvert;
+      } else {
+        anim.normals = array_range::null_range();
+      }
+
+      // Tangents & Bitangents
+      if (ai_anim->HasTangentsAndBitangents()) {
+        for (size_t vert = 0; vert < nanimvert; ++vert) {
+          data.blend_tangents[tangent_anim_pos] = asscast(ai_anim->mTangents[vert]);
+          data.blend_bitangents[tangent_anim_pos] = asscast(ai_anim->mBitangents[vert]);
+        }
+        anim.tangents.start = static_cast<u32>(tangent_anim_pos);
+        anim.tangents.count = nanimvert;
+        tangent_anim_pos += nanimvert;
+      } else {
+        anim.tangents = array_range::null_range();
+      }
+
+      // UVs
+      for (size_t uv = 0; uv < model3d_data::MAX_MESH_UVS; ++uv) {
+        if (ai_anim->HasTextureCoords(uv)) {
+          for (size_t vert = 0; vert < nanimvert; ++vert) {
+            const auto& uv_vec = ai_anim->mTextureCoords[uv][vert];
+            data.blend_uvs[uv][uv_anim_pos[uv]].x = uv_vec.x;
+            data.blend_uvs[uv][uv_anim_pos[uv]].y = uv_vec.y;
+          }
+          anim.uvs[uv].start = static_cast<u32>(uv_anim_pos[uv]);
+          anim.uvs[uv].count = nanimvert;
+          uv_anim_pos[uv] += nanimvert;
+        } else {
+          anim.uvs[uv] = array_range::null_range();
+        }
+      }
+
+      // Colors
+      for (size_t col = 0; col < model3d_data::MAX_MESH_COLORS; ++col) {
+        if (ai_anim->HasVertexColors(col)) {
+          for (size_t vert = 0; vert < nanimvert; ++vert) {
+            data.blend_colors[col][color_anim_pos[col]] = asscast(ai_anim->mColors[col][vert]);
+          }
+          anim.colors[col].start = static_cast<u32>(color_anim_pos[col]);
+          anim.colors[col].count = nanimvert;
+          color_anim_pos[col] += nanimvert;
+        } else {
+          anim.colors[col] = array_range::null_range();
+        }
+      }
+    }
+
+    // Set other props
+    mesh.bbox_max = asscast(ai_mesh->mAABB.mMax);
+    mesh.bbox_min = asscast(ai_mesh->mAABB.mMin);
+    mesh.material_index = ai_mesh->mMaterialIndex;
+    mesh.primitive = [&]() -> model3d_data::mesh_primitive {
+      switch (ai_mesh->mPrimitiveTypes) {
+        default:
+          return model3d_data::MESH_PRIMITIVE_TRIANGLE;
+      };
+    }();
   }
   return true;
 }
 
-bool parse_animations(model_allocator& al, model3d_data& data) {}
+bool parse_bone_animations(model_allocator& al, model3d_data& data) {}
 
 bool parse_materials(model_allocator& al, model3d_data& data) {}
+
+void dealloc_bones(model_allocator& al, model3d_data::model_internal& data) {
+  al.dealloc(data.bones, data.bone_count);
+  al.dealloc(data.bone_locals, data.bone_count);
+  al.dealloc(data.bone_inv_models, data.bone_count);
+}
 
 } // namespace
 
@@ -421,7 +580,7 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
   const auto path = _impl->model_path.as_view();
   const aiScene* scene = imp.ReadFile(_impl->model_path.data, _impl->importer_flags);
   buffer_str<256> errbuff;
-  if (!scene) {
+  if (!scene || !scene->mNumMeshes) {
     const char* err = imp.GetErrorString();
     size_t len = std::strlen(err);
     errbuff.copy_from(err, len);
@@ -429,20 +588,14 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
   }
 
   model_allocator al;
-  model3d_data out;
-  out._impl = new model3d_data::model_internal();
-
-  const auto [has_rigs, rig_err] = parse_rigs(al, out, *scene, path);
+  const auto [has_rigs, rig_err] = parse_rigs(al, *data, *scene, path);
   if (!has_rigs) {
     MODEL_LOG(warning, "No rigs found at \"{}\": {}", path, rig_err);
   }
-  if (!parse_meshes(al, out, *scene)) {
+  if (!parse_meshes(al, *data, *scene)) {
     if (has_rigs) {
-      al.dealloc(out.bones, out.bone_count);
-      al.dealloc(out.bone_locals, out.bone_count);
-      al.dealloc(out.bone_inv_models, out.bone_count);
-      al.dealloc(out.armatures, out.armature_count);
-      delete out._impl;
+      dealloc_bones(al, *data);
+      delete data;
     }
     errbuff.format_from("No valid meshes found at \"{}\"", path);
     MODEL_LOG(error, "{}", errbuff.as_view());
@@ -456,10 +609,6 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
     MODEL_LOG(warning, "No materials found at \"{}\"", path);
   }
 
-  std::memset(out.name.data, 0, sizeof(out.name.data));
-  std::memcpy(out.name.data, _impl->model_name.data, _impl->model_name.len);
-  std::memset(out.path.data, 0, sizeof(out.path.data));
-  std::memcpy(out.path.data, _impl->model_path.data, _impl->model_path.len);
   return {in_place, std::move(out)};
 }
 

@@ -6,38 +6,27 @@ namespace kappa::assets {
 
 struct model3d_data {
 public: // enum mappings from assimp
-  enum mesh_morph_method {
-    MESH_MORPH_METHOD_VERTEX_BLEND = 0,
-    MESH_MORPH_METHOD_NORMALIZED,
-    MESH_MORPH_METHOD_RELATIVE,
+  enum mesh_blend_method : u32 {
+    MESH_BLEND_METHOD_VERTEX_BLEND = 0,
+    MESH_BLEND_METHOD_NORMALIZED,
+    MESH_BLEND_METHOD_RELATIVE,
   };
 
-  enum mesh_primitive {
+  enum mesh_primitive : u32 {
     MESH_PRIMITIVE_POINT = 0,
     MESH_PRIMITIVE_LINE,
     MESH_PRIMITIVE_TRIANGLE,
     MESH_PRIMITIVE_POLYGON,
   };
 
-  enum texture_map_mode {
+  enum texture_map_mode : u32 {
     TEXTURE_MAP_MODE_WRAP = 0,
     TEXTURE_MAP_MODE_CLAMP,
     TEXTURE_MAP_MODE_DECAL,
     TEXTURE_MAP_MODE_MIRROR,
   };
 
-  enum texture_color_flags {
-    TEXTURE_COLOR_FLAG_INVERT = 0x0000,
-    TEXTURE_COLOR_FLAG_USE_ALPHA = 0x0001,
-    TEXTURE_COLOR_FLAG_IGNORE_ALPHA = 0x0002,
-  };
-
-  enum texture_blend_mode {
-    TEXTURE_BLEND_DEFAULT = 0,
-    TEXTURE_BLEND_ADDITIVE,
-  };
-
-  enum material_shading {
+  enum material_shading : u32 {
     MATERIAL_SHADING_NONE = 0,
     MATERIAL_SHADING_FLAT,
     MATERIAL_SHADING_PHONG,
@@ -46,25 +35,40 @@ public: // enum mappings from assimp
     MATERIAL_SHADING_PBR_BRDF,
   };
 
-  static constexpr size_t MAX_MODEL_UVS = 2;
-  static constexpr size_t MAX_MODEL_COLORS = 1;
+  enum anim_behaviour : u32 {
+    ANIM_BEHAVIOUR_USE_TRANSFORM = 0, // Use default transform
+    ANIM_BEHAVIOUR_CLAMP,             // Clamp animation to the first/last keyframe
+    ANIM_BEHAVIOUR_EXTRAPOLATE,       // Extrapolate using the first/last keyframe
+    ANIM_BEHAVIOUR_REPEAT,            // Repeat the animation
+  };
+
+  enum keyframe_setting : u32 {
+    KEYFRAME_SETTING_STEP = 0,
+    KEYFRAME_SETTING_LINEAR,
+    KEYFRAME_SETTING_SPH_LINEAR,
+    KEYFRAME_SETTING_CUBIC_SPLINE,
+  };
+
+  static constexpr size_t MAX_MESH_UVS = 2;
+  static constexpr size_t MAX_MESH_COLORS = 2;
 
 public:
   template<typename T>
   struct keyframe_data {
     T value;
     f64 timestamp;
+    keyframe_setting setting;
   };
 
   struct anim_data {
     buffer_name name;
-    array_range keyframes;
-    f64 duration;
-    f64 tps;
+    array_range bone_keys;
+    f64 ticks, tps;
   };
 
-  struct anim_keyframe {
+  struct bone_keyframes {
     u32 bone_index;
+    anim_behaviour pre_state, post_state;
     array_range pos_keys;
     array_range rot_keys;
     array_range scale_keys;
@@ -72,21 +76,29 @@ public:
 
   struct blend_shape_data {
     buffer_name name;
-    array_range range;
+    array_range positions;
+    array_range normals;
+    array_range tangents;
+    array_range uvs[MAX_MESH_UVS];
+    array_range colors[MAX_MESH_COLORS];
     f32 weight;
   };
 
   struct mesh_data {
     buffer_name name;
-    buffer_name uv_name[MAX_MODEL_UVS];
-    v3f32 bbox_max;
-    v3f32 bbox_min;
-    array_range vertex_range;
+    buffer_name uv_name[MAX_MESH_UVS];
+    array_range positions;
+    array_range normals;
+    array_range tangents;
+    array_range uvs[MAX_MESH_UVS];
+    array_range colors[MAX_MESH_COLORS];
+    array_range bones;
     array_range indices;
-    array_range blend_shapes;
     u32 face_count;
+    array_range blend_shapes;
+    mesh_blend_method blend_method;
+    v3f32 bbox_min, bbox_max;
     u32 material_index;
-    mesh_morph_method morph_method;
     mesh_primitive primitive;
   };
 
@@ -97,25 +109,17 @@ public:
     extent2d extent;
     image_format format;
     texture_map_mode mapping_mode;
-    texture_blend_mode blending_mode;
-    bits32 color_flags;
   };
 
   struct material_data {
     buffer_name name;
-    u32 texture_start;
-    u32 texture_count;
+    array_range texture_indices;
     material_shading shading_mode;
   };
 
   struct bone_data {
     buffer_name name;
     i32 parent;
-  };
-
-  struct armature_data {
-    buffer_name name;
-    array_range bones;
   };
 
   struct model_internal;
@@ -149,10 +153,7 @@ public:
   span<v4f32> mesh_bone_weights(array_range range) const;
   span<u32> mesh_indices() const;
   span<u32> mesh_indices(array_range range) const;
-  u32 index_count() const;
-  u32 mesh_count() const;
-  u32 vertex_count() const;
-  u32 face_count() const;
+  size_t mesh_count() const;
 
   optional<u32> find_mesh_idx(std::string_view mesh_name) const;
 

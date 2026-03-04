@@ -36,14 +36,12 @@ struct texture_loader::loader_internal {
 struct model_allocator {
   template<typename T>
   T* alloc(size_t n) {
-    std::allocator<T> alloc;
-    return alloc.allocate(n);
+    return std::allocator<T>().allocate(n);
   }
 
   template<typename T>
   void dealloc(T* ptr, size_t count) {
-    std::allocator<T> alloc;
-    alloc.deallocate(ptr, count);
+    std::allocator<T>().deallocate(ptr, count);
   }
 };
 
@@ -51,62 +49,59 @@ struct model3d_data::model_internal {
   model_internal();
   ~model_internal();
 
-  model_allocator alloc;
-  std::unordered_map<std::string_view, u32> anim_registry;
-  std::unordered_map<std::string_view, u32> mesh_registry;
-  std::unordered_map<std::string_view, u32> material_registry;
-  std::unordered_map<std::string_view, u32> bone_registry;
-  std::unordered_map<std::string_view, u32> armature_registry;
-  std::vector<texture_data> texture_cache;
-
   buffer_name name;
   buffer_path path;
+  model_allocator alloc;
+  std::unordered_map<std::string_view, size_t> mesh_registry;
+  std::unordered_map<std::string_view, size_t> blend_shape_registry;
+  std::unordered_map<std::string_view, size_t> material_registry;
+  std::unordered_map<std::string_view, size_t> texture_registry;
+  std::unordered_map<std::string_view, size_t> bone_anim_registry;
+  std::unordered_map<std::string_view, size_t> bone_registry;
+  std::vector<texture_data> texture_cache;
 
   mesh_data* meshes;
   v3f32* mesh_positions;
   v3f32* mesh_normals;
-  v2f32* mesh_uvs[MAX_MODEL_UVS];
-  v4f32* mesh_colors[MAX_MODEL_COLORS];
+  v2f32* mesh_uvs[MAX_MESH_UVS];
+  v4f32* mesh_colors[MAX_MESH_COLORS];
   v3f32* mesh_tangents;
   v3f32* mesh_bitangents;
   v4i32* mesh_bones;
   v4f32* mesh_bone_weights;
   u32* mesh_indices;
-  u32 index_count;
-  u32 mesh_count;
-  u32 vertex_count;
-  u32 face_count;
+  size_t vertex_count;
+  size_t index_count;
+  size_t mesh_count;
 
   blend_shape_data* blend_shapes;
   v3f32* blend_positions;
   v3f32* blend_normals;
-  v3f32* blend_uvs0;
-  v3f32* blend_uvs1;
-  v4f32* blend_colors;
+  v2f32* blend_uvs[MAX_MESH_UVS];
+  v4f32* blend_colors[MAX_MESH_COLORS];
   v3f32* blend_tangents;
   v3f32* blend_bitangents;
+  size_t blend_shape_count;
 
   anim_data* animations;
-  anim_keyframe* anim_keyframes;
+  bone_keyframes* anim_bone_keys;
   keyframe_data<v3f32>* anim_positions;
   keyframe_data<v3f32>* anim_scales;
   keyframe_data<qf32>* anim_rotations;
-  u32 animation_count;
-  u32 anim_keyframe_count;
+  size_t animation_count;
+  size_t anim_bone_key_count;
 
-  armature_data* armatures;
   bone_data* bones;
   m4f32* bone_locals;
   m4f32* bone_inv_models;
-  u32 bone_count;
-  u32 armature_count;
+  size_t bone_count;
 
   texture_data* textures;
   u32* material_textures;
   material_data* materials;
-  u32 material_textures_count;
-  u32 texture_count;
-  u32 material_count;
+  size_t material_textures_count;
+  size_t texture_count;
+  size_t material_count;
 };
 
 struct model3d_loader::loader_internal {
