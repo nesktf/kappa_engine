@@ -13,6 +13,13 @@ enum class image_format {
   rgba32f,
 };
 
+constexpr inline size_t image_stride(u32 width, u32 height, image_format format) {
+  constexpr auto sizes =
+    std::to_array<size_t>({3 * sizeof(u8), 4 * sizeof(u8), 3 * sizeof(u16), 4 * sizeof(u16),
+                           3 * sizeof(f32), 4 * sizeof(f32)});
+  return sizes[static_cast<size_t>(format) % sizes.size()] * width * height;
+}
+
 enum class texture_type {
   diffuse = 0,
   albedo = 0,

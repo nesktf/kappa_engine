@@ -41,9 +41,6 @@ struct model_allocator {
 
   template<typename T>
   void dealloc(T* ptr, size_t count) {
-    if (!ptr) {
-      return;
-    }
     std::allocator<T>().deallocate(ptr, count);
   }
 };
@@ -59,7 +56,7 @@ struct model3d_data::model_internal {
   std::unordered_map<std::string_view, size_t> blend_shape_registry;
   std::unordered_map<std::string_view, size_t> material_registry;
   std::unordered_map<std::string_view, size_t> texture_registry;
-  std::unordered_map<std::string_view, size_t> bone_anim_registry;
+  // std::unordered_map<std::string_view, size_t> bone_anim_registry;
   std::unordered_map<std::string_view, size_t> bone_registry;
   std::vector<texture_data> texture_cache;
 
@@ -96,6 +93,7 @@ struct model3d_data::model_internal {
   v3f32* blend_bitangents;
   size_t blend_tangent_count;
 
+#if 0
   anim_data* animations;
   size_t animation_count;
   bone_keyframes* anim_bone_keyframes;
@@ -106,6 +104,7 @@ struct model3d_data::model_internal {
   size_t anim_bone_scale_count;
   keyframe_data<qf32>* anim_bone_rotations;
   size_t anim_bone_rotation_count;
+#endif
 
   bone_data* bones;
   m4f32* bone_locals;
@@ -124,6 +123,7 @@ struct model3d_loader::loader_internal {
   Assimp::Importer importer;
   buffer_name model_name;
   buffer_path model_path;
+  buffer_path texture_dir;
   bits32 importer_flags;
 };
 

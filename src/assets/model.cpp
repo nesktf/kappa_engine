@@ -12,16 +12,30 @@ constexpr void zeroinit(T* ptr, size_t sz) {
   std::memset(ptr, 0x00, sizeof(T) * sz);
 };
 
+template<typename T>
+void alloc_init(model_allocator& al, T** ptr, size_t sz) {
+  *ptr = al.alloc<T>(sz);
+  zeroinit(*ptr, sz);
+}
+
 } // namespace
 
 model3d_loader::model3d_loader(std::string_view model_path, std::string_view model_name,
-                               bits32 loader_flags) :
+                               shogle::ptr_view<const load_opts> opts) :
     _impl(new model3d_loader::loader_internal()) {
   _impl->importer.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, true);
   _impl->importer.SetPropertyInteger(AI_CONFIG_PP_SBBC_MAX_BONES, 4);
   _impl->model_path.copy_from(model_path.data(), model_path.size());
   _impl->model_name.copy_from(model_name.data(), model_name.size());
-  _impl->importer_flags = loader_flags;
+  _impl->importer_flags = opts ? opts->flags : FLAGS_DEFAULT;
+  if (opts && !opts->texture_dir.empty()) {
+    _impl->texture_dir.copy_from(opts->texture_dir.data(), opts->texture_dir.size());
+  } else {
+    auto slash_pos = model_path.find_last_of('/');
+    assert(slash_pos != std::string::npos, "Non valid path provided");
+    auto model_file_dir = model_path.substr(0, slash_pos);
+    _impl->texture_dir.copy_from(model_file_dir.data(), model_file_dir.size());
+  }
 }
 
 model3d_data::model_internal::model_internal(const buffer_name& name_, const buffer_path& path_) :
@@ -31,13 +45,16 @@ model3d_data::model_internal::model_internal(const buffer_name& name_, const buf
     mesh_bone_count(0), mesh_indices(nullptr), mesh_index_count(0), blend_shapes(nullptr),
     blend_shape_count(0), blend_positions(nullptr), blend_position_count(0),
     blend_normals(nullptr), blend_normal_count(0), blend_tangents(nullptr),
-    blend_bitangents(nullptr), blend_tangent_count(0), animations(nullptr), animation_count(0),
+    blend_bitangents(nullptr), blend_tangent_count(0),
+#if 0
+    animations(nullptr), animation_count(0),
     anim_bone_keyframes(nullptr), anim_bone_keyframe_count(0), anim_bone_positions(nullptr),
     anim_bone_position_count(0), anim_bone_scales(nullptr), anim_bone_scale_count(0),
-    anim_bone_rotations(nullptr), anim_bone_rotation_count(0), bones(nullptr),
-    bone_locals(nullptr), bone_inv_models(nullptr), bone_count(0), textures(nullptr),
-    texture_count(0), materials(nullptr), material_count(0), material_textures(nullptr),
-    material_textures_count(0) {
+    anim_bone_rotations(nullptr), anim_bone_rotation_count(0),
+#endif
+    bones(nullptr), bone_locals(nullptr), bone_inv_models(nullptr), bone_count(0),
+    textures(nullptr), texture_count(0), materials(nullptr), material_count(0),
+    material_textures(nullptr), material_textures_count(0) {
   // Initialize arrays
   zeroinit(mesh_uvs, sizeof(mesh_uvs));
   zeroinit(mesh_uv_count, sizeof(mesh_uv_count));
@@ -75,8 +92,7 @@ auto initialize_data(const buffer_name& name, const buffer_path& path, const aiS
   auto& al = ptr->alloc;
   const auto maybe_alloc = [&]<typename T>(T** ptr, size_t sz) {
     if (sz) {
-      *ptr = al.alloc<T>(sz);
-      zeroinit(*ptr, sz);
+      alloc_init(al, ptr, sz);
     }
   };
 
@@ -224,6 +240,7 @@ auto initialize_data(const buffer_name& name, const buffer_path& path, const aiS
     }
   }
 
+#if 0
   // Preallocate animations & keyframes
   data.animation_count = scene.mNumAnimations;
   maybe_alloc(&data.animations, data.animation_count);
@@ -253,6 +270,7 @@ auto initialize_data(const buffer_name& name, const buffer_path& path, const aiS
   maybe_alloc(&data.anim_bone_positions, data.anim_bone_position_count);
   maybe_alloc(&data.anim_bone_scales, data.anim_bone_scale_count);
   maybe_alloc(&data.anim_bone_rotations, data.anim_bone_rotation_count);
+#endif
 
   // Preallocate bones & matrices
   data.bone_count = bone_invs.size();
@@ -262,72 +280,6 @@ auto initialize_data(const buffer_name& name, const buffer_path& path, const aiS
     data.bone_inv_models = al.alloc<m4f32>(data.bone_count);
     data.bone_locals = al.alloc<m4f32>(data.bone_count);
     data.bone_registry.reserve(data.bone_count); // We fill the registry at parse_bones()
-  }
-
-  // Preallocate textures & materials
-  std::vector<std::pair<std::string_view, texture_type>> texture_set;
-  static constexpr auto parseable_textures = std::to_array({
-    aiTextureType_DIFFUSE,
-    aiTextureType_NORMALS,
-    aiTextureType_SPECULAR,
-    aiTextureType_AMBIENT_OCCLUSION,
-  });
-  const auto texcast = [](aiTextureType type) -> texture_type {
-    switch (type) {
-      case aiTextureType_SPECULAR:
-        return texture_type::specular;
-      case aiTextureType_NORMALS:
-        return texture_type::normal;
-      case aiTextureType_AMBIENT_OCCLUSION:
-        return texture_type::ambient_occlusion;
-      case aiTextureType_DIFFUSE:
-        [[fallthrough]];
-      default:
-        return texture_type::diffuse;
-    }
-  };
-  const auto parse_material_textures = [&](const aiMaterial& ai_mat, aiTextureType type) {
-    const size_t count = ai_mat.GetTextureCount(type);
-    for (size_t i = 0; i < count; ++i) {
-      aiString filename;
-      ai_mat.GetTexture(type, i, &filename);
-      std::string_view filename_view(filename.data, filename.length);
-      auto it = std::find_if(texture_set.begin(), texture_set.end(),
-                             [&](const auto& a) { return a.first == filename_view; });
-      if (it == texture_set.end()) {
-        texture_set.emplace_back(filename_view, texcast(type));
-      }
-    }
-    return count;
-  };
-
-  data.material_count = scene.mNumMaterials;
-  maybe_alloc(&data.materials, data.material_count);
-  if (data.material_count) {
-    data.material_registry.reserve(data.material_count);
-    for (size_t i = 0; i < data.material_count; ++i) {
-      const aiMaterial* ai_mat = scene.mMaterials[i];
-      const aiString mat_name = ai_mat->GetName();
-      auto& mat = data.materials[i];
-      mat.name.copy_from(mat_name.data, mat_name.length);
-      auto [_, empl] = data.material_registry.try_emplace(mat.name.as_view(), i);
-      if (!empl) {
-        err.format_from("Duplicate material name \"{}\" in model", mat.name.as_view());
-        return nullptr;
-      }
-      for (auto type : parseable_textures) {
-        data.material_textures_count += parse_material_textures(*ai_mat, type);
-      }
-    }
-  }
-  data.texture_count = texture_set.size(); // Should include external and embeded textures
-  maybe_alloc(&data.textures, data.texture_count);
-  maybe_alloc(&data.material_textures, data.material_textures_count);
-  for (size_t i = 0; i < data.texture_count; ++i) {
-    auto& tex = data.textures[i];
-    const auto name = texture_set[i].first;
-    tex.name.copy_from(name.data(), name.size());
-    data.texture_registry.emplace(tex.name.as_view(), i); // Name should always be unique
   }
 
   return ptr;
@@ -412,6 +364,10 @@ v3f32 asscast(const aiVector3D& vec) {
 
 v4f32 asscast(const aiColor4D& col) {
   return {col.r, col.g, col.b, col.a};
+}
+
+qf32 asscast(const aiQuaternion& q) {
+  return {q.w, q.x, q.y, q.z};
 }
 
 void parse_meshes(model3d_data::model_internal& data, const aiScene& scene) {
@@ -516,20 +472,19 @@ void parse_meshes(model3d_data::model_internal& data, const aiScene& scene) {
     }
 
     // Face indices
-    mesh.face_count = ai_mesh->mNumFaces;
-    if (mesh.face_count > 0) {
-      u32 idx_count = 0u; // We have to count indices, can't use do_attrib directly
+    {
+      mesh.face_count = ai_mesh->mNumFaces;
+      u32 index_count = 0u;
       for (size_t face_idx = 0; face_idx < ai_mesh->mNumFaces; ++face_idx) {
         const aiFace& face = ai_mesh->mFaces[face_idx];
         for (size_t i = 0; i < face.mNumIndices; ++i) {
-          data.mesh_indices[index_pos + idx_count + i] = face.mIndices[i];
+          data.mesh_indices[index_pos + index_count + i] = face.mIndices[i];
         }
-        idx_count += face.mNumIndices;
+        index_count += face.mNumIndices;
       }
-      mesh.index_start = index_pos;
-      index_pos += idx_count;
-    } else {
-      mesh.index_start = static_cast<u32>(-1);
+      mesh.index_start = index_count ? index_pos : (u32)-1;
+      mesh.index_count = index_count;
+      index_pos += index_count;
     }
 
     // Blend shapes, almost a duplicate of the mesh data
@@ -601,6 +556,7 @@ void parse_meshes(model3d_data::model_internal& data, const aiScene& scene) {
           return model3d_data::MESH_PRIMITIVE_TRIANGLE;
       }
     }();
+#if 0
     mesh.blend_method = [&]() -> model3d_data::mesh_blend_method {
       switch (ai_mesh->mMethod) {
         case aiMorphingMethod_MORPH_RELATIVE:
@@ -613,11 +569,85 @@ void parse_meshes(model3d_data::model_internal& data, const aiScene& scene) {
           return model3d_data::MESH_BLEND_METHOD_VERTEX_BLEND;
       }
     }();
+#endif
   }
 }
 
-qf32 asscast(const aiQuaternion& q) {
-  return {q.w, q.x, q.y, q.z};
+void parse_materials(model3d_data::model_internal& data, const aiScene& scene,
+                     const buffer_path& texture_dir) {
+  struct tex_set_data {
+    std::string_view filename;
+    texture_type type;
+  };
+
+  std::vector<tex_set_data> texture_set;
+  static constexpr auto parseable_textures = std::to_array({
+    aiTextureType_DIFFUSE,
+    aiTextureType_NORMALS,
+    aiTextureType_SPECULAR,
+    aiTextureType_AMBIENT_OCCLUSION,
+  });
+  const auto texcast = [](aiTextureType type) -> texture_type {
+    switch (type) {
+      case aiTextureType_SPECULAR:
+        return texture_type::specular;
+      case aiTextureType_NORMALS:
+        return texture_type::normal;
+      case aiTextureType_AMBIENT_OCCLUSION:
+        return texture_type::ambient_occlusion;
+      case aiTextureType_DIFFUSE:
+        [[fallthrough]];
+      default:
+        return texture_type::diffuse;
+    }
+  };
+  const auto parse_material_textures = [&](const aiMaterial& ai_mat, aiTextureType type) {
+    const size_t count = ai_mat.GetTextureCount(type);
+    for (size_t i = 0; i < count; ++i) {
+      aiString filename;
+      ai_mat.GetTexture(type, i, &filename);
+      std::string_view filename_view(filename.data, filename.length);
+      auto it = std::find_if(texture_set.begin(), texture_set.end(),
+                             [&](const auto& a) { return a.filename == filename_view; });
+      if (it == texture_set.end()) {
+        texture_set.emplace_back(filename_view, texcast(type));
+      }
+    }
+    return count;
+  };
+
+  data.material_count = scene.mNumMaterials;
+  if (!data.material_count) {
+    return;
+  }
+  auto& al = data.alloc;
+  alloc_init(al, &data.materials, data.material_count);
+  data.material_registry.reserve(data.material_count);
+
+  for (size_t i = 0; i < data.material_count; ++i) {
+    const aiMaterial* ai_mat = scene.mMaterials[i];
+    const aiString mat_name = ai_mat->GetName();
+    auto& mat = data.materials[i];
+    mat.name.copy_from(mat_name.data, mat_name.length);
+    data.material_registry.emplace(mat.name.as_view(), i);
+    for (aiTextureType type : parseable_textures) {
+      data.material_textures_count += parse_material_textures(*ai_mat, type);
+    }
+  }
+  data.texture_count = texture_set.size(); // Should include external and embeded textures
+  if (!data.texture_count) {
+    return;
+  }
+  assert(data.material_textures_count > 0);
+  alloc_init(al, &data.textures, data.texture_count);
+  alloc_init(al, &data.material_textures, data.material_textures_count);
+  for (size_t i = 0; i < data.texture_count; ++i) {
+    auto& tex = data.textures[i];
+    const auto [filename, type] = texture_set[i];
+    tex.name.copy_from(filename.data(), filename.size());
+    tex.path.format_from("{}/{}", texture_dir.as_view(), filename);
+    data.texture_registry.emplace(tex.name.as_view(), i); // Name should always be unique
+  }
 }
 
 } // namespace
@@ -629,7 +659,7 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
     _impl = nullptr;
   };
   bs_expect<model3d_data, 256> ret(unexpect);
-  const auto assimpflags = [&](bits32 flags) -> bits32 {
+  const auto assimpflags = [flags = _impl->importer_flags]() -> bits32 {
     bits32 out = 0;
     if (flags & FLAG_TRIANGULATE) {
       out |= aiProcess_Triangulate;
@@ -647,7 +677,7 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
       out |= aiProcess_GenNormals;
     }
     return out;
-  }(_impl->importer_flags);
+  }();
 
   try {
     const aiScene* scene = _impl->importer.ReadFile(_impl->model_path.c_str(), assimpflags);
@@ -665,51 +695,67 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
 
     parse_rigs(*data, *scene, bone_invs);
     parse_meshes(*data, *scene);
+    parse_materials(*data, *scene, _impl->texture_dir);
+    // TODO: Parse animations
     ret.emplace(*data.release());
-  } catch (std::bad_alloc&) {
+  } catch (const std::bad_alloc&) {
     ret.error().format_from("Model allocation failure");
+  } catch (const std::exception& ex) {
+    ret.error().format_from("{}", ex.what());
   } catch (...) {
-    ret.error().format_from("Unknown error");
+    ret.error().format_from("Unkown error");
   }
   return ret;
 }
 
-model_internal::~model_internal() {
-  a.dealloc(meshes, mesh_count);
-  a.dealloc(mesh_pos, vertex_count);
-  a.dealloc(mesh_norm, vertex_count);
-  a.dealloc(mesh_uv0, vertex_count);
-  a.dealloc(mesh_uv1, vertex_count);
-  a.dealloc(mesh_col, vertex_count);
-  a.dealloc(mesh_tan, vertex_count);
-  a.dealloc(mesh_bitan, vertex_count);
-  a.dealloc(mesh_bones, vertex_count);
-  a.dealloc(mesh_weights, vertex_count);
-  a.dealloc(mesh_indices, vertex_count);
-  if (has_materials()) {
-    a.dealloc(materials, material_count);
-    if (has_textures()) {
-      a.dealloc(textures, texture_count);
-    }
+model3d_data::model_internal::~model_internal() {
+#define DEALLOC(ptr, sz) \
+  if (ptr)               \
+  alloc.dealloc(ptr, sz)
+
+  for (size_t i = 0; i < MAX_MESH_COLORS; ++i) {
+    DEALLOC(mesh_colors[i], mesh_color_count[i]);
+    DEALLOC(blend_colors[i], blend_color_count[i]);
   }
-  if (has_animations()) {
-    a.dealloc(animations, animation_count);
-    a.dealloc(anim_keyframes, animation_count);
-    a.dealloc(anim_positions, anim_keyframe_count);
-    a.dealloc(anim_scales, anim_keyframe_count);
-    a.dealloc(anim_rotations, anim_keyframe_count);
+  for (size_t i = 0; i < MAX_MESH_UVS; ++i) {
+    DEALLOC(mesh_uvs[i], mesh_uv_count[i]);
+    DEALLOC(blend_uvs[i], blend_uv_count[i]);
   }
-  if (has_armatures()) {
-    a.dealloc(armatures, armature_count);
-    a.dealloc(bones, bone_count);
-    a.dealloc(bone_locals, bone_count);
-    a.dealloc(bone_inv_models, bone_count);
+
+  DEALLOC(mesh_bone_indices, mesh_bone_count);
+  DEALLOC(mesh_bone_weights, mesh_bone_count);
+
+  DEALLOC(mesh_tangents, mesh_tangent_count);
+  DEALLOC(mesh_bitangents, mesh_tangent_count);
+  DEALLOC(blend_tangents, blend_tangent_count);
+  DEALLOC(blend_bitangents, blend_tangent_count);
+
+  DEALLOC(mesh_normals, mesh_normal_count);
+  DEALLOC(blend_normals, blend_normal_count);
+
+  DEALLOC(mesh_positions, mesh_position_count);
+  DEALLOC(blend_positions, blend_position_count);
+
+  DEALLOC(meshes, mesh_count);
+  DEALLOC(mesh_indices, mesh_index_count);
+  DEALLOC(blend_shapes, blend_shape_count);
+
+  DEALLOC(bones, bone_count);
+  DEALLOC(bone_locals, bone_count);
+  DEALLOC(bone_inv_models, bone_count);
+
+  for (size_t i = 0; i < texture_count; ++i) {
+    DEALLOC(textures[i].data,
+            image_stride(textures[i].extent.width, textures[i].extent.height, textures[i].format));
   }
+  DEALLOC(textures, texture_count);
+  DEALLOC(material_textures, material_textures_count);
+  DEALLOC(materials, material_count);
+
+#undef DEALLOC
 }
 
-model3d_data::model3d_data() noexcept :
-    _impl(nullptr), animations(nullptr), textures(nullptr), materials(nullptr),
-    armatures(nullptr) {}
+model3d_data::model3d_data(model_internal& data) noexcept : _data(&data) {}
 
 void model3d_data::destroy() noexcept {
   if (!_data) {
@@ -719,9 +765,315 @@ void model3d_data::destroy() noexcept {
   _data = nullptr;
 }
 
+#define CHECK_DATA assert(_data, "model3d_data use after free");
+
 namespace {
 
-optional<u32> find_map_idx(auto&& map, std::string_view name) {
+template<typename T>
+span<T> datarange(T* data, size_t data_sz, array_range range) {
+  assert(range.start != (u32)-1 && range.count);
+  return span<T>{data + range.start, std::min((size_t)range.count, data_sz - range.count)};
+}
+
+template<typename T>
+span<T> datarange(T* data, size_t data_sz) {
+  return span<T>{data, data_sz};
+}
+
+} // namespace
+
+buffer_name& model3d_data::name() const {
+  CHECK_DATA;
+  return _data->name;
+}
+
+buffer_path& model3d_data::path() const {
+  CHECK_DATA;
+  return _data->path;
+}
+
+model3d_data::mesh_data& model3d_data::mesh_at(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < _data->mesh_count);
+  return _data->meshes[idx];
+}
+
+span<model3d_data::mesh_data> model3d_data::meshes() const {
+  CHECK_DATA;
+  return datarange(_data->meshes, _data->mesh_count);
+}
+
+span<v3f32> model3d_data::mesh_positions() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_positions, _data->mesh_position_count);
+}
+
+span<v3f32> model3d_data::mesh_positions(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->mesh_positions, _data->mesh_position_count, range);
+}
+
+span<v3f32> model3d_data::mesh_normals() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_normals, _data->mesh_normal_count);
+}
+
+span<v3f32> model3d_data::mesh_normals(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->mesh_normals, _data->mesh_normal_count, range);
+}
+
+span<v2f32> model3d_data::mesh_uvs(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_UVS);
+  return datarange(_data->mesh_uvs[idx], _data->mesh_uv_count[idx]);
+}
+
+span<v2f32> model3d_data::mesh_uvs(size_t idx, array_range range) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_UVS);
+  return datarange(_data->mesh_uvs[idx], _data->mesh_uv_count[idx], range);
+}
+
+span<v4f32> model3d_data::mesh_colors(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_COLORS);
+  return datarange(_data->mesh_colors[idx], _data->mesh_color_count[idx]);
+}
+
+span<v4f32> model3d_data::mesh_colors(size_t idx, array_range range) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_COLORS);
+  assert(range.start != (u32)-1 && range.count);
+  return datarange(_data->mesh_colors[idx], _data->mesh_color_count[idx], range);
+}
+
+span<v3f32> model3d_data::mesh_tangents() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_tangents, _data->mesh_tangent_count);
+}
+
+span<v3f32> model3d_data::mesh_tangents(array_range range) const {
+  CHECK_DATA;
+  assert(range.start != (u32)-1 && range.count);
+  return datarange(_data->mesh_tangents, _data->mesh_tangent_count, range);
+}
+
+span<v3f32> model3d_data::mesh_bitangents() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_bitangents, _data->mesh_tangent_count);
+}
+
+span<v3f32> model3d_data::mesh_bitangents(array_range range) const {
+  CHECK_DATA;
+  assert(range.start != (u32)-1 && range.count);
+  return datarange(_data->mesh_bitangents, _data->mesh_tangent_count, range);
+}
+
+span<v4i32> model3d_data::mesh_bone_indices() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_bone_indices, _data->mesh_bone_count);
+}
+
+span<v4i32> model3d_data::mesh_bone_indices(array_range range) const {
+  CHECK_DATA;
+  assert(range.start != (u32)-1 && range.count);
+  return datarange(_data->mesh_bone_indices, _data->mesh_bone_count, range);
+}
+
+span<v4f32> model3d_data::mesh_bone_weights() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_bone_weights, _data->mesh_bone_count);
+}
+
+span<v4f32> model3d_data::mesh_bone_weights(array_range range) const {
+  CHECK_DATA;
+  assert(range.start != (u32)-1 && range.count);
+  return datarange(_data->mesh_bone_weights, _data->mesh_bone_count, range);
+}
+
+span<u32> model3d_data::mesh_indices() const {
+  CHECK_DATA;
+  return datarange(_data->mesh_indices, _data->mesh_index_count);
+}
+
+span<u32> model3d_data::mesh_indices(array_range range) const {
+  CHECK_DATA;
+  assert(range.start != (u32)-1 && range.count);
+  return datarange(_data->mesh_indices, _data->mesh_index_count, range);
+}
+
+size_t model3d_data::mesh_count() const {
+  CHECK_DATA;
+  return _data->mesh_count;
+}
+
+model3d_data::blend_shape_data& model3d_data::blend_shape_at(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < _data->blend_shape_count);
+  return _data->blend_shapes[idx];
+}
+
+span<model3d_data::blend_shape_data> model3d_data::blend_shapes() const {
+  CHECK_DATA;
+  return datarange(_data->blend_shapes, _data->blend_shape_count);
+}
+
+span<v3f32> model3d_data::blend_positions() const {
+  CHECK_DATA;
+  return datarange(_data->blend_positions, _data->blend_position_count);
+}
+
+span<v3f32> model3d_data::blend_positions(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->blend_positions, _data->blend_position_count, range);
+}
+
+span<v3f32> model3d_data::blend_normals() const {
+  CHECK_DATA;
+  return datarange(_data->blend_normals, _data->blend_normal_count);
+}
+
+span<v3f32> model3d_data::blend_normals(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->blend_normals, _data->blend_normal_count, range);
+}
+
+span<v2f32> model3d_data::blend_uvs(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_UVS);
+  return datarange(_data->blend_uvs[idx], _data->blend_uv_count[idx]);
+}
+
+span<v2f32> model3d_data::blend_uvs(size_t idx, array_range range) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_UVS);
+  return datarange(_data->blend_uvs[idx], _data->blend_uv_count[idx], range);
+}
+
+span<v4f32> model3d_data::blend_colors(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_COLORS);
+  return datarange(_data->blend_colors[idx], _data->blend_color_count[idx]);
+}
+
+span<v4f32> model3d_data::blend_colors(size_t idx, array_range range) const {
+  CHECK_DATA;
+  assert(idx < MAX_MESH_COLORS);
+  return datarange(_data->blend_colors[idx], _data->blend_color_count[idx], range);
+}
+
+span<v3f32> model3d_data::blend_tangents() const {
+  CHECK_DATA;
+  return datarange(_data->blend_tangents, _data->blend_tangent_count);
+}
+
+span<v3f32> model3d_data::blend_tangents(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->blend_tangents, _data->blend_tangent_count, range);
+}
+
+span<v3f32> model3d_data::blend_bitangents() const {
+  CHECK_DATA;
+  return datarange(_data->blend_bitangents, _data->blend_tangent_count);
+}
+
+span<v3f32> model3d_data::blend_bitangents(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->blend_bitangents, _data->blend_tangent_count, range);
+}
+
+size_t model3d_data::blend_shape_count() const {
+  CHECK_DATA;
+  return _data->blend_shape_count;
+}
+
+model3d_data::bone_data& model3d_data::bone_at(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < _data->bone_count);
+  return _data->bones[idx];
+}
+
+span<model3d_data::bone_data> model3d_data::bones() const {
+  CHECK_DATA;
+  return datarange(_data->bones, _data->bone_count);
+}
+
+span<model3d_data::bone_data> model3d_data::bones(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->bones, _data->bone_count);
+}
+
+span<m4f32> model3d_data::bone_locals() const {
+  CHECK_DATA;
+  return datarange(_data->bone_locals, _data->bone_count);
+}
+
+span<m4f32> model3d_data::bone_locals(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->bone_locals, _data->bone_count, range);
+}
+
+span<m4f32> model3d_data::bone_inverse_models() const {
+  CHECK_DATA;
+  return datarange(_data->bone_inv_models, _data->bone_count);
+}
+
+span<m4f32> model3d_data::bone_inverse_models(array_range range) const {
+  CHECK_DATA;
+  return datarange(_data->bone_inv_models, _data->bone_count, range);
+}
+
+size_t model3d_data::bone_count() const {
+  CHECK_DATA;
+  return _data->bone_count;
+}
+
+model3d_data::material_data& model3d_data::material_at(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < _data->material_count);
+  return _data->materials[idx];
+}
+
+span<model3d_data::material_data> model3d_data::materials() const {
+  CHECK_DATA;
+  return datarange(_data->materials, _data->material_count);
+}
+
+size_t model3d_data::material_count() const {
+  CHECK_DATA;
+  return _data->material_count;
+}
+
+model3d_data::texture_data& model3d_data::texture_at(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < _data->texture_count);
+  return _data->textures[idx];
+}
+
+span<model3d_data::texture_data> model3d_data::textures() const {
+  CHECK_DATA;
+  return datarange(_data->textures, _data->texture_count);
+}
+
+size_t model3d_data::texture_count() const {
+  CHECK_DATA;
+  return _data->texture_count;
+}
+
+span<model3d_data::texture_data> model3d_data::material_textures(size_t idx) const {
+  CHECK_DATA;
+  assert(idx < _data->material_count);
+  auto& material = _data->materials[idx];
+  if (material.texture_indices.start == (u32)-1 || !material.texture_indices.count) {
+    return span<texture_data>{}; // empty span
+  }
+  return datarange(_data->textures, _data->texture_count, material.texture_indices);
+}
+
+namespace {
+
+optional<size_t> find_map_idx(auto&& map, std::string_view name) {
   auto it = map.find(name);
   if (it == map.end()) {
     return nullopt;
@@ -731,34 +1083,29 @@ optional<u32> find_map_idx(auto&& map, std::string_view name) {
 
 } // namespace
 
-optional<u32> model3d_data::find_mesh(std::string_view mesh_name) noexcept {
-  assert(_data, "model3d_data use after free");
+optional<size_t> model3d_data::find_mesh_idx(std::string_view mesh_name) const {
+  CHECK_DATA;
   return find_map_idx(_data->mesh_registry, mesh_name);
 }
 
-optional<u32> model3d_data::find_animation_idx(std::string_view animation_name) noexcept {
-  assert(_data, "model3d_data use after free");
-  return find_map_idx(_data->anim_registry, animation_name);
+optional<size_t> model3d_data::find_blend_shape_idx(std::string_view blend_shape_name) const {
+  CHECK_DATA;
+  return find_map_idx(_data->blend_shape_registry, blend_shape_name);
 }
 
-optional<u32> model3d_data::find_bone_idx(std::string_view bone_name) noexcept {
-  assert(_data, "model3d_data use after free");
+optional<size_t> model3d_data::find_bone_idx(std::string_view bone_name) const {
+  CHECK_DATA;
   return find_map_idx(_data->bone_registry, bone_name);
 }
 
-optional<u32> model3d_data::find_armature(std::string_view armature_name) noexcept {
-  assert(_data, "model3d_data use after free");
-  return find_map_idx(_data->armature_registry, armature_name);
-}
-
-optional<u32> model3d_data::find_material_idx(std::string_view material_name) noexcept {
-  assert(_data, "model3d_data use after free");
+optional<size_t> model3d_data::find_material_idx(std::string_view material_name) const {
+  CHECK_DATA;
   return find_map_idx(_data->material_registry, material_name);
 }
 
-optional<u32> model3d_data::find_texture_idx(std::string_view material_name) noexcept {
-  assert(_data, "model3d_data use after free");
-  return find_map_idx(_data->texture_registry, material_name);
+optional<size_t> model3d_data::find_texture_idx(std::string_view texture_name) const {
+  CHECK_DATA;
+  return find_map_idx(_data->texture_registry, texture_name);
 }
 
 } // namespace kappa::assets
