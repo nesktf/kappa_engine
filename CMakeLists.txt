@@ -22,6 +22,7 @@ list(APPEND LIB_LINK chimatools)
 # assimp
 set(ASSIMP_NO_EXPORT ON)
 set(ASSIMP_INSTALL OFF)
+set(ASSIMP_BUILD_TESTS OFF)
 add_subdirectory("lib/assimp")
 list(APPEND LIB_LINK assimp)
 

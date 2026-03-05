@@ -344,6 +344,7 @@ void parse_rigs(model3d_data::model_internal& data, const aiScene& scene,
       }
     }
     assert(false, "No root bone found in model"); // Is this correct? Maybe
+    SHOGLE_UNREACHABLE();
   }();
 
   i32 bone_idx = 0;
@@ -745,8 +746,28 @@ model3d_data::model_internal::~model_internal() {
   DEALLOC(bone_inv_models, bone_count);
 
   for (size_t i = 0; i < texture_count; ++i) {
-    DEALLOC(textures[i].data,
-            image_stride(textures[i].extent.width, textures[i].extent.height, textures[i].format));
+    if (!textures[i].data) {
+      continue;
+    }
+    const size_t stride =
+      image_stride(textures[i].extent.width, textures[i].extent.height, textures[i].format);
+    switch (textures[i].format) {
+      case image_format::rgb8u:
+        [[fallthrough]];
+      case image_format::rgba8u: {
+        DEALLOC((u8*)textures[i].data, stride);
+      } break;
+      case image_format::rgb16u:
+        [[fallthrough]];
+      case image_format::rgba16u: {
+        DEALLOC((u16*)textures[i].data, stride);
+      } break;
+      case image_format::rgb32f:
+        [[fallthrough]];
+      case image_format::rgba32f: {
+        DEALLOC((f32*)textures[i].data, stride);
+      } break;
+    }
   }
   DEALLOC(textures, texture_count);
   DEALLOC(material_textures, material_textures_count);
@@ -1001,7 +1022,7 @@ span<model3d_data::bone_data> model3d_data::bones() const {
 
 span<model3d_data::bone_data> model3d_data::bones(array_range range) const {
   CHECK_DATA;
-  return datarange(_data->bones, _data->bone_count);
+  return datarange(_data->bones, _data->bone_count, range);
 }
 
 span<m4f32> model3d_data::bone_locals() const {
