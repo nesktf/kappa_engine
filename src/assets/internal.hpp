@@ -53,7 +53,7 @@ struct model3d_data::model_internal {
   buffer_path path;
   model_allocator alloc;
   std::unordered_map<std::string_view, size_t> mesh_registry;
-  std::unordered_map<std::string_view, size_t> blend_shape_registry;
+  // std::unordered_map<std::string_view, size_t> blend_shape_registry;
   std::unordered_map<std::string_view, size_t> material_registry;
   std::unordered_map<std::string_view, size_t> texture_registry;
   // std::unordered_map<std::string_view, size_t> bone_anim_registry;
@@ -79,6 +79,7 @@ struct model3d_data::model_internal {
   u32* mesh_indices;
   size_t mesh_index_count;
 
+#if 0
   blend_shape_data* blend_shapes;
   size_t blend_shape_count;
   v3f32* blend_positions;
@@ -92,6 +93,7 @@ struct model3d_data::model_internal {
   v3f32* blend_tangents;
   v3f32* blend_bitangents;
   size_t blend_tangent_count;
+#endif
 
 #if 0
   anim_data* animations;

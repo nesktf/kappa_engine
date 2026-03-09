@@ -53,6 +53,7 @@ struct buffer_str {
   size_t format_from(fmt::format_string<Args...> fmt, Args&&... args) {
     std::memset(data, 0, MaxSize);
     const auto res = fmt::format_to_n(data, MaxSize - 1, fmt, std::forward<Args>(args)...);
+    len = res.size;
     return res.size;
   }
 };
