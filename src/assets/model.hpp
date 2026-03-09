@@ -85,9 +85,9 @@ public:
 
     u32 elem_count() const { return has_indices() ? index_count : nverts; }
 
-    // array_range blend_shapes() const { return {blend_start, blend_count}; }
+    array_range blend_shapes() const { return {blend_start, blend_count}; }
 
-    // bool has_blend_shapes() const { return blend_start != (u32)-1; }
+    bool has_blend_shapes() const { return blend_start != (u32)-1; }
 
   public:
     buffer_name name;
@@ -102,14 +102,13 @@ public:
     u32 index_start;
     u32 index_count;
     u32 face_count;
-    // u32 blend_start;
-    // u32 blend_count;
+    u32 blend_start;
+    u32 blend_count;
     v3f32 bbox_min, bbox_max;
     u32 material_index;
     mesh_primitive primitive;
   };
 
-#if 0
   struct blend_shape_data {
   public:
     array_range positions() const { return {positions_start, nverts}; }
@@ -150,7 +149,6 @@ public:
     u32 colors_start[MAX_MESH_COLORS];
     f32 weight;
   };
-#endif
 
   struct texture_data {
     buffer_name name;
@@ -237,7 +235,6 @@ public:
       .value_or(nullptr);
   }
 
-#if 0
   blend_shape_data& blend_shape_at(size_t idx) const;
   span<blend_shape_data> blend_shapes() const;
   span<v3f32> blend_positions() const;
@@ -254,16 +251,7 @@ public:
   span<v3f32> blend_bitangents(array_range range) const;
   size_t blend_shape_count() const;
 
-  optional<size_t> find_blend_shape_idx(std::string_view blend_shape_name) const;
-
-  blend_shape_data* find_blend_shape(std::string_view blend_shape_name) const {
-    return find_blend_shape_idx(blend_shape_name)
-      .transform([this](size_t idx) -> blend_shape_data* { return &blend_shape_at(idx); })
-      .value_or(nullptr);
-  }
-
   bool has_blend_shapes() const { return (blend_shape_count() > 0); }
-#endif
 
   bone_data& bone_at(size_t idx) const;
   span<bone_data> bones() const;
