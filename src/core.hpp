@@ -18,6 +18,8 @@
 namespace kappa {
 
 using shogle::logger;
+extern int argc;
+extern char** argv;
 
 using namespace shogle::numdefs;
 using shogle::expected;
@@ -93,6 +95,14 @@ struct array_range {
   u32 start;
   u32 count;
 };
+
+template<typename... Fs>
+struct overload : Fs... {
+  using Fs::operator()...;
+};
+
+template<typename... Fs>
+overload(Fs...) -> overload<Fs...>;
 
 using shogle::m4f32;
 using shogle::qf32;

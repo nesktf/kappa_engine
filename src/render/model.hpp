@@ -1,8 +1,41 @@
 #pragma once
 
-#include "./common.hpp"
+#include "../assets/model.hpp"
+#include "./instance.hpp"
 
 namespace kappa::render {
+
+using pipeline_handle = u64;
+using texture_handle = u64;
+
+enum model_attrib_flag : bits32 {
+  MODEL_ATTRIB_NONE = 0x0000,
+  MODEL_ATTRIB_POSITIONS = 0x0001,
+  MODEL_ATTRIB_NORMALS = 0x0002,
+  MODEL_ATTRIB_TANGENTS = 0x0004,
+  MODEL_ATTRIB_BONES = 0x0008,
+  MODEL_ATTRIB_UV0 = 0x0010,
+  MODEL_ATTRIB_UV1 = 0x0020,
+  MODEL_ATTRIB_COLOR0 = 0x0040,
+  MODEL_ATTRIB_COLOR1 = 0x0080,
+};
+
+struct model3d_mesh_data {
+  size_t nverts;
+  const v3f32* positions;
+  const v3f32* normals;
+  const v2f32* uvs;
+  const v3f32* tangents;
+  const v3f32* bitangents;
+  const v4i32* bone_indices;
+  const v4f32* bone_weights;
+};
+
+struct model3d_mesh {
+  u32 prev, next;
+  array_range textures;
+  pipeline_handle pipeline;
+};
 
 struct mat4 {};
 
