@@ -1,8 +1,13 @@
 #pragma once
 
+#include "../util/freelist.hpp"
 #include "./instance.hpp"
 
 namespace kappa::render {
+
+constexpr size_t MAX_PIPELINES = 512;
+constexpr size_t MAX_TEXTURES = 512;
+constexpr size_t MAX_BUFFERS = 512;
 
 struct render_context {
 public:
@@ -12,8 +17,10 @@ public:
 public:
   shogle::gl_context gl;
   shogle::glfw_win win;
-  shogle::gl_pipeline pipeline;
-  std::vector<shogle::gl_pipeline> pipelines;
+  shogle::gl_texture default_texture;
+  inplace_freelist<shogle::gl_pipeline, MAX_PIPELINES> pipelines;
+  inplace_freelist<shogle::gl_texture, MAX_TEXTURES> textures;
+  inplace_freelist<shogle::gl_buffer, MAX_BUFFERS> buffers;
   m4f32 proj{1.f};
 };
 
