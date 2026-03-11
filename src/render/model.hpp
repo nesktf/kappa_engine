@@ -5,9 +5,6 @@
 
 namespace kappa::render {
 
-using pipeline_handle = u64;
-using texture_handle = u64;
-
 enum model_attrib_flag : bits32 {
   MODEL_ATTRIB_NONE = 0x0000,
   MODEL_ATTRIB_POSITIONS = 0x0001,
@@ -18,65 +15,71 @@ enum model_attrib_flag : bits32 {
   MODEL_ATTRIB_UV1 = 0x0020,
   MODEL_ATTRIB_COLOR0 = 0x0040,
   MODEL_ATTRIB_COLOR1 = 0x0080,
+  MODEL_ATTRIB_ALL = 0xFFFF,
 };
 
-struct model3d_mesh_data {
-  size_t nverts;
-  const v3f32* positions;
-  const v3f32* normals;
-  const v2f32* uvs;
-  const v3f32* tangents;
-  const v3f32* bitangents;
-  const v4i32* bone_indices;
-  const v4f32* bone_weights;
-};
+class model3d_renderable {
+public:
+  static constexpr size_t MAX_MESH_TEXTURES = 16;
 
-struct model3d_mesh {
-  u32 prev, next;
-  array_range textures;
-  pipeline_handle pipeline;
-};
+  struct mesh_t {
+    buffer_name name;
+    buffer_handle vertex_buffer, index_buffer;
+    u32 vertex_count, index_count;
+    bits32 vertex_attributes;
+    u32 pipeline;
+    std::array<u32, MAX_MESH_TEXTURES> textures;
+    u32 texture_count;
+  };
 
-struct mat4 {};
+  struct bone_t {
+    buffer_name name;
+    i32 parent;
+  };
 
-using v3 = float[3];
-using v4 = float[4];
-using v2 = float[2];
-using i4 = int[4];
-using bitfield = int;
+  struct texture_t {
+    buffer_name name;
+    texture_handle texture;
+    assets::texture_type type;
+  };
 
-struct light {
-  v3 pos;
-  v3 dir;
-  v3 color;
-  // ...
-};
+  struct pipeline_t {
+    pipeline_handle pipeline;
+  };
 
-struct scene_things {
-  const model* models;
-  int model_count;
+  struct rig_t {
+    std::unordered_map<std::string_view, u32> bone_map;
+    unique_array<bone_t> bones;
+    unique_array<m4f32> bone_locals;
+    unique_array<m4f32> bone_inv_models;
+  };
 
-  light* lights;
-  int light_count;
+private:
+  struct create_t {};
 
-  mat4 proj, view;
+public:
+  model3d_renderable(create_t, const buffer_name& name, unique_array<mesh_t>&& meshes,
+                     rig_t&& rig);
 
-  mat4* bone_matrices; // dynamic, depends on models
-  int bone_matrices_count;
-};
+public:
+  static s_expect<model3d_renderable> load_model(const assets::model3d_data& data);
 
-struct entity {
-  int model;       // offset in assets::models
-  int model_entry; // offsetin mesh::bone_matrices
+public:
+  std::string_view name() const;
 
-  v3 pos;
-  v3 scale;
-  v4 rot_quat;
+  span<const mesh_t> meshes() const;
 
-  float anim_weights[8];
-  int anim_indices[8];
-  int anim_count;
-  float anim_time;
+  optional<u32> find_bone_idx(std::string_view name) const;
+  span<const bone_t> bones() const;
+  span<const m4f32> bone_locals() const;
+  span<const m4f32> bone_inv_models() const;
+
+private:
+  buffer_name _name;
+  unique_array<mesh_t> _meshes;
+  unique_array<pipeline_t> _pipelines;
+  unique_array<texture_t> _textures;
+  rig_t _rig;
 };
 
 } // namespace kappa::render

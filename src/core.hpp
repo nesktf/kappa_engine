@@ -3,6 +3,7 @@
 #include <shogle/core.hpp>
 #include <shogle/util/expected.hpp>
 #include <shogle/util/logger.hpp>
+#include <shogle/util/memory.hpp>
 #include <shogle/util/ptr.hpp>
 
 #include <shogle/math/matrix4x4.hpp>
@@ -18,17 +19,25 @@
 namespace kappa {
 
 using shogle::logger;
-extern int argc;
-extern char** argv;
+extern int g_argc;
+extern char** g_argv;
 
 using namespace shogle::numdefs;
-using shogle::expected;
 using shogle::in_place;
+
 using shogle::nullopt;
 using shogle::optional;
+
 using shogle::ptr_view;
 using shogle::ref_view;
+
+using shogle::expected;
 using shogle::unexpect;
+
+using shogle::s_expect;
+using shogle::sv_expect;
+
+using shogle::unique_array;
 
 template<size_t MaxSize>
 struct buffer_str {

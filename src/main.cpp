@@ -88,12 +88,12 @@ void run_engine() {
 
 } // namespace
 
-int kappa::argc;
-char** kappa::argv;
+int kappa::g_argc;
+char** kappa::g_argv;
 
 int main(int argc, char* argv[]) {
-  kappa::argc = argc;
-  kappa::argv = argv;
+  kappa::g_argc = argc;
+  kappa::g_argv = argv;
   shogle::logger::set_level(shogle::logger::LEVEL_VERBOSE);
   try {
     run_engine();
