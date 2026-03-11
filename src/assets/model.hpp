@@ -79,6 +79,10 @@ public:
       return (idx >= MAX_MESH_COLORS || colors_start[idx] != (u32)-1);
     }
 
+    array_range bones() const { return {bones_start, nverts}; }
+
+    bool has_bones() const { return bones_start != (u32)-1; }
+
     array_range indices() const { return {index_start, index_count}; }
 
     bool has_indices() const { return index_count > 0; }
@@ -306,6 +310,14 @@ private:
   model_internal* _data;
 };
 
+struct model_texture_item {
+  buffer_path path;
+  texture_type type;
+};
+
+fn collect_model_textures_items(std::vector<model_texture_item>& items, const model3d_data& model)
+  -> u32;
+
 class model3d_loader {
 private:
   struct loader_internal;
@@ -329,7 +341,7 @@ public:
 
 public:
   model3d_loader(std::string_view model_path, std::string_view model_name,
-                 shogle::ptr_view<const load_opts> opts = nullptr);
+                 ptr_view<const load_opts> opts = nullptr);
 
 public:
   // Should be only called ONCE, preferably in a threadpool

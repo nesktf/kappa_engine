@@ -16,6 +16,8 @@
 #endif
 #define assert(cond, ...) SHOGLE_ASSERT(cond __VA_OPT__(, ) __VA_ARGS__)
 
+#define fn auto
+
 namespace kappa {
 
 using shogle::logger;

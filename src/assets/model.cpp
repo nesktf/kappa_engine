@@ -805,6 +805,25 @@ void model3d_data::destroy() noexcept {
   _data = nullptr;
 }
 
+fn collect_model_texture_items(std::vector<model_texture_item>& items, const model3d_data& model)
+  -> u32 {
+  u32 count = 0;
+  for (const auto& mesh : model.meshes()) {
+    const auto texes = model.material_textures(mesh.material_index);
+    for (const auto& tex : texes) {
+      auto it = std::find_if(items.begin(), items.end(), [&](const auto& t) {
+        return t.path.as_view() == tex.path.as_view();
+      });
+      if (it != items.end()) {
+        continue;
+      }
+      items.emplace_back(tex.path, tex.type);
+      ++count;
+    }
+  }
+  return count;
+}
+
 #define CHECK_DATA assert(_data, "model3d_data use after free");
 
 namespace {

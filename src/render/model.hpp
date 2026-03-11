@@ -18,6 +18,17 @@ enum model_attrib_flag : bits32 {
   MODEL_ATTRIB_ALL = 0xFFFF,
 };
 
+struct model3d_texture_data {
+public:
+  static fn from_asset(const assets::texture_data& asset) -> s_expect<model3d_texture_data>;
+
+public:
+  buffer_name name;
+  texture_handle texture;
+  extent2d extent;
+  assets::texture_type type;
+};
+
 class model3d_renderable {
 public:
   static constexpr size_t MAX_MESH_TEXTURES = 16;
@@ -37,12 +48,6 @@ public:
     i32 parent;
   };
 
-  struct texture_t {
-    buffer_name name;
-    texture_handle texture;
-    assets::texture_type type;
-  };
-
   struct pipeline_t {
     pipeline_handle pipeline;
   };
@@ -59,26 +64,28 @@ private:
 
 public:
   model3d_renderable(create_t, const buffer_name& name, unique_array<mesh_t>&& meshes,
-                     rig_t&& rig);
+                     unique_array<model3d_texture_data>&& textures, rig_t&& rig);
 
 public:
-  static s_expect<model3d_renderable> load_model(const assets::model3d_data& data);
+  static fn load_model(unique_array<model3d_texture_data>&& textures,
+                       const assets::model3d_data& data) -> s_expect<model3d_renderable>;
+
+  void destroy();
 
 public:
-  std::string_view name() const;
+  fn name() const -> std::string_view;
+  fn meshes() const -> span<const mesh_t>;
 
-  span<const mesh_t> meshes() const;
-
-  optional<u32> find_bone_idx(std::string_view name) const;
-  span<const bone_t> bones() const;
-  span<const m4f32> bone_locals() const;
-  span<const m4f32> bone_inv_models() const;
+  fn find_bone_idx(std::string_view name) const -> optional<u32>;
+  fn bones() const -> span<const bone_t>;
+  fn bone_locals() const -> span<const m4f32>;
+  fn bone_inv_models() const -> span<const m4f32>;
 
 private:
   buffer_name _name;
   unique_array<mesh_t> _meshes;
   unique_array<pipeline_t> _pipelines;
-  unique_array<texture_t> _textures;
+  unique_array<model3d_texture_data> _textures;
   rig_t _rig;
 };
 

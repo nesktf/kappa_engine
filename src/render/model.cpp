@@ -3,6 +3,9 @@
 
 namespace kappa::render {
 
+fn model3d_texture_data::from_asset(const assets::texture_data& asset)
+  -> s_expect<model3d_texture_data> {}
+
 namespace {
 
 enum material_tex_flag : bits32 {
@@ -17,7 +20,14 @@ enum material_tex_flag : bits32 {
 };
 
 auto collect_textures(const assets::model3d_data& data)
-  -> unique_array<model3d_renderable::texture_t> {}
+  -> unique_array<model3d_renderable::texture_t> {
+  if (textures.empty()) {
+    return {};
+  }
+  auto res = shogle::make_array<model3d_renderable::texture_t>(textures.size());
+  std::memcpy(res.data(), textures.data(), textures.size() * sizeof(textures[0]));
+  return res;
+}
 
 struct mesh_create_data {
   size_t vertex_count;
@@ -43,7 +53,7 @@ auto collect_meshes(span<model3d_renderable::texture_t> texes, const assets::mod
   -> unique_array<model3d_renderable::mesh_t> {
   static_assert(std::is_trivial_v<model3d_renderable::mesh_t>);
   auto meshes =
-    shogle::make_array<model3d_renderable::mesh_t>(shogle::mem::uninitialized, data.mesh_count());
+    shogle::make_array<model3d_renderable::mesh_t>(shogle::uninitialized, data.mesh_count());
   std::memset(meshes.data(), 0x00, sizeof(meshes[0]) * data.mesh_count());
   const auto data_meshes = data.meshes();
   size_t mesh_pos = 0;
@@ -97,16 +107,17 @@ model3d_renderable::model3d_renderable(create_t, const buffer_name& name,
                                        unique_array<mesh_t>&& meshes, rig_t&& rig) :
     _name(name), _meshes(std::move(meshes)), _rig(std::move(rig)) {}
 
-s_expect<model3d_renderable> model3d_renderable::load_model(const assets::model3d_data& data) {
+auto model3d_renderable::load_model(const assets::model3d_data& data)
+  -> s_expect<model3d_renderable> {
   auto texes = collect_textures(data);
   auto meshes = collect_meshes({texes.data(), texes.size()}, data);
 
   rig_t rig{};
   if (data.has_bones()) {
     const auto bones = data.bones();
-    rig.bones = shogle::make_array<bone_t>(shogle::mem::uninitialized, bones.size());
-    rig.bone_locals = shogle::make_array<m4f32>(shogle::mem::uninitialized, bones.size());
-    rig.bone_inv_models = shogle::make_array<m4f32>(shogle::mem::uninitialized, bones.size());
+    rig.bones = shogle::make_array<bone_t>(shogle::uninitialized, bones.size());
+    rig.bone_locals = shogle::make_array<m4f32>(shogle::uninitialized, bones.size());
+    rig.bone_inv_models = shogle::make_array<m4f32>(shogle::uninitialized, bones.size());
     std::memcpy(rig.bone_locals.data(), data.bone_locals().data(), bones.size() * sizeof(m4f32));
     std::memcpy(rig.bone_inv_models.data(), data.bone_inverse_models().data(),
                 bones.size() * sizeof(m4f32));
