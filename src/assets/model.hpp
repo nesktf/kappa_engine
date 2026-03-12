@@ -160,7 +160,6 @@ public:
     void* data;
     extent2d extent;
     image_format format;
-    texture_map_mode mapping_mode;
     texture_type type;
   };
 
@@ -310,14 +309,6 @@ private:
   model_internal* _data;
 };
 
-struct model_texture_item {
-  buffer_path path;
-  texture_type type;
-};
-
-fn collect_model_textures_items(std::vector<model_texture_item>& items, const model3d_data& model)
-  -> u32;
-
 class model3d_loader {
 private:
   struct loader_internal;
@@ -326,10 +317,9 @@ public:
   enum load_flags : bits32 {
     FLAGS_NONE = 0x0000,
     FLAG_TRIANGULATE = 0x0001,
-    FLAG_EMBED_TEXTURES = 0x0002,
-    FLAG_GEN_TANGENTS = 0x0004,
-    FLAG_GEN_UVS = 0x0008,
-    FLAG_GEN_NORMALS = 0x0010,
+    FLAG_GEN_TANGENTS = 0x0002,
+    FLAG_GEN_UVS = 0x0004,
+    FLAG_GEN_NORMALS = 0x0008,
   };
 
   static constexpr bits32 FLAGS_DEFAULT = FLAG_TRIANGULATE | FLAG_GEN_TANGENTS | FLAG_GEN_UVS;

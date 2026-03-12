@@ -39,7 +39,7 @@ model3d_loader::model3d_loader(std::string_view model_path, std::string_view mod
 }
 
 model3d_data::model_internal::model_internal(const buffer_name& name_, const buffer_path& path_) :
-    meshes(nullptr), mesh_count(0), mesh_positions(nullptr), mesh_position_count(0),
+    chima(), meshes(nullptr), mesh_count(0), mesh_positions(nullptr), mesh_position_count(0),
     mesh_normals(nullptr), mesh_normal_count(0), mesh_tangents(nullptr), mesh_bitangents(nullptr),
     mesh_tangent_count(0), mesh_bone_indices(nullptr), mesh_bone_weights(nullptr),
     mesh_bone_count(0), mesh_indices(nullptr), mesh_index_count(0), blend_shapes(nullptr),
@@ -592,14 +592,15 @@ void parse_meshes(model3d_data::model_internal& data, const aiScene& scene) {
   }
 }
 
-void parse_materials(model3d_data::model_internal& data, const aiScene& scene,
-                     const buffer_path& texture_dir) {
+bool parse_materials(model3d_data::model_internal& data, const aiScene& scene,
+                     const buffer_path& texture_dir, buffer_str<256>& err) {
   struct tex_set_data {
     aiString filename;
     texture_type type;
   };
 
   std::vector<tex_set_data> texture_set;
+  std::vector<u32> material_textures;
   static constexpr auto parseable_textures = std::to_array({
     aiTextureType_DIFFUSE,
     aiTextureType_NORMALS,
@@ -628,8 +629,13 @@ void parse_materials(model3d_data::model_internal& data, const aiScene& scene,
       std::string_view filename_view(filename.data, filename.length);
       auto it = std::find_if(texture_set.begin(), texture_set.end(),
                              [&](const auto& a) { return a.filename.C_Str() == filename_view; });
-      if (it == texture_set.end()) {
+      if (it != texture_set.end()) {
+        u32 tex_pos = (u32)std::distance(texture_set.begin(), it);
+        material_textures.emplace_back(tex_pos);
+      } else {
+        u32 tex_pos = (u32)texture_set.size();
         texture_set.emplace_back(filename, texcast(type));
+        material_textures.emplace_back(tex_pos);
       }
     }
     return count;
@@ -637,7 +643,8 @@ void parse_materials(model3d_data::model_internal& data, const aiScene& scene,
 
   data.material_count = scene.mNumMaterials;
   if (!data.material_count) {
-    return;
+    err.format_from("No materials in model");
+    return false;
   }
   auto& al = data.alloc;
   alloc_init(al, &data.materials, data.material_count);
@@ -649,25 +656,64 @@ void parse_materials(model3d_data::model_internal& data, const aiScene& scene,
     auto& mat = data.materials[i];
     mat.name.copy_from(mat_name.data, mat_name.length);
     data.material_registry.emplace(mat.name.as_view(), i);
+
+    u32 material_texture_count = 0;
     for (aiTextureType type : parseable_textures) {
-      data.material_textures_count += parse_material_textures(*ai_mat, type);
+      material_texture_count += parse_material_textures(*ai_mat, type);
+    }
+    if (material_texture_count) {
+      mat.texture_indices.count = material_texture_count;
+      mat.texture_indices.start = ((u32)material_textures.size()) - material_texture_count;
+    } else {
+      mat.texture_indices = array_range::null_range();
     }
   }
   data.texture_count = texture_set.size(); // Should include external and embeded textures
   if (!data.texture_count) {
-    return;
+    return true;
   }
-  assert(data.material_textures_count > 0);
+  // Load images
   alloc_init(al, &data.textures, data.texture_count);
-  alloc_init(al, &data.material_textures, data.material_textures_count);
-  for (size_t i = 0; i < data.texture_count; ++i) {
-    auto& tex = data.textures[i];
-    const auto [filename, type] = texture_set[i];
+  alloc_init(al, &data.texture_images, data.texture_count);
+  size_t image_idx = 0;
+  shogle::scope_end image_err_cleanup = [&]() {
+    for (size_t i = 0; i < image_idx; ++i) {
+      chima::image::destroy(data.chima, data.texture_images[i]);
+    }
+  };
+
+  static constexpr chima_image_depth image_depth = CHIMA_DEPTH_8U;
+  chima::error chimaerr;
+  for (; image_idx < data.texture_count; ++image_idx) {
+    auto& tex = data.textures[image_idx];
+    auto& img = data.texture_images[image_idx];
+    const auto [filename, type] = texture_set[image_idx];
     std::string_view filename_view(filename.data, filename.length);
     tex.name.copy_from(filename.data, filename.length);
     tex.path.format_from("{}/{}", texture_dir.as_view(), filename_view);
-    data.texture_registry.emplace(tex.name.as_view(), i); // Name should always be unique
+    data.texture_registry.emplace(tex.name.as_view(), image_idx); // Name should always be unique
+    auto image = chima::image::load(data.chima, image_depth, tex.path.c_str(), &chimaerr);
+    if (!image) {
+      err.format_from("Failed to load image at \"{}\", {}", tex.path.as_view(), chimaerr.what());
+      MODEL_LOG(error, "{}", err.as_view());
+      return false;
+    }
+    img = *image;
+    tex.data = img.data();
+    const auto [w, h] = img.extent();
+    tex.extent.width = w;
+    tex.extent.height = h;
+    tex.format = parse_chima_format(image_depth, img.channels());
+    tex.type = texture_set[image_idx].type;
   }
+  image_err_cleanup.disengage();
+
+  // Copy material -> texture map
+  alloc_init(al, &data.material_textures, material_textures.size());
+  data.material_textures_count = material_textures.size();
+  std::memcpy(data.material_textures, material_textures.data(),
+              material_textures.size() * sizeof(material_textures[0]));
+  return true;
 }
 
 } // namespace
@@ -683,9 +729,6 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
     bits32 out = 0;
     if (flags & FLAG_TRIANGULATE) {
       out |= aiProcess_Triangulate;
-    }
-    if (flags & FLAG_EMBED_TEXTURES) {
-      out |= aiProcess_EmbedTextures;
     }
     if (flags & FLAG_GEN_TANGENTS) {
       out |= aiProcess_CalcTangentSpace;
@@ -715,7 +758,9 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
 
     parse_rigs(*data, *scene, bone_invs);
     parse_meshes(*data, *scene);
-    parse_materials(*data, *scene, _impl->texture_dir);
+    if (!parse_materials(*data, *scene, _impl->texture_dir, ret.error())) {
+      return ret; // parse_materials fills the error string
+    }
     // TODO: Parse animations
     ret.emplace(*data.release());
   } catch (const std::bad_alloc&) {
@@ -765,30 +810,10 @@ model3d_data::model_internal::~model_internal() {
   DEALLOC(bone_inv_models, bone_count);
 
   for (size_t i = 0; i < texture_count; ++i) {
-    if (!textures[i].data) {
-      continue;
-    }
-    const size_t stride =
-      image_stride(textures[i].extent.width, textures[i].extent.height, textures[i].format);
-    switch (textures[i].format) {
-      case image_format::rgb8u:
-        [[fallthrough]];
-      case image_format::rgba8u: {
-        DEALLOC((u8*)textures[i].data, stride);
-      } break;
-      case image_format::rgb16u:
-        [[fallthrough]];
-      case image_format::rgba16u: {
-        DEALLOC((u16*)textures[i].data, stride);
-      } break;
-      case image_format::rgb32f:
-        [[fallthrough]];
-      case image_format::rgba32f: {
-        DEALLOC((f32*)textures[i].data, stride);
-      } break;
-    }
+    chima::image::destroy(chima, texture_images[i]);
   }
   DEALLOC(textures, texture_count);
+  DEALLOC(texture_images, texture_count);
   DEALLOC(material_textures, material_textures_count);
   DEALLOC(materials, material_count);
 
@@ -805,33 +830,18 @@ void model3d_data::destroy() noexcept {
   _data = nullptr;
 }
 
-fn collect_model_texture_items(std::vector<model_texture_item>& items, const model3d_data& model)
-  -> u32 {
-  u32 count = 0;
-  for (const auto& mesh : model.meshes()) {
-    const auto texes = model.material_textures(mesh.material_index);
-    for (const auto& tex : texes) {
-      auto it = std::find_if(items.begin(), items.end(), [&](const auto& t) {
-        return t.path.as_view() == tex.path.as_view();
-      });
-      if (it != items.end()) {
-        continue;
-      }
-      items.emplace_back(tex.path, tex.type);
-      ++count;
-    }
-  }
-  return count;
-}
-
 #define CHECK_DATA assert(_data, "model3d_data use after free");
 
 namespace {
 
+size_t cap_range(size_t max, size_t count) {
+  return std::min(count, max - count);
+}
+
 template<typename T>
 span<T> datarange(T* data, size_t data_sz, array_range range) {
   assert(range.start != (u32)-1 && range.count);
-  return span<T>{data + range.start, std::min((size_t)range.count, data_sz - range.count)};
+  return span<T>{data + range.start, cap_range(data_sz, range.count)};
 }
 
 template<typename T>
@@ -1135,7 +1145,18 @@ span<model3d_data::texture_data> model3d_data::material_textures(size_t idx) con
   if (material.texture_indices.start == (u32)-1 || !material.texture_indices.count) {
     return span<texture_data>{}; // empty span
   }
-  return datarange(_data->textures, _data->texture_count, material.texture_indices);
+
+  const auto map_range =
+    datarange(_data->material_textures, _data->material_textures_count, material.texture_indices);
+  assert(!map_range.empty());
+  _data->texture_cache.clear();
+  _data->texture_cache.resize(map_range.size());
+
+  for (size_t i = 0; i < map_range.size(); ++i) {
+    _data->texture_cache[i] = _data->textures[map_range[i]];
+  }
+
+  return {_data->texture_cache.data(), _data->texture_cache.size()};
 }
 
 optional<size_t> model3d_data::find_mesh_idx(std::string_view mesh_name) const {

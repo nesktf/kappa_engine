@@ -13,6 +13,28 @@
 
 namespace kappa::assets {
 
+inline image_format parse_chima_format(chima_image_depth depth, u32 channels) {
+  assert(channels == 3 || channels == 4);
+  switch (depth) {
+    case CHIMA_DEPTH_8U: {
+      return channels == 4 ? image_format::rgba8u : image_format::rgb8u;
+    } break;
+    case CHIMA_DEPTH_16U: {
+      return channels == 4 ? image_format::rgba16u : image_format::rgb16u;
+    } break;
+    case CHIMA_DEPTH_32F: {
+      return channels == 4 ? image_format::rgba32f : image_format::rgb32f;
+    } break;
+    default:
+      SHOGLE_UNREACHABLE();
+  }
+};
+
+inline texture_type parse_tex_type_from_name(std::string_view name) {
+  SHOGLE_UNUSED(name); // TODO
+  return texture_type::albedo;
+};
+
 struct texture_data::texture_internal {
   texture_internal(chima::context&& chima_, chima::image image_) :
       chima(std::move(chima_)), image(image_), image_destroyer(chima, image) {}
@@ -52,6 +74,7 @@ struct model3d_data::model_internal {
   buffer_name name;
   buffer_path path;
   model_allocator alloc;
+  chima::context chima;
   std::unordered_map<std::string_view, size_t> mesh_registry;
   // std::unordered_map<std::string_view, size_t> blend_shape_registry;
   std::unordered_map<std::string_view, size_t> material_registry;
@@ -112,6 +135,7 @@ struct model3d_data::model_internal {
   size_t bone_count;
 
   texture_data* textures;
+  chima::image* texture_images;
   size_t texture_count;
   material_data* materials;
   size_t material_count;
