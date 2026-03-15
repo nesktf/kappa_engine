@@ -1,10 +1,10 @@
+#include <shogle/render/data.hpp>
+
 #include "./internal.hpp"
 
 namespace kappa::render {
 
 namespace {
-
-shogle::nullable<render_context> g_ctx;
 
 void update_proj(m4f32& m, f32 vp_w, f32 vp_h) {
   static constexpr f32 FOV = shogle::math::rad(45.f);
@@ -13,18 +13,15 @@ void update_proj(m4f32& m, f32 vp_w, f32 vp_h) {
 
 } // namespace
 
+shogle::nullable<render_context> g_ctx;
+
 render_context::render_context(shogle::gl_context&& gl_, shogle::glfw_win&& win_,
-                               shogle::gl_pipeline&& pipeline_) :
-    gl(std::move(gl_)), win(std::move(win_)), pipeline(std::move(pipeline_)) {}
+                               shogle::gl_texture&& default_tex_) :
+    win(std::move(win_)), gl(std::move(gl_)), default_texture(std::move(default_tex_)) {}
 
 shogle::glfw_win& window() {
   assert(g_ctx.has_value());
   return g_ctx->win;
-}
-
-void destroy() {
-  assert(g_ctx.has_value());
-  glfwTerminate();
 }
 
 void initialize(u32 win_w, u32 win_h) {
@@ -34,14 +31,37 @@ void initialize(u32 win_w, u32 win_h) {
   shogle::glfw_win win(win_w, win_h, "test", hints);
   shogle::gl_context gl(win.surface_provider());
 
-  auto pip = initialize_pipeline();
-  g_ctx.emplace(std::move(gl), std::move(win), std::move(pip).value());
+  static constexpr auto missing_tex_data = shogle::make_missing_albedo<8>();
+  shogle::gl_texture tex(gl, shogle::gl_texture::TEX_FORMAT_RGBA8, shogle::extent3d(8, 8, 1), 7);
+  const shogle::gl_texture::image_data missing_data{
+    .data = missing_tex_data.data(),
+    .extent = shogle::extent3d(8, 8, 1),
+    .format = shogle::gl_texture::PIXEL_FORMAT_RGBA,
+    .datatype = shogle::gl_texture::PIXEL_TYPE_U8,
+    .alignment = shogle::gl_texture::ALIGN_4BYTES,
+  };
+  tex.upload_image(gl, missing_data).value();
+
+  g_ctx.emplace(std::move(gl), std::move(win), std::move(tex));
 
   update_proj(g_ctx->proj, (f32)win_w, (f32)win_h);
 
   g_ctx->win.set_viewport_callback([&](auto, const shogle::extent2d& vp) {
     update_proj(g_ctx->proj, (f32)vp.width, (f32)vp.height);
   });
+}
+
+void destroy() {
+  assert(g_ctx.has_value());
+  shogle::gl_texture::deallocate(g_ctx->gl, g_ctx->default_texture);
+  g_ctx->textures.for_each(
+    [](shogle::gl_texture& tex) { shogle::gl_texture::deallocate(g_ctx->gl, tex); });
+  g_ctx->buffers.for_each(
+    [](shogle::gl_buffer& buff) { shogle::gl_buffer::deallocate(g_ctx->gl, buff); });
+  g_ctx->pipelines.for_each(
+    [](shogle::gl_pipeline& pip) { shogle::gl_pipeline::destroy(g_ctx->gl, pip); });
+  g_ctx.reset();
+  glfwTerminate();
 }
 
 void start_frame() {
@@ -57,6 +77,57 @@ void start_frame() {
 void end_frame() {
   assert(g_ctx.has_value());
   g_ctx->gl.end_frame();
+}
+
+texture_handle create_texture(const texture_create_data& data) {
+  assert(g_ctx.has_value());
+  auto tex =
+    shogle::gl_texture::allocate2d(g_ctx->gl, shogle::gl_texture::TEX_FORMAT_RGBA8, data.extent, 1,
+                                   7, shogle::gl_texture::MULTISAMPLE_NONE)
+      .transform([](shogle::gl_texture&& tex) -> texture_handle {
+        auto slot = g_ctx->textures.insert(std::move(tex));
+        return (texture_handle)slot;
+      });
+  if (!tex) {
+    logger::error("Failed to create texture: {}", tex.error().what());
+  }
+  return tex.value_or(nil_handle<texture_handle>());
+}
+
+void destroy_texture(texture_handle texture) {
+  assert(g_ctx.has_value());
+  if (is_nil_handle(texture)) {
+    return;
+  }
+  if (auto* tex = g_ctx->textures.at_opt((u32)texture)) {
+    shogle::gl_texture::deallocate(g_ctx->gl, *tex);
+    g_ctx->textures.remove((u32)texture);
+  }
+}
+
+s_expect<buffer_handle> create_buffer(size_t buffer_size) {
+  assert(g_ctx.has_value());
+
+  return shogle::gl_buffer::allocate(g_ctx->gl, buffer_size)
+    .transform([](shogle::gl_buffer&& buff) -> buffer_handle {
+      auto slot = g_ctx->buffers.insert(std::move(buff));
+      return (buffer_handle)slot;
+    })
+    .transform_error([](shogle::gl_error&& err) -> std::string { return err.what(); });
+}
+
+void update_buffer(buffer_handle buffer, const void* data, size_t data_size, size_t data_offset) {
+  assert(g_ctx.has_value());
+  assert(g_ctx->buffers.has_element((u32)buffer));
+  g_ctx->buffers[(u32)buffer].upload_data(g_ctx->gl, data, data_size, data_offset).value();
+}
+
+void destroy_buffer(buffer_handle buffer) {
+  assert(g_ctx.has_value());
+  if (auto* buff = g_ctx->buffers.at_opt((u32)buffer)) {
+    shogle::gl_buffer::deallocate(g_ctx->gl, *buff);
+    g_ctx->buffers.remove((u32)buffer);
+  }
 }
 
 } // namespace kappa::render

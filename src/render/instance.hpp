@@ -22,12 +22,12 @@ enum class texture_handle : u32 {};
 
 template<typename T>
 constexpr inline bool is_nil_handle(T handle) noexcept {
-  return static_cast<u32>(handle) == 0;
+  return static_cast<u32>(handle) == 0xFFFFFFFF;
 }
 
 template<typename T>
 constexpr inline T nil_handle() noexcept {
-  return static_cast<T>(0);
+  return static_cast<T>(0xFFFFFFFF);
 }
 
 struct texture_create_data {
@@ -36,7 +36,7 @@ struct texture_create_data {
   image_format format;
 };
 
-s_expect<texture_handle> create_texture(const texture_create_data& data);
+texture_handle create_texture(const texture_create_data& data);
 void destroy_texture(texture_handle tex);
 
 s_expect<buffer_handle> create_buffer(size_t buffer_size);
@@ -86,6 +86,8 @@ constexpr inline fn flag_from_tex_type(texture_type type) -> bits32 {
 }
 
 struct pipeline_create_data {
+  size_t nverts;
+  size_t index_offset;
   bits32 vertex_attributes;
   bits32 material_textures;
 };

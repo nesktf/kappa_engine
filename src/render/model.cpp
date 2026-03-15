@@ -11,16 +11,12 @@ fn model3d_texture::from_asset(const assets::image_data& asset, texture_type typ
     .extent = asset.extent(),
     .format = asset.format(),
   };
-  return render::create_texture(data).transform(
-    [&](render::texture_handle tex) -> model3d_texture {
-      assert(!render::is_nil_handle(tex));
-      model3d_texture out;
-      out.texture = tex;
-      out.name.copy_from(asset.name().data, asset.name().len);
-      out.type = type;
-      out.extent = asset.extent();
-      return out;
-    });
+  model3d_texture out;
+  out.texture = render::create_texture(data);
+  out.name.copy_from(asset.name().data, asset.name().len);
+  out.type = type;
+  out.extent = asset.extent();
+  return out;
 }
 
 fn model3d_texture::from_model(const assets::model3d_data& model)
@@ -42,15 +38,10 @@ fn model3d_texture::from_model(const assets::model3d_data& model)
       .extent = model_tex.extent,
       .format = model_tex.format,
     };
-    auto tex = render::create_texture(data);
-    if (!tex) {
-      return {unexpect, std::move(tex).error()};
-    }
-    assert(!render::is_nil_handle(*tex));
     auto& out_tex = out[tex_pos++];
     out_tex.extent = model_tex.extent;
     out_tex.type = model_tex.type;
-    out_tex.texture = *tex;
+    out_tex.texture = render::create_texture(data);
     out_tex.name.copy_from(model_tex.name.data, model_tex.name.len);
   }
   on_err.disengage();

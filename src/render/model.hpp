@@ -62,6 +62,12 @@ public:
 
   ~model3d_renderable();
 
+  model3d_renderable(const model3d_renderable&) = delete;
+  model3d_renderable(model3d_renderable&&) noexcept = default;
+
+  model3d_renderable& operator=(const model3d_renderable&) = delete;
+  model3d_renderable& operator=(model3d_renderable&&) noexcept = default;
+
 public:
   static fn from_asset(const assets::model3d_data& model) -> s_expect<model3d_renderable>;
 
@@ -73,6 +79,8 @@ public:
   fn bones() const -> span<const bone_t>;
   fn bone_locals() const -> span<const m4f32>;
   fn bone_inv_models() const -> span<const m4f32>;
+
+  fn has_bones() const -> bool { return _rig.has_value(); }
 
 private:
   buffer_name _name;
