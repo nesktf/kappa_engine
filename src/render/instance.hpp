@@ -92,7 +92,8 @@ struct pipeline_create_data {
   bits32 material_textures;
 };
 
-s_expect<pipeline_handle> create_pipeline(const pipeline_create_data& data);
+s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buf,
+                                          const pipeline_create_data& data);
 void destroy_pipeline(pipeline_handle pipeline);
 
 } // namespace kappa::render

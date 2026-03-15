@@ -13,6 +13,9 @@ public:
 
 private:
   struct slot_t {
+
+    slot_t() {}
+
     u32 next;
 
     union {
@@ -179,7 +182,7 @@ public:
   }
 
   value_type* at_opt(element_slot slot) noexcept {
-    return const_cast<value_type&>(std::as_const(*this).at_opt(slot));
+    return const_cast<value_type*>(std::as_const(*this).at_opt(slot));
   }
 
 private:

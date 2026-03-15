@@ -206,11 +206,19 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
         material_texes |= flag_from_tex_type((*texes)[tex_idx].type);
       }
     }
+
+    auto res = create_mesh(meshes[mesh_pos], input, mesh.name.as_view());
+    if (!res) {
+      return {unexpect, std::move(res).error()};
+    }
+
     const pipeline_create_data pip_data{
+      .nverts = nverts,
+      .index_offset = meshes[mesh_pos].index_offset,
       .vertex_attributes = input.attribs,
       .material_textures = material_texes,
     };
-    auto pip = render::create_pipeline(pip_data);
+    auto pip = render::create_pipeline(meshes[mesh_pos].attribute_buffer, pip_data);
     if (!pip) {
       return {unexpect, std::move(pip).error()};
     }
@@ -219,11 +227,6 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
     material.texture_count = (u32)tex_indices.size();
     material.texture_flags = material_texes;
     std::memcpy(material.textures.data(), tex_indices.data(), tex_indices.size() * sizeof(u32));
-
-    auto res = create_mesh(meshes[mesh_pos], input, mesh.name.as_view());
-    if (!res) {
-      return {unexpect, std::move(res).error()};
-    }
   }
 
   optional<rig_t> rig(nullopt);

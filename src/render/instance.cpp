@@ -59,7 +59,7 @@ void destroy() {
   g_ctx->buffers.for_each(
     [](shogle::gl_buffer& buff) { shogle::gl_buffer::deallocate(g_ctx->gl, buff); });
   g_ctx->pipelines.for_each(
-    [](shogle::gl_pipeline& pip) { shogle::gl_pipeline::destroy(g_ctx->gl, pip); });
+    [](pipeline_data& pip) { shogle::gl_pipeline::destroy(g_ctx->gl, pip.pipeline); });
   g_ctx.reset();
   glfwTerminate();
 }
