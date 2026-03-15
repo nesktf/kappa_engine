@@ -5,16 +5,14 @@
 
 namespace kappa::assets {
 
-texture_loader::texture_loader(std::string_view texture_path, std::string_view texture_name,
-                               bits32 flags, optional<texture_type> type) :
-    _impl(new texture_loader::loader_internal()) {
+image_loader::image_loader(std::string_view texture_path, std::string_view texture_name,
+                           bits32 flags) : _impl(new image_loader::loader_internal()) {
   _impl->texture_path.copy_from(texture_path.data(), texture_path.size());
   _impl->texture_name.copy_from(texture_name.data(), texture_name.size());
   _impl->chima_flags = flags;
-  _impl->type = type;
 }
 
-bs_expect<texture_data, 256> texture_loader::load() {
+bs_expect<image_data, 256> image_loader::load() {
   assert(_impl, "texture_loader use after free");
   const shogle::scope_end defer = [this]() {
     delete _impl;
@@ -42,14 +40,12 @@ bs_expect<texture_data, 256> texture_loader::load() {
   }
 
   try {
-    auto* ptr = new texture_data::texture_internal(*std::move(chima), *image);
+    auto* ptr = new image_data::image_internal(*std::move(chima), *image);
     std::memcpy(ptr->name.data, _impl->texture_name.data, sizeof(ptr->name.data));
     ptr->name.len = _impl->texture_name.len;
     std::memcpy(ptr->path.data, _impl->texture_path.data, sizeof(ptr->path.data));
     ptr->path.len = _impl->texture_path.len;
     ptr->format = parse_chima_format(image->get().depth, image->get().channels);
-    ptr->type =
-      _impl->type ? *_impl->type : parse_tex_type_from_name(_impl->texture_name.as_view());
 
     return {in_place, *ptr};
   } catch (const std::bad_alloc&) {
@@ -61,9 +57,9 @@ bs_expect<texture_data, 256> texture_loader::load() {
   }
 }
 
-texture_data::texture_data(texture_internal& data) noexcept : _data(&data) {}
+image_data::image_data(image_internal& data) noexcept : _data(&data) {}
 
-void texture_data::destroy() noexcept {
+void image_data::destroy() noexcept {
   if (!_data) {
     return;
   }
@@ -71,34 +67,29 @@ void texture_data::destroy() noexcept {
   _data = nullptr;
 }
 
-buffer_name& texture_data::name() const {
+buffer_name& image_data::name() const {
   assert(_data, "texture_data use after free");
   return _data->name;
 }
 
-buffer_path& texture_data::path() const {
+buffer_path& image_data::path() const {
   assert(_data, "texture_data use after free");
   return _data->path;
 }
 
-void* texture_data::data() const {
+void* image_data::data() const {
   assert(_data, "texture_data use after free");
   return _data->image.data();
 }
 
-extent2d texture_data::extent() const {
+extent2d image_data::extent() const {
   assert(_data, "texture_data use after free");
   return {_data->image.get().extent.width, _data->image.get().extent.height};
 }
 
-image_format texture_data::format() const {
+image_format image_data::format() const {
   assert(_data, "texture_data use after free");
   return _data->format;
-}
-
-texture_type texture_data::type() const {
-  assert(_data, "texture_data use after free");
-  return _data->type;
 }
 
 } // namespace kappa::assets

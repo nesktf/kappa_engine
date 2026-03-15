@@ -1138,8 +1138,12 @@ size_t model3d_data::texture_count() const {
   return _data->texture_count;
 }
 
-span<model3d_data::texture_data> model3d_data::material_textures(size_t idx) const {
+span<u32> model3d_data::material_textures(size_t idx) const {
   CHECK_DATA;
+  assert(idx < _data->material_count);
+  const auto& mat = _data->materials[idx];
+  return datarange(_data->material_textures, _data->material_count, mat.texture_indices);
+#if 0
   assert(idx < _data->material_count);
   auto& material = _data->materials[idx];
   if (material.texture_indices.start == (u32)-1 || !material.texture_indices.count) {
@@ -1157,6 +1161,7 @@ span<model3d_data::texture_data> model3d_data::material_textures(size_t idx) con
   }
 
   return {_data->texture_cache.data(), _data->texture_cache.size()};
+#endif
 }
 
 optional<size_t> model3d_data::find_mesh_idx(std::string_view mesh_name) const {

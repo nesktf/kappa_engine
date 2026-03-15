@@ -4,38 +4,12 @@
 
 namespace kappa::assets {
 
-enum class image_format {
-  rgb8u = 0,
-  rgba8u,
-  rgb16u,
-  rgba16u,
-  rgb32f,
-  rgba32f,
-};
-
-constexpr inline size_t image_stride(u32 width, u32 height, image_format format) {
-  constexpr auto sizes =
-    std::to_array<size_t>({3 * sizeof(u8), 4 * sizeof(u8), 3 * sizeof(u16), 4 * sizeof(u16),
-                           3 * sizeof(f32), 4 * sizeof(f32)});
-  return sizes[static_cast<size_t>(format) % sizes.size()] * width * height;
-}
-
-enum class texture_type {
-  diffuse = 0,
-  albedo = 0,
-  specular,
-  normal,
-  ambient_occlusion,
-  roughness,
-  metallic,
-};
-
-struct texture_data {
+struct image_data {
 public:
-  struct texture_internal;
+  struct image_internal;
 
 public:
-  texture_data(texture_internal& data) noexcept;
+  image_data(image_internal& data) noexcept;
 
   void destroy() noexcept;
 
@@ -45,13 +19,12 @@ public:
   void* data() const;
   extent2d extent() const;
   image_format format() const;
-  texture_type type() const;
 
 private:
-  texture_internal* _data;
+  image_internal* _data;
 };
 
-class texture_loader {
+class image_loader {
 public:
   struct loader_internal;
 
@@ -61,16 +34,16 @@ public:
   };
 
 public:
-  texture_loader(std::string_view texture_path, std::string_view texture_name,
-                 bits32 flags = FLAGS_NONE, optional<texture_type> type = nullopt);
+  image_loader(std::string_view texture_path, std::string_view texture_name,
+               bits32 flags = FLAGS_NONE);
 
 public:
   // Should be only called ONCE, preferably in a threadpool
   // The internal data is destroyed at the end of the function
-  bs_expect<texture_data, 256> load();
+  bs_expect<image_data, 256> load();
 
 public:
-  bs_expect<texture_data, 256> operator()() { return load(); }
+  bs_expect<image_data, 256> operator()() { return load(); }
 
 private:
   loader_internal* _impl;

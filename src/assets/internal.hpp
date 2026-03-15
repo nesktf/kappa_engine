@@ -35,8 +35,8 @@ inline texture_type parse_tex_type_from_name(std::string_view name) {
   return texture_type::albedo;
 };
 
-struct texture_data::texture_internal {
-  texture_internal(chima::context&& chima_, chima::image image_) :
+struct image_data::image_internal {
+  image_internal(chima::context&& chima_, chima::image image_) :
       chima(std::move(chima_)), image(image_), image_destroyer(chima, image) {}
 
   chima::context chima;
@@ -45,10 +45,9 @@ struct texture_data::texture_internal {
   buffer_name name;
   buffer_path path;
   image_format format;
-  texture_type type;
 };
 
-struct texture_loader::loader_internal {
+struct image_loader::loader_internal {
   buffer_name texture_name;
   buffer_path texture_path;
   bits32 chima_flags;
@@ -81,7 +80,6 @@ struct model3d_data::model_internal {
   std::unordered_map<std::string_view, size_t> texture_registry;
   // std::unordered_map<std::string_view, size_t> bone_anim_registry;
   std::unordered_map<std::string_view, size_t> bone_registry;
-  std::vector<texture_data> texture_cache;
 
   mesh_data* meshes;
   size_t mesh_count;

@@ -5,51 +5,44 @@
 
 namespace kappa::render {
 
-enum model_attrib_flag : bits32 {
-  MODEL_ATTRIB_NONE = 0x0000,
-  MODEL_ATTRIB_POSITIONS = 0x0001,
-  MODEL_ATTRIB_NORMALS = 0x0002,
-  MODEL_ATTRIB_TANGENTS = 0x0004,
-  MODEL_ATTRIB_BONES = 0x0008,
-  MODEL_ATTRIB_UV0 = 0x0010,
-  MODEL_ATTRIB_UV1 = 0x0020,
-  MODEL_ATTRIB_COLOR0 = 0x0040,
-  MODEL_ATTRIB_COLOR1 = 0x0080,
-  MODEL_ATTRIB_ALL = 0xFFFF,
-};
-
-struct model3d_texture_data {
+struct model3d_texture {
 public:
-  static fn from_asset(const assets::texture_data& asset) -> s_expect<model3d_texture_data>;
+  static fn from_asset(const assets::image_data& asset, texture_type type)
+    -> s_expect<model3d_texture>;
+  static fn from_model(const assets::model3d_data& model)
+    -> s_expect<unique_array<model3d_texture>>;
 
 public:
   buffer_name name;
-  texture_handle texture;
   extent2d extent;
-  assets::texture_type type;
+  texture_handle texture;
+  texture_type type;
 };
 
 class model3d_renderable {
 public:
-  static constexpr size_t MAX_MESH_TEXTURES = 16;
+  static constexpr size_t MAX_MATERIAL_TEXTURES = 16;
 
   struct mesh_t {
     buffer_name name;
-    buffer_handle vertex_buffer, index_buffer;
-    u32 vertex_count, index_count;
-    bits32 vertex_attributes;
-    u32 pipeline;
-    std::array<u32, MAX_MESH_TEXTURES> textures;
+    size_t index_offset;
+    buffer_handle attribute_buffer;
+    bits32 attribute_flags;
+    u32 vertex_count;
+    u32 index_count;
+    u32 material;
+  };
+
+  struct material_t {
+    std::array<u32, MAX_MATERIAL_TEXTURES> textures;
     u32 texture_count;
+    bits32 texture_flags;
+    pipeline_handle pipeline;
   };
 
   struct bone_t {
     buffer_name name;
     i32 parent;
-  };
-
-  struct pipeline_t {
-    pipeline_handle pipeline;
   };
 
   struct rig_t {
@@ -64,13 +57,13 @@ private:
 
 public:
   model3d_renderable(create_t, const buffer_name& name, unique_array<mesh_t>&& meshes,
-                     unique_array<model3d_texture_data>&& textures, rig_t&& rig);
+                     unique_array<material_t>&& materials,
+                     unique_array<model3d_texture>&& textures, optional<rig_t>&& rig);
+
+  ~model3d_renderable();
 
 public:
-  static fn load_model(unique_array<model3d_texture_data>&& textures,
-                       const assets::model3d_data& data) -> s_expect<model3d_renderable>;
-
-  void destroy();
+  static fn from_asset(const assets::model3d_data& model) -> s_expect<model3d_renderable>;
 
 public:
   fn name() const -> std::string_view;
@@ -84,9 +77,9 @@ public:
 private:
   buffer_name _name;
   unique_array<mesh_t> _meshes;
-  unique_array<pipeline_t> _pipelines;
-  unique_array<model3d_texture_data> _textures;
-  rig_t _rig;
+  unique_array<material_t> _materials;
+  unique_array<model3d_texture> _textures;
+  optional<rig_t> _rig;
 };
 
 } // namespace kappa::render

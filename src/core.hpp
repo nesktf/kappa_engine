@@ -128,4 +128,38 @@ using shogle::span;
 using bits32 = u32;
 using bits64 = u64;
 
+enum class image_format {
+  rgb8u = 0,
+  rgba8u,
+  rgb16u,
+  rgba16u,
+  rgb32f,
+  rgba32f,
+};
+
+constexpr inline size_t image_stride(u32 width, u32 height, image_format format) {
+  constexpr auto sizes =
+    std::to_array<size_t>({3 * sizeof(u8), 4 * sizeof(u8), 3 * sizeof(u16), 4 * sizeof(u16),
+                           3 * sizeof(f32), 4 * sizeof(f32)});
+  return sizes[static_cast<size_t>(format) % sizes.size()] * width * height;
+}
+
+enum class texture_type {
+  diffuse = 0,
+  albedo = 0,
+  specular,
+  normal,
+  ambient_occlusion,
+  roughness,
+  metallic,
+};
+
+template<typename T>
+fn make_zero_array(size_t count) -> unique_array<T> {
+  static_assert(std::is_trivial_v<T>);
+  auto ret = shogle::make_array<T>(shogle::uninitialized, count);
+  std::memset(ret.data(), 0x00, sizeof(ret[0]) * count);
+  return ret;
+}
+
 } // namespace kappa

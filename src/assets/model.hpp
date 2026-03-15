@@ -287,7 +287,7 @@ public:
   span<texture_data> textures() const;
   size_t texture_count() const;
 
-  span<texture_data> material_textures(size_t idx) const;
+  span<u32> material_textures(size_t idx) const;
 
   optional<size_t> find_material_idx(std::string_view material_name) const;
 
