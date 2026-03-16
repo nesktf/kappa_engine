@@ -40,10 +40,10 @@ public:
 public:
   // Should be only called ONCE, preferably in a threadpool
   // The internal data is destroyed at the end of the function
-  bs_expect<image_data, 256> load();
+  ass_expect<image_data> load();
 
 public:
-  bs_expect<image_data, 256> operator()() { return load(); }
+  ass_expect<image_data> operator()() { return load(); }
 
 private:
   loader_internal* _impl;

@@ -12,31 +12,31 @@ image_loader::image_loader(std::string_view texture_path, std::string_view textu
   _impl->chima_flags = flags;
 }
 
-bs_expect<image_data, 256> image_loader::load() {
+ass_expect<image_data> image_loader::load() {
   assert(_impl, "texture_loader use after free");
   const shogle::scope_end defer = [this]() {
     delete _impl;
     _impl = nullptr;
   };
 
-  chima::error err;
-  auto chima = chima::context::create(nullptr, &err);
+  chima::error chimaerr;
+  auto chima = chima::context::create(nullptr, &chimaerr);
   if (!chima) {
-    auto errstr = buffer_str_fmt<256>("Failed to create loading context for \"{}\", {}",
-                                      _impl->texture_path.as_view(), err.what());
-    TEX_LOG(error, "{}", errstr.as_view());
-    return {unexpect, std::move(errstr)};
+    auto err = asset_error::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
+                                   "Failed to create loading context, {}", chimaerr.what());
+    TEX_LOG(error, "{}", err.msg());
+    return {unexpect, std::move(err)};
   }
   if (_impl->chima_flags & FLAG_FLIP_Y) {
     chima->set_flip_y(true);
   }
 
-  auto image = chima::image::load(*chima, CHIMA_DEPTH_8U, _impl->texture_path.c_str(), &err);
+  auto image = chima::image::load(*chima, CHIMA_DEPTH_8U, _impl->texture_path.c_str(), &chimaerr);
   if (!image) {
-    auto errstr = buffer_str_fmt<256>("Failed to load image at \"{}\", {}",
-                                      _impl->texture_path.as_view(), err.what());
-    TEX_LOG(error, "{}", errstr.as_view());
-    return {unexpect, std::move(errstr)};
+    auto err = asset_error::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
+                                   "Failed to load image at, {}", chimaerr.what());
+    TEX_LOG(error, "{}", err.msg());
+    return {unexpect, std::move(err)};
   }
 
   try {
@@ -50,10 +50,10 @@ bs_expect<image_data, 256> image_loader::load() {
     return {in_place, *ptr};
   } catch (const std::bad_alloc&) {
     chima::image::destroy(*chima, *image);
-    auto errstr = buffer_str_fmt<256>("Failed to allocate texture internals for \"{}\"",
-                                      _impl->texture_path.as_view());
-    TEX_LOG(error, "{}", errstr.as_view());
-    return {unexpect, std::move(errstr)};
+    auto err = asset_error::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
+                                   "Failed to allocate texture internals");
+    TEX_LOG(error, "{}", err.msg());
+    return {unexpect, std::move(err)};
   }
 }
 

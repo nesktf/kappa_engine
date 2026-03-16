@@ -718,13 +718,12 @@ bool parse_materials(model3d_data::model_internal& data, const aiScene& scene,
 
 } // namespace
 
-bs_expect<model3d_data, 256> model3d_loader::load() {
+ass_expect<model3d_data> model3d_loader::load() {
   assert(_impl, "model3d_loader use after free");
   const shogle::scope_end defer = [this]() {
     delete _impl;
     _impl = nullptr;
   };
-  bs_expect<model3d_data, 256> ret(unexpect);
   const auto assimpflags = [flags = _impl->importer_flags]() -> bits32 {
     bits32 out = 0;
     if (flags & FLAG_TRIANGULATE) {
@@ -742,35 +741,41 @@ bs_expect<model3d_data, 256> model3d_loader::load() {
     return out;
   }();
 
+  buffer_str<256> err;
+  const fn unex = [&]() -> ass_expect<model3d_data> {
+    return {unexpect,
+            asset_error(_impl->model_path.as_view(), _impl->model_name.as_view(), std::move(err))};
+  };
+
   try {
     const aiScene* scene = _impl->importer.ReadFile(_impl->model_path.c_str(), assimpflags);
     if (!scene || !scene->mNumMeshes) {
-      ret.error().format_from("ASSIMP error: {}", _impl->importer.GetErrorString());
-      return ret;
+      err.format_from("ASSIMP error: {}", _impl->importer.GetErrorString());
+      MODEL_LOG(error, "{}", err.as_view());
+      return unex();
     }
 
     bone_inv_map bone_invs;
-    auto data =
-      initialize_data(_impl->model_name, _impl->model_path, *scene, bone_invs, ret.error());
+    auto data = initialize_data(_impl->model_name, _impl->model_path, *scene, bone_invs, err);
     if (!data) {
-      return ret; // initialize_data fills the error string
+      return unex();
     }
 
     parse_rigs(*data, *scene, bone_invs);
     parse_meshes(*data, *scene);
-    if (!parse_materials(*data, *scene, _impl->texture_dir, ret.error())) {
-      return ret; // parse_materials fills the error string
+    if (!parse_materials(*data, *scene, _impl->texture_dir, err)) {
+      return unex();
     }
     // TODO: Parse animations
-    ret.emplace(*data.release());
+    return {in_place, *data.release()};
   } catch (const std::bad_alloc&) {
-    ret.error().format_from("Model allocation failure");
+    err.format_from("Model allocation failure");
   } catch (const std::exception& ex) {
-    ret.error().format_from("{}", ex.what());
+    err.format_from("{}", ex.what());
   } catch (...) {
-    ret.error().format_from("Unkown error");
+    err.format_from("Unkown error");
   }
-  return ret;
+  return unex();
 }
 
 model3d_data::model_internal::~model_internal() {

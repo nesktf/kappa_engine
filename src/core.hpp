@@ -92,11 +92,41 @@ buffer_str<MaxSize> buffer_str_fmt(fmt::format_string<Args...> fmt, Args&&... ar
   return out;
 }
 
-using buffer_name = buffer_str<128>;
+using buffer_name = buffer_str<256>;
 using buffer_path = buffer_str<256>;
 
-template<typename T, size_t MaxSize>
-using bs_expect = expected<T, buffer_str<MaxSize>>;
+class asset_error : public std::exception {
+public:
+  asset_error(std::string_view path, std::string_view name, const buffer_str<256>& msg) noexcept :
+      _msg(msg) {
+    _path.copy_from(path.data(), path.size());
+    _name.copy_from(name.data(), name.size());
+  }
+
+  template<typename... Args>
+  static asset_error format(std::string_view path, std::string_view name,
+                            fmt::format_string<Args...> fmt, Args&&... args) {
+    return {path, name, buffer_str_fmt<256>(fmt, std::forward<Args>(args)...)};
+  }
+
+public:
+  const char* what() const noexcept override { return _msg.c_str(); }
+
+public:
+  std::string_view path() const noexcept { return _path.as_view(); }
+
+  std::string_view name() const noexcept { return _name.as_view(); }
+
+  std::string_view msg() const noexcept { return _msg.as_view(); }
+
+private:
+  buffer_path _path;
+  buffer_name _name;
+  buffer_str<256> _msg;
+};
+
+template<typename T>
+using ass_expect = expected<T, asset_error>;
 
 struct array_range {
   static constexpr u32 index_tomb = static_cast<u32>(-1);
