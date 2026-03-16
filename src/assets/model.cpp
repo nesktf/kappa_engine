@@ -840,8 +840,12 @@ size_t cap_range(size_t max, size_t count) {
 
 template<typename T>
 span<T> datarange(T* data, size_t data_sz, array_range range) {
-  assert(range.start != (u32)-1 && range.count);
-  return span<T>{data + range.start, cap_range(data_sz, range.count)};
+  if (range.start == (u32)-1) {
+    return span<T>{};
+  } else {
+    assert(range.start != (u32)-1 && range.count);
+    return span<T>{data + range.start, cap_range(data_sz, range.count)};
+  }
 }
 
 template<typename T>

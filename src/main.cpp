@@ -13,9 +13,9 @@ void run_engine() {
     kappa::render::destroy();
   };
 
-  kappa::assets::model3d_loader cirnoloader("./res/cirno_fumo/cirno_fumo.obj", "cirno");
-  const auto cirno_data = cirnoloader.load().value();
-  auto cirno_model = kappa::render::model3d_renderable::from_asset(cirno_data).value();
+  kappa::assets::model3d_loader marisa_loader("./res/marisa_miy/marisa_miy.gltf", "marisa");
+  const auto marisa_data = marisa_loader.load().value();
+  auto marisa_model = kappa::render::model3d_renderable::from_asset(marisa_data).value();
 
   const auto on_fixed_update = [&](u32 ups) {
   };

@@ -47,7 +47,7 @@ fn generate_shaders(bits32 attribs, bits32 texes) -> s_expect<shader_thing> {
   (void)attribs;
   (void)texes;
   assert(g_ctx.has_value());
-  shogle::gl_shader vert(g_ctx->gl, vert_src, sizeof(vert_src), shogle::gl_shader::STAGE_FRAGMENT);
+  shogle::gl_shader vert(g_ctx->gl, vert_src, sizeof(vert_src), shogle::gl_shader::STAGE_VERTEX);
   shogle::gl_shader frag(g_ctx->gl, frag_src, sizeof(frag_src), shogle::gl_shader::STAGE_FRAGMENT);
   return {in_place, vert, frag};
 
@@ -172,8 +172,14 @@ s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buff,
     shogle::gl_shader::destroy(g_ctx->gl, shad->frag);
   };
 
-  auto pip =
-    shogle::gl_pipeline_builder{}.add_shader(shad->vert).add_shader(shad->frag).build(g_ctx->gl);
+  shogle::gl_pipeline_builder pip_builder;
+  auto pip = pip_builder.set_primitive(shogle::gl_pipeline::PRIMITIVE_TRIANGLES)
+               .set_polygon_mode(shogle::gl_pipeline::POLY_MODE_FILL)
+               .set_polygon_width(1.f)
+               .add_shader(shad->vert)
+               .add_shader(shad->frag)
+               .set_depth_test(shogle::gl_depth_test_props::make_default(true))
+               .build(g_ctx->gl);
 
   if (!pip) {
     return {unexpect, vert_layout.error().what()};

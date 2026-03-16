@@ -144,7 +144,7 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
       if (data.attribs & ATTRIB_FLAG_UV0) {
         assert(data.uvs);
         render::update_buffer(buffer, data.uvs, data.nverts * sizeof(v2f32), offset);
-        offset += data.nverts * sizeof(v3f32);
+        offset += data.nverts * sizeof(v2f32);
       }
 
       if (data.indices) {
@@ -167,35 +167,43 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
   for (; mesh_pos < model.mesh_count(); ++mesh_pos) {
     const auto& mesh = data_meshes[mesh_pos];
     const size_t nverts = mesh.nverts;
+    logger::debug("MESH: {}", mesh.name.as_view());
 
     mesh_create_data input{};
     input.nverts = nverts;
 
     input.positions = model.mesh_positions(mesh.positions()).data();
+    input.attribs |= ATTRIB_FLAG_POSITIONS;
     input.buffer_size += nverts * sizeof(v3f32);
 
     if (mesh.has_normals()) {
       input.normals = model.mesh_normals(mesh.normals()).data();
       input.attribs |= ATTRIB_FLAG_NORMALS;
+      input.buffer_size += nverts * sizeof(v3f32);
     }
     if (mesh.has_tangents()) {
       input.tangents = model.mesh_tangents(mesh.tangents()).data();
       input.bitangents = model.mesh_bitangents(mesh.tangents()).data();
       input.attribs |= ATTRIB_FLAG_TANGENTS;
+      input.buffer_size += 2 * nverts * sizeof(v3f32);
     }
     if (mesh.has_bones()) {
       input.bone_indices = model.mesh_bone_indices(mesh.bones()).data();
       input.bone_weights = model.mesh_bone_weights(mesh.bones()).data();
       input.attribs |= ATTRIB_FLAG_BONES;
+      input.buffer_size += nverts * sizeof(v4i32);
+      input.buffer_size += nverts * sizeof(v4f32);
     }
     if (mesh.has_uvs(0)) {
       input.uvs = model.mesh_uvs(0, mesh.uvs(0)).data();
       input.attribs |= ATTRIB_FLAG_UV0;
+      input.buffer_size += nverts * sizeof(v2f32);
     }
 
     if (mesh.has_indices()) {
       input.indices = model.mesh_indices(mesh.indices()).data();
       input.index_count = mesh.index_count;
+      input.buffer_size += input.index_count * sizeof(u32);
     }
 
     const auto tex_indices = model.material_textures(mesh.material_index);

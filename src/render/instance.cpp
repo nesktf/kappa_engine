@@ -32,7 +32,10 @@ void initialize(u32 win_w, u32 win_h) {
   shogle::gl_context gl(win.surface_provider());
 
   static constexpr auto missing_tex_data = shogle::make_missing_albedo<8>();
-  shogle::gl_texture tex(gl, shogle::gl_texture::TEX_FORMAT_RGBA8, shogle::extent3d(8, 8, 1), 7);
+  auto tex = shogle::gl_texture::allocate2d(gl, shogle::gl_texture::TEX_FORMAT_RGBA8,
+                                            shogle::extent2d(8, 8), 1, 1,
+                                            shogle::gl_texture::MULTISAMPLE_NONE)
+               .value();
   const shogle::gl_texture::image_data missing_data{
     .data = missing_tex_data.data(),
     .extent = shogle::extent3d(8, 8, 1),
