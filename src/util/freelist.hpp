@@ -13,14 +13,8 @@ public:
 
 private:
   struct slot_t {
-
-    slot_t() {}
-
+    alignas(T) u8 elem[sizeof(T)];
     u32 next;
-
-    union {
-      T elem;
-    };
   };
 
   static constexpr element_slot ELEM_TOMB = static_cast<element_slot>(-1);
@@ -37,7 +31,7 @@ public:
       : _count(other._count), _empty_head(other._empty_head) {
     std::memcpy(_slots, other._slots, sizeof(_slots));
     other.for_each([this](value_type& elem, element_slot slot) {
-      new (std::addressof(_slots[slot].elem)) T(std::move(elem));
+      new (reinterpret_cast<T*>(_slots[slot].elem)) T(std::move(elem));
     });
   }
 
@@ -50,7 +44,7 @@ public:
       : _count(other._count), _empty_head(other._empty_head) {
     std::memcpy(_slots, other._slots, sizeof(_slots));
     other.for_each([this](const value_type& elem, element_slot slot) {
-      new (std::addressof(_slots[slot].elem)) T(elem);
+      new (reinterpret_cast<T*>(_slots[slot].elem)) T(elem);
     });
   }
 
@@ -101,7 +95,7 @@ private:
       _empty_head = slot.next;
     }
 
-    new (std::addressof(slot.elem)) T(std::forward<Args>(args)...);
+    new (reinterpret_cast<T*>(slot.elem)) T(std::forward<Args>(args)...);
     slot.next = ELEM_ACTIVE;
 
     ++_count;
@@ -112,7 +106,7 @@ private:
     auto& slot = _slots[pos];
     assert(slot.next == ELEM_ACTIVE);
     if constexpr (!std::is_trivially_destructible_v<T>) {
-      slot.elem.~T();
+      _elem_at(pos).~T();
     }
 
     slot.next = _empty_head;
@@ -128,9 +122,9 @@ public:
       if (_slots[i].next == ELEM_ACTIVE) {
         if constexpr (std::is_invocable_v<std::remove_cvref_t<F>, decltype(_slots[i].elem),
                                           element_slot>) {
-          f(_slots[i].elem, i);
+          f(_elem_at(i), i);
         } else {
-          f(_slots[i].elem);
+          f(_elem_at(i));
         }
         ++pos;
       }
@@ -159,7 +153,7 @@ public:
 
   const value_type& operator[](element_slot slot) const {
     assert(has_element(slot));
-    return _slots[slot].elem;
+    return _elem_at(slot);
   }
 
   value_type& operator[](element_slot slot) {
@@ -170,7 +164,7 @@ public:
     if (!has_element(slot)) {
       throw std::out_of_range("Slot has no element");
     }
-    return _slots[slot].elem;
+    return _elem_at(slot);
   }
 
   value_type& at(element_slot slot) {
@@ -178,12 +172,19 @@ public:
   }
 
   const value_type* at_opt(element_slot slot) const noexcept {
-    return has_element(slot) ? &_slots[slot].elem : nullptr;
+    return has_element(slot) ? &_elem_at(slot) : nullptr;
   }
 
   value_type* at_opt(element_slot slot) noexcept {
     return const_cast<value_type*>(std::as_const(*this).at_opt(slot));
   }
+
+private:
+  const T& _elem_at(element_slot slot) const {
+    return *std::launder(reinterpret_cast<const T*>(&_slots[slot].elem));
+  }
+
+  T& _elem_at(element_slot slot) { return const_cast<T&>(std::as_const(*this)._elem_at(slot)); }
 
 private:
   slot_t _slots[MaxElems];
