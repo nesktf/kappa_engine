@@ -83,6 +83,38 @@ layout (location = 0) out vec4 out_color;
 #endif
 }
 
+class pn_mesh_layout {
+public:
+  static constexpr size_t attribute_count = 2u;
+
+public:
+  pn_mesh_layout(size_t nverts) noexcept : _nverts(nverts) {}
+
+public:
+  static bool test_mesh(bits32 attrib) noexcept {
+    return (attrib & ATTRIB_FLAG_POSITIONS) && (attrib & ATTRIB_FLAG_NORMALS);
+  }
+
+public:
+  shogle::vertex_attrib_array<attribute_count> attributes() const noexcept {
+    const size_t pos_offset = 0;
+    const size_t norm_offset = pos_offset + _nverts * sizeof(v3f32);
+    return std::to_array<shogle::vertex_attribute>({
+      {.location = 0,
+       .type = shogle::attribute_type::vec3,
+       .offset = pos_offset,
+       .stride = sizeof(shogle::vec3)},
+      {.location = 1,
+       .type = shogle::attribute_type::vec3,
+       .offset = norm_offset,
+       .stride = sizeof(shogle::vec3)},
+    });
+  }
+
+private:
+  size_t _nverts;
+};
+
 class pnttb_mesh_layout {
 public:
   static constexpr size_t attribute_count = 7u;
@@ -91,14 +123,21 @@ public:
   pnttb_mesh_layout(size_t nverts) noexcept : _nverts(nverts) {}
 
 public:
+  static bool test_mesh(bits32 attrib) noexcept {
+    return (attrib & ATTRIB_FLAG_POSITIONS) && (attrib & ATTRIB_FLAG_NORMALS) &&
+           (attrib & ATTRIB_FLAG_TANGENTS) && (attrib & ATTRIB_FLAG_BONES) &&
+           (attrib & ATTRIB_FLAG_UV0);
+  }
+
+public:
   shogle::vertex_attrib_array<attribute_count> attributes() const noexcept {
     const size_t pos_offset = 0;
-    const size_t norm_offset = pos_offset;
-    const size_t tang_offset = pos_offset + _nverts * sizeof(v2f32);
+    const size_t norm_offset = pos_offset + _nverts * sizeof(v3f32);
+    const size_t tang_offset = norm_offset + _nverts * sizeof(v3f32);
     const size_t bitang_offset = tang_offset + _nverts * sizeof(v3f32);
     const size_t bonei_offset = bitang_offset + _nverts * sizeof(v3f32);
     const size_t bonew_offset = bonei_offset + _nverts * sizeof(v4i32);
-    const size_t uv_offset = bonew_offset + _nverts * sizeof(v3f32);
+    const size_t uv_offset = bonew_offset + _nverts * sizeof(v4f32);
     return std::to_array<shogle::vertex_attribute>({
       {.location = 0,
        .type = shogle::attribute_type::vec3,
@@ -123,7 +162,7 @@ public:
       {.location = 5,
        .type = shogle::attribute_type::vec4,
        .offset = bonew_offset,
-       .stride = sizeof(shogle::vec2)},
+       .stride = sizeof(shogle::vec4)},
       {.location = 6,
        .type = shogle::attribute_type::vec2,
        .offset = uv_offset,
@@ -135,33 +174,32 @@ private:
   size_t _nverts;
 };
 
+fn make_vertex_layout(buffer_handle attrib_buff, size_t nverts, size_t index_offset,
+                      bits32 attribs) -> shogle::gl_expect<shogle::gl_vertex_layout> {
+  shogle::gl_layout_builder layout_builder;
+  auto& buff = g_ctx->buffers[(u32)attrib_buff];
+  layout_builder.set_vertex_buffer(buff);
+  if (index_offset) {
+    layout_builder.set_index_buffer(buff, shogle::gl_vertex_layout::INDEX_FORMAT_U32)
+      .set_index_offset(index_offset);
+  }
+
+  if (pnttb_mesh_layout::test_mesh(attribs)) {
+    pnttb_mesh_layout layout(nverts);
+    return layout_builder.build(g_ctx->gl, layout);
+  } else if (pn_mesh_layout::test_mesh(attribs)) {
+    pn_mesh_layout layout(nverts);
+    return layout_builder.build(g_ctx->gl, layout);
+  }
+  return {unexpect, 0};
+}
+
 } // namespace
 
 s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buff,
                                           const pipeline_create_data& data) {
   assert(g_ctx.has_value());
-  const bits32 attrib = data.vertex_attributes;
-  assert(attrib & ATTRIB_FLAG_POSITIONS);
-  assert(attrib & ATTRIB_FLAG_NORMALS);
-  assert(attrib & ATTRIB_FLAG_TANGENTS);
-  assert(attrib & ATTRIB_FLAG_BONES);
-  assert(attrib & ATTRIB_FLAG_UV0);
-
   assert(!is_nil_handle(attrib_buff));
-  auto& buff = g_ctx->buffers[(u32)attrib_buff];
-
-  shogle::gl_layout_builder layout_builder;
-  layout_builder.set_vertex_buffer(buff);
-  if (data.index_offset) {
-    layout_builder.set_index_buffer(buff, shogle::gl_vertex_layout::INDEX_FORMAT_U32)
-      .set_index_offset(data.index_offset);
-  }
-
-  pnttb_mesh_layout layout(data.nverts);
-  auto vert_layout = layout_builder.build(g_ctx->gl, layout);
-  if (!vert_layout) {
-    return {unexpect, vert_layout.error().what()};
-  }
 
   auto shad = generate_shaders(data.vertex_attributes, data.material_textures);
   if (!shad) {
@@ -171,6 +209,12 @@ s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buff,
     shogle::gl_shader::destroy(g_ctx->gl, shad->vert);
     shogle::gl_shader::destroy(g_ctx->gl, shad->frag);
   };
+
+  auto vert_layout =
+    make_vertex_layout(attrib_buff, data.nverts, data.index_offset, data.vertex_attributes);
+  if (!vert_layout) {
+    return {unexpect, vert_layout.error().what()};
+  }
 
   shogle::gl_pipeline_builder pip_builder;
   auto pip = pip_builder.set_primitive(shogle::gl_pipeline::PRIMITIVE_TRIANGLES)
@@ -182,7 +226,8 @@ s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buff,
                .build(g_ctx->gl);
 
   if (!pip) {
-    return {unexpect, vert_layout.error().what()};
+    shogle::gl_vertex_layout::destroy(g_ctx->gl, *vert_layout);
+    return {unexpect, pip.error().what()};
   }
 
   auto slot = g_ctx->pipelines.emplace(std::move(*pip), std::move(*vert_layout));

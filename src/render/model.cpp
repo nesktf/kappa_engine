@@ -118,11 +118,13 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
       assert((data.attribs & ATTRIB_FLAG_POSITIONS) && data.positions);
       render::update_buffer(buffer, data.positions, data.nverts * sizeof(v3f32), offset);
       offset += data.nverts * sizeof(v3f32);
+      logger::debug("POSITIONS");
 
       if (data.attribs & ATTRIB_FLAG_NORMALS) {
         assert(data.normals);
         render::update_buffer(buffer, data.normals, data.nverts * sizeof(v3f32), offset);
         offset += data.nverts * sizeof(v3f32);
+        logger::debug("NORMALS");
       }
 
       if (data.attribs & ATTRIB_FLAG_TANGENTS) {
@@ -131,6 +133,7 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
         offset += data.nverts * sizeof(v3f32);
         render::update_buffer(buffer, data.bitangents, data.nverts * sizeof(v3f32), offset);
         offset += data.nverts * sizeof(v3f32);
+        logger::debug("TANGENTS");
       }
 
       if (data.attribs & ATTRIB_FLAG_BONES) {
@@ -139,12 +142,14 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
         offset += data.nverts * sizeof(v4i32);
         render::update_buffer(buffer, data.bone_weights, data.nverts * sizeof(v4f32), offset);
         offset += data.nverts * sizeof(v4f32);
+        logger::debug("BONES");
       }
 
       if (data.attribs & ATTRIB_FLAG_UV0) {
         assert(data.uvs);
         render::update_buffer(buffer, data.uvs, data.nverts * sizeof(v2f32), offset);
         offset += data.nverts * sizeof(v2f32);
+        logger::debug("UVS");
       }
 
       if (data.indices) {
@@ -152,6 +157,7 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
         render::update_buffer(buffer, data.indices, data.index_count * sizeof(u32), offset);
         mesh.index_offset = offset;
         mesh.index_count = (u32)data.index_count;
+        logger::debug("INDICES");
       } else {
         mesh.index_offset = 0;
         mesh.index_count = 0;
