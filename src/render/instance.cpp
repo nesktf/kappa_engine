@@ -17,7 +17,8 @@ shogle::nullable<render_context> g_ctx;
 
 render_context::render_context(shogle::gl_context&& gl_, shogle::glfw_win&& win_,
                                shogle::gl_texture&& default_tex_) :
-    win(std::move(win_)), gl(std::move(gl_)), default_texture(std::move(default_tex_)) {}
+    win(std::move(win_)), gl(std::move(gl_)), imgui(win),
+    default_texture(std::move(default_tex_)) {}
 
 shogle::glfw_win& window() {
   assert(g_ctx.has_value());
@@ -63,6 +64,7 @@ void destroy() {
     [](shogle::gl_buffer& buff) { shogle::gl_buffer::deallocate(g_ctx->gl, buff); });
   g_ctx->pipelines.for_each(
     [](pipeline_data& pip) { shogle::gl_pipeline::destroy(g_ctx->gl, pip.pipeline); });
+  g_ctx->imgui.destroy();
   g_ctx.reset();
   glfwTerminate();
 }
@@ -75,11 +77,41 @@ void start_frame() {
                              .set_clear_flag(shogle::gl_clear_opts::CLEAR_DEPTH)
                              .build();
   g_ctx->gl.start_frame(frame_clear);
+  g_ctx->imgui.start_frame();
 }
 
 void end_frame() {
   assert(g_ctx.has_value());
+  g_ctx->imgui.end_frame();
   g_ctx->gl.end_frame();
+}
+
+void submit_render_batch(span<const render_data>& batch) {
+  assert(g_ctx.has_value());
+  shogle::gl_cmd_builder builder;
+  for (const auto& data : batch) {
+    auto* pip = g_ctx->pipelines.at_opt((u32)data.pipeline);
+    if (!pip) {
+      logger::warning("Skipping data with invalid pipeline {}", (u32)data.pipeline);
+      continue;
+    }
+    builder.set_vertex_layout(pip->layout);
+    builder.set_pipeline(pip->pipeline);
+
+    for (const auto& binding : data.textures) {
+      const auto& tex = is_nil_handle(binding.texture) ? g_ctx->default_texture
+                                                       : g_ctx->textures[(u32)binding.texture];
+      builder.add_texture(tex, binding.location);
+    }
+    for (const auto& uniform : data.uniforms) {
+      builder.add_uniform(uniform.data, uniform.location, uniform.type);
+    }
+    builder.set_draw_count(data.draw_count);
+    const auto cmd = builder.build();
+    g_ctx->gl.submit_immediate_command(cmd);
+
+    builder.reset();
+  }
 }
 
 texture_handle create_texture(const texture_create_data& data) {

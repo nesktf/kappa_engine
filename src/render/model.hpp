@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../assets/model.hpp"
+#include "../assets/texture.hpp"
+
 #include "./instance.hpp"
 
 namespace kappa::render {
@@ -25,11 +27,9 @@ public:
 
   struct mesh_t {
     buffer_name name;
-    size_t index_offset;
-    buffer_handle attribute_buffer;
+    size_t vertex_offset, vertex_count;
+    size_t index_offset, index_count;
     bits32 attribute_flags;
-    u32 vertex_count;
-    u32 index_count;
     u32 material;
   };
 
@@ -56,8 +56,8 @@ private:
   struct create_t {};
 
 public:
-  model3d_renderable(create_t, const buffer_name& name, unique_array<mesh_t>&& meshes,
-                     unique_array<material_t>&& materials,
+  model3d_renderable(create_t, const buffer_name& name, buffer_handle mesh_buffer,
+                     unique_array<mesh_t>&& meshes, unique_array<material_t>&& materials,
                      unique_array<model3d_texture>&& textures, optional<rig_t>&& rig);
 
   ~model3d_renderable();
@@ -74,16 +74,20 @@ public:
 public:
   fn name() const -> std::string_view;
   fn meshes() const -> span<const mesh_t>;
+  fn materials() const -> span<const material_t>;
 
   fn find_bone_idx(std::string_view name) const -> optional<u32>;
   fn bones() const -> span<const bone_t>;
   fn bone_locals() const -> span<const m4f32>;
   fn bone_inv_models() const -> span<const m4f32>;
 
+  fn mesh_buffer() const -> buffer_handle { return _mesh_buffer; }
+
   fn has_bones() const -> bool { return _rig.has_value(); }
 
 private:
   buffer_name _name;
+  buffer_handle _mesh_buffer;
   unique_array<mesh_t> _meshes;
   unique_array<material_t> _materials;
   unique_array<model3d_texture> _textures;

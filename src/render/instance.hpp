@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../assets/texture.hpp"
 #include "../core.hpp"
 
 #include <shogle/render/opengl.hpp>
@@ -86,14 +85,47 @@ constexpr inline fn flag_from_tex_type(texture_type type) -> bits32 {
 }
 
 struct pipeline_create_data {
+  buffer_handle buffer;
   size_t nverts;
+  size_t vertex_offset;
   size_t index_offset;
   bits32 vertex_attributes;
   bits32 material_textures;
 };
 
-s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buf,
-                                          const pipeline_create_data& data);
+s_expect<pipeline_handle> create_pipeline(const pipeline_create_data& data);
 void destroy_pipeline(pipeline_handle pipeline);
+
+static constexpr size_t MAX_BOUND_TEXTURES = 16;
+
+struct shader_binding {
+  size_t size;
+  size_t offset;
+  buffer_handle buffer;
+  u32 location;
+};
+
+struct texture_binding {
+  texture_handle texture;
+  u32 location;
+};
+
+struct uniform_data {
+  alignas(m4f32) u8 data[sizeof(m4f32)];
+  shogle::attribute_type type;
+  u32 location;
+};
+
+struct render_data {
+  pipeline_handle pipeline;
+  buffer_handle mesh_buffer;
+  span<texture_binding> textures;
+  span<shader_binding> shader_binds;
+  span<uniform_data> uniforms;
+  size_t draw_count;
+  size_t instances;
+};
+
+void submit_render_batch(span<const render_data>& data);
 
 } // namespace kappa::render

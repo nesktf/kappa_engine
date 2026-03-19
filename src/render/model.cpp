@@ -1,6 +1,5 @@
 #include "./model.hpp"
 #include "./internal.hpp"
-#include "instance.hpp"
 
 namespace kappa::render {
 
@@ -49,18 +48,16 @@ fn model3d_texture::from_model(const assets::model3d_data& model)
 }
 
 model3d_renderable::model3d_renderable(create_t, const buffer_name& name,
-                                       unique_array<mesh_t>&& meshes,
+                                       buffer_handle mesh_buffer, unique_array<mesh_t>&& meshes,
                                        unique_array<material_t>&& materials,
                                        unique_array<model3d_texture>&& textures,
                                        optional<rig_t>&& rig) :
-    _name(name), _meshes(std::move(meshes)), _materials(std::move(materials)),
-    _textures(std::move(textures)), _rig(std::move(rig)) {}
+    _name(name), _mesh_buffer(mesh_buffer), _meshes(std::move(meshes)),
+    _materials(std::move(materials)), _textures(std::move(textures)), _rig(std::move(rig)) {}
 
 model3d_renderable::~model3d_renderable() {
   if (!_meshes.empty()) {
-    for (auto& mesh : _meshes) {
-      render::destroy_buffer(mesh.attribute_buffer);
-    }
+    render::destroy_buffer(_mesh_buffer);
     for (auto& tex : _textures) {
       render::destroy_texture(tex.texture);
     }
@@ -69,6 +66,56 @@ model3d_renderable::~model3d_renderable() {
     }
   }
 }
+
+namespace {
+
+fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable::mesh_t* meshes)
+  -> buffer_handle {
+  size_t size = 0;
+  // Allocate, in order:
+  // - Positions
+  // - Normals
+  // - Tangents
+  // - Biangents
+  // - Bone indices
+  // - Bone weights
+  // - UVs
+  // - Indices
+  const auto meshes_data = model.meshes();
+  assert(meshes_data.size() == model.mesh_count());
+  for (size_t i = 0; i < model.mesh_count(); ++i) {
+    const auto& mesh_data = meshes_data[i];
+    auto& mesh = meshes[i];
+
+    const size_t nverts = mesh_data.nverts;
+    mesh.vertex_offset = size;
+    size += mesh_data.has_positions() * nverts * sizeof(v3f32);
+    size += mesh_data.has_normals() * nverts * sizeof(v3f32);
+    size += mesh_data.has_tangents() * 2 * nverts * sizeof(v3f32);
+    size += mesh_data.has_bones() * (nverts * sizeof(v4i32) + nverts * sizeof(v4f32));
+    size += mesh_data.has_uvs(0) * nverts * sizeof(v2f32);
+
+    if (mesh_data.has_indices()) {
+      assert(mesh_data.index_count > 0);
+      mesh.index_offset = size;
+      mesh.index_count = mesh_data.index_count;
+      size += mesh_data.index_count * sizeof(u32);
+    }
+
+    mesh.vertex_count = nverts;
+  }
+  if (!size) {
+    return nil_handle<buffer_handle>();
+  }
+  auto buff = render::create_buffer(size);
+  if (!buff) {
+    logger::error("MODEL_ALLOC: {}", buff.error());
+    return nil_handle<buffer_handle>();
+  }
+  return *buff;
+}
+
+} // namespace
 
 auto model3d_renderable::from_asset(const assets::model3d_data& model)
   -> s_expect<model3d_renderable> {
@@ -79,15 +126,17 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
 
   auto meshes = make_zero_array<mesh_t>(model.mesh_count());
   auto materials = make_zero_array<material_t>(model.mesh_count());
+  const auto mesh_buffer = prealloc_vertex_buffer(model, meshes.data());
+  if (is_nil_handle(mesh_buffer)) {
+    return {unexpect, "Failed to allocate mesh buffer"};
+  }
 
   const auto data_meshes = model.meshes();
   size_t mesh_pos = 0, material_pos = 0;
   shogle::scope_end on_err = [&]() {
+    render::destroy_buffer(mesh_buffer);
     for (auto& tex : *texes) {
       render::destroy_texture(tex.texture);
-    }
-    for (size_t i = 0; i < mesh_pos; ++i) {
-      render::destroy_buffer(meshes[i].attribute_buffer);
     }
     for (size_t i = 0; i < material_pos; ++i) {
       render::destroy_pipeline(materials[i].pipeline);
@@ -110,109 +159,60 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
     bits32 attribs;
   };
 
-  const fn create_mesh = [](mesh_t& mesh, const mesh_create_data& data,
-                            std::string_view name) -> s_expect<void> {
-    return render::create_buffer(data.buffer_size).transform([&](buffer_handle buffer) {
-      size_t offset = 0;
-
-      assert((data.attribs & ATTRIB_FLAG_POSITIONS) && data.positions);
-      render::update_buffer(buffer, data.positions, data.nverts * sizeof(v3f32), offset);
-      offset += data.nverts * sizeof(v3f32);
-      logger::debug("POSITIONS");
-
-      if (data.attribs & ATTRIB_FLAG_NORMALS) {
-        assert(data.normals);
-        render::update_buffer(buffer, data.normals, data.nverts * sizeof(v3f32), offset);
-        offset += data.nverts * sizeof(v3f32);
-        logger::debug("NORMALS");
-      }
-
-      if (data.attribs & ATTRIB_FLAG_TANGENTS) {
-        assert(data.tangents && data.bitangents);
-        render::update_buffer(buffer, data.tangents, data.nverts * sizeof(v3f32), offset);
-        offset += data.nverts * sizeof(v3f32);
-        render::update_buffer(buffer, data.bitangents, data.nverts * sizeof(v3f32), offset);
-        offset += data.nverts * sizeof(v3f32);
-        logger::debug("TANGENTS");
-      }
-
-      if (data.attribs & ATTRIB_FLAG_BONES) {
-        assert(data.bone_indices && data.bone_weights);
-        render::update_buffer(buffer, data.bone_indices, data.nverts * sizeof(v4i32), offset);
-        offset += data.nverts * sizeof(v4i32);
-        render::update_buffer(buffer, data.bone_weights, data.nverts * sizeof(v4f32), offset);
-        offset += data.nverts * sizeof(v4f32);
-        logger::debug("BONES");
-      }
-
-      if (data.attribs & ATTRIB_FLAG_UV0) {
-        assert(data.uvs);
-        render::update_buffer(buffer, data.uvs, data.nverts * sizeof(v2f32), offset);
-        offset += data.nverts * sizeof(v2f32);
-        logger::debug("UVS");
-      }
-
-      if (data.indices) {
-        assert(data.index_count > 0);
-        render::update_buffer(buffer, data.indices, data.index_count * sizeof(u32), offset);
-        mesh.index_offset = offset;
-        mesh.index_count = (u32)data.index_count;
-        logger::debug("INDICES");
-      } else {
-        mesh.index_offset = 0;
-        mesh.index_count = 0;
-      }
-
-      mesh.attribute_buffer = buffer;
-      mesh.attribute_flags = data.attribs;
-      mesh.vertex_count = (u32)data.nverts;
-      mesh.name.copy_from(name.data(), name.size());
-    });
-  };
-
   for (; mesh_pos < model.mesh_count(); ++mesh_pos) {
-    const auto& mesh = data_meshes[mesh_pos];
-    const size_t nverts = mesh.nverts;
-    logger::debug("MESH: {}", mesh.name.as_view());
+    const auto& mesh_data = data_meshes[mesh_pos];
+    auto& mesh = meshes[mesh_pos];
+    const size_t nverts = mesh_data.nverts;
+    size_t buffer_offset = meshes[mesh_pos].vertex_offset;
+    logger::debug("MESH ({}): {}", mesh_pos, mesh_data.name.as_view());
+    const fn upload_data = [&]<typename T>(span<T> data, bits32 flag) {
+      assert(data.size() == nverts);
+      mesh.attribute_flags |= flag;
+      render::update_buffer(mesh_buffer, data.data(), data.size_bytes(), buffer_offset);
+      buffer_offset += data.size_bytes();
+    };
 
-    mesh_create_data input{};
-    input.nverts = nverts;
+    // Upload, in order:
+    // - Positions
+    // - Normals
+    // - Tangents
+    // - Biangents
+    // - Bone indices
+    // - Bone weights
+    // - UVs
+    // - Indices
+    if (mesh_data.has_positions()) {
+      logger::debug("POSITONS");
+      upload_data(model.mesh_positions(mesh_data.positions()), ATTRIB_FLAG_POSITIONS);
+    }
+    if (mesh_data.has_normals()) {
+      logger::debug("NORMALS");
+      upload_data(model.mesh_normals(mesh_data.normals()), ATTRIB_FLAG_NORMALS);
+    }
+    if (mesh_data.has_tangents()) {
+      logger::debug("TANGENTS");
+      upload_data(model.mesh_tangents(mesh_data.tangents()), ATTRIB_FLAG_TANGENTS);
+      upload_data(model.mesh_bitangents(mesh_data.tangents()), ATTRIB_FLAG_TANGENTS);
+    }
+    if (mesh_data.has_bones()) {
+      logger::debug("BONES");
+      upload_data(model.mesh_bone_indices(mesh_data.bones()), ATTRIB_FLAG_BONES);
+      upload_data(model.mesh_bone_weights(mesh_data.bones()), ATTRIB_FLAG_BONES);
+    }
+    if (mesh_data.has_uvs(0)) {
+      logger::debug("UVS");
+      upload_data(model.mesh_uvs(0, mesh_data.uvs(0)), ATTRIB_FLAG_UV0);
+    }
+    if (mesh_data.has_indices()) {
+      logger::debug("INDICES");
+      assert(buffer_offset == mesh.index_offset);
+      const auto indices = model.mesh_indices(mesh_data.indices());
+      assert(indices.size() == mesh_data.index_count);
+      render::update_buffer(mesh_buffer, indices.data(), indices.size_bytes(), buffer_offset);
+      buffer_offset += indices.size_bytes();
+    }
 
-    input.positions = model.mesh_positions(mesh.positions()).data();
-    input.attribs |= ATTRIB_FLAG_POSITIONS;
-    input.buffer_size += nverts * sizeof(v3f32);
-
-    if (mesh.has_normals()) {
-      input.normals = model.mesh_normals(mesh.normals()).data();
-      input.attribs |= ATTRIB_FLAG_NORMALS;
-      input.buffer_size += nverts * sizeof(v3f32);
-    }
-    if (mesh.has_tangents()) {
-      input.tangents = model.mesh_tangents(mesh.tangents()).data();
-      input.bitangents = model.mesh_bitangents(mesh.tangents()).data();
-      input.attribs |= ATTRIB_FLAG_TANGENTS;
-      input.buffer_size += 2 * nverts * sizeof(v3f32);
-    }
-    if (mesh.has_bones()) {
-      input.bone_indices = model.mesh_bone_indices(mesh.bones()).data();
-      input.bone_weights = model.mesh_bone_weights(mesh.bones()).data();
-      input.attribs |= ATTRIB_FLAG_BONES;
-      input.buffer_size += nverts * sizeof(v4i32);
-      input.buffer_size += nverts * sizeof(v4f32);
-    }
-    if (mesh.has_uvs(0)) {
-      input.uvs = model.mesh_uvs(0, mesh.uvs(0)).data();
-      input.attribs |= ATTRIB_FLAG_UV0;
-      input.buffer_size += nverts * sizeof(v2f32);
-    }
-
-    if (mesh.has_indices()) {
-      input.indices = model.mesh_indices(mesh.indices()).data();
-      input.index_count = mesh.index_count;
-      input.buffer_size += input.index_count * sizeof(u32);
-    }
-
-    const auto tex_indices = model.material_textures(mesh.material_index);
+    const auto tex_indices = model.material_textures(mesh_data.material_index);
     bits32 material_texes{};
     if (texes && !texes->empty()) {
       for (const u32 tex_idx : tex_indices) {
@@ -220,19 +220,18 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
         material_texes |= flag_from_tex_type((*texes)[tex_idx].type);
       }
     }
+    mesh.name.copy_from(mesh_data.name.data, mesh_data.name.len);
 
-    auto res = create_mesh(meshes[mesh_pos], input, mesh.name.as_view());
-    if (!res) {
-      return {unexpect, std::move(res).error()};
-    }
-
+    assert(!is_nil_handle(mesh_buffer));
     const pipeline_create_data pip_data{
+      .buffer = mesh_buffer,
       .nverts = nverts,
-      .index_offset = meshes[mesh_pos].index_offset,
-      .vertex_attributes = input.attribs,
+      .vertex_offset = mesh.vertex_offset,
+      .index_offset = mesh.index_offset,
+      .vertex_attributes = mesh.attribute_flags,
       .material_textures = material_texes,
     };
-    auto pip = render::create_pipeline(meshes[mesh_pos].attribute_buffer, pip_data);
+    auto pip = render::create_pipeline(pip_data);
     if (!pip) {
       return {unexpect, std::move(pip).error()};
     }
@@ -260,12 +259,16 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
     }
   }
 
-  return {in_place,          create_t{},    model.name(), std::move(meshes), std::move(materials),
-          std::move(*texes), std::move(rig)};
+  return {in_place,          create_t{},           model.name(),      mesh_buffer,
+          std::move(meshes), std::move(materials), std::move(*texes), std::move(rig)};
 }
 
 std::string_view model3d_renderable::name() const {
   return _name.as_view();
+}
+
+fn model3d_renderable::materials() const -> span<const material_t> {
+  return {_materials.data(), _materials.size()};
 }
 
 span<const model3d_renderable::mesh_t> model3d_renderable::meshes() const {

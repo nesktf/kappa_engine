@@ -196,10 +196,9 @@ fn make_vertex_layout(buffer_handle attrib_buff, size_t nverts, size_t index_off
 
 } // namespace
 
-s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buff,
-                                          const pipeline_create_data& data) {
+s_expect<pipeline_handle> create_pipeline(const pipeline_create_data& data) {
   assert(g_ctx.has_value());
-  assert(!is_nil_handle(attrib_buff));
+  assert(!is_nil_handle(data.buffer));
 
   auto shad = generate_shaders(data.vertex_attributes, data.material_textures);
   if (!shad) {
@@ -211,7 +210,7 @@ s_expect<pipeline_handle> create_pipeline(buffer_handle attrib_buff,
   };
 
   auto vert_layout =
-    make_vertex_layout(attrib_buff, data.nverts, data.index_offset, data.vertex_attributes);
+    make_vertex_layout(data.buffer, data.nverts, data.index_offset, data.vertex_attributes);
   if (!vert_layout) {
     return {unexpect, vert_layout.error().what()};
   }

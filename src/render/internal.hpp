@@ -22,6 +22,7 @@ public:
 public:
   shogle::glfw_win win;
   shogle::gl_context gl;
+  shogle::glfw_imgui imgui;
   shogle::gl_texture default_texture;
   inplace_freelist<pipeline_data, MAX_PIPELINES> pipelines;
   inplace_freelist<shogle::gl_texture, MAX_TEXTURES> textures;
