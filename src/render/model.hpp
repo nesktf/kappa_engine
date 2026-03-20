@@ -52,6 +52,10 @@ public:
     unique_array<m4f32> bone_inv_models;
   };
 
+  using asset_filter_fn =
+    shogle::inplace_trivial_fn<bool(const assets::model3d_data::mesh_data&) const,
+                               2 * sizeof(void*)>;
+
 private:
   struct create_t {};
 
@@ -69,7 +73,8 @@ public:
   model3d_renderable& operator=(model3d_renderable&&) noexcept = default;
 
 public:
-  static fn from_asset(const assets::model3d_data& model) -> s_expect<model3d_renderable>;
+  static fn from_asset(const assets::model3d_data& model, asset_filter_fn filter)
+    -> s_expect<model3d_renderable>;
 
 public:
   fn name() const -> std::string_view;

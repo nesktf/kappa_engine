@@ -62,8 +62,10 @@ void destroy() {
     [](shogle::gl_texture& tex) { shogle::gl_texture::deallocate(g_ctx->gl, tex); });
   g_ctx->buffers.for_each(
     [](shogle::gl_buffer& buff) { shogle::gl_buffer::deallocate(g_ctx->gl, buff); });
-  g_ctx->pipelines.for_each(
-    [](pipeline_data& pip) { shogle::gl_pipeline::destroy(g_ctx->gl, pip.pipeline); });
+  g_ctx->pipelines.for_each([](pipeline_data& pip) {
+    shogle::gl_pipeline::destroy(g_ctx->gl, pip.pipeline);
+    shogle::gl_vertex_layout::destroy(g_ctx->gl, pip.layout);
+  });
   g_ctx->imgui.destroy();
   g_ctx.reset();
   glfwTerminate();
@@ -89,14 +91,18 @@ void end_frame() {
 void submit_render_batch(span<const render_data>& batch) {
   assert(g_ctx.has_value());
   shogle::gl_cmd_builder builder;
+  static f32 t = 0.f;
   for (const auto& data : batch) {
     auto* pip = g_ctx->pipelines.at_opt((u32)data.pipeline);
     if (!pip) {
       logger::warning("Skipping data with invalid pipeline {}", (u32)data.pipeline);
       continue;
     }
+
+    builder.reset();
     builder.set_vertex_layout(pip->layout);
     builder.set_pipeline(pip->pipeline);
+    builder.set_draw_count(data.draw_count);
 
     for (const auto& binding : data.textures) {
       const auto& tex = is_nil_handle(binding.texture) ? g_ctx->default_texture
@@ -106,12 +112,15 @@ void submit_render_batch(span<const render_data>& batch) {
     for (const auto& uniform : data.uniforms) {
       builder.add_uniform(uniform.data, uniform.location, uniform.type);
     }
-    builder.set_draw_count(data.draw_count);
+    m4f32 model(1.f);
+    model = shogle::math::translate(model, shogle::vec3(0.f, -1.f, -3.f));
+    model = shogle::math::rotate(model, t * shogle::math::pi<f32>, shogle::vec3(0.f, 1.f, 0.f));
+    builder.add_uniform(g_ctx->proj, 1);
+    builder.add_uniform(model, 2);
     const auto cmd = builder.build();
     g_ctx->gl.submit_immediate_command(cmd);
-
-    builder.reset();
   }
+  t += 0.016;
 }
 
 texture_handle create_texture(const texture_create_data& data) {

@@ -69,8 +69,8 @@ model3d_renderable::~model3d_renderable() {
 
 namespace {
 
-fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable::mesh_t* meshes)
-  -> buffer_handle {
+fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable::mesh_t* meshes,
+                          const size_t* indices, size_t index_count) -> buffer_handle {
   size_t size = 0;
   // Allocate, in order:
   // - Positions
@@ -83,8 +83,8 @@ fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable:
   // - Indices
   const auto meshes_data = model.meshes();
   assert(meshes_data.size() == model.mesh_count());
-  for (size_t i = 0; i < model.mesh_count(); ++i) {
-    const auto& mesh_data = meshes_data[i];
+  for (size_t i = 0; i < index_count; ++i) {
+    const auto& mesh_data = meshes_data[indices[i]];
     auto& mesh = meshes[i];
 
     const size_t nverts = mesh_data.nverts;
@@ -117,16 +117,28 @@ fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable:
 
 } // namespace
 
-auto model3d_renderable::from_asset(const assets::model3d_data& model)
+auto model3d_renderable::from_asset(const assets::model3d_data& model, asset_filter_fn filter)
   -> s_expect<model3d_renderable> {
   auto texes = model3d_texture::from_model(model);
   if (!texes) {
     return {unexpect, std::move(texes).error()};
   }
 
-  auto meshes = make_zero_array<mesh_t>(model.mesh_count());
-  auto materials = make_zero_array<material_t>(model.mesh_count());
-  const auto mesh_buffer = prealloc_vertex_buffer(model, meshes.data());
+  std::vector<size_t> filtered_meshes;
+  const auto meshes_data = model.meshes();
+  for (size_t i = 0; i < meshes_data.size(); ++i) {
+    if (filter(meshes_data[i])) {
+      filtered_meshes.emplace_back(i);
+    }
+  }
+  if (filtered_meshes.empty()) {
+    return {unexpect, "Filter returned no meshes"};
+  }
+
+  auto meshes = make_zero_array<mesh_t>(filtered_meshes.size());
+  auto materials = make_zero_array<material_t>(filtered_meshes.size());
+  const auto mesh_buffer =
+    prealloc_vertex_buffer(model, meshes.data(), filtered_meshes.data(), filtered_meshes.size());
   if (is_nil_handle(mesh_buffer)) {
     return {unexpect, "Failed to allocate mesh buffer"};
   }
@@ -144,26 +156,14 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model)
   };
   on_err.disengage();
 
-  struct mesh_create_data {
-    size_t buffer_size;
-    size_t nverts;
-    const v3f32* positions;
-    const v3f32* normals;
-    const v2f32* uvs;
-    const v3f32* tangents;
-    const v3f32* bitangents;
-    const v4i32* bone_indices;
-    const v4f32* bone_weights;
-    size_t index_count;
-    const u32* indices;
-    bits32 attribs;
-  };
-
-  for (; mesh_pos < model.mesh_count(); ++mesh_pos) {
-    const auto& mesh_data = data_meshes[mesh_pos];
+  for (; mesh_pos < filtered_meshes.size(); ++mesh_pos) {
+    const auto& mesh_data = data_meshes[filtered_meshes[mesh_pos]];
+    if (!filter(mesh_data)) {
+      continue;
+    }
     auto& mesh = meshes[mesh_pos];
     const size_t nverts = mesh_data.nverts;
-    size_t buffer_offset = meshes[mesh_pos].vertex_offset;
+    size_t buffer_offset = mesh.vertex_offset;
     logger::debug("MESH ({}): {}", mesh_pos, mesh_data.name.as_view());
     const fn upload_data = [&]<typename T>(span<T> data, bits32 flag) {
       assert(data.size() == nverts);
