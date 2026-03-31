@@ -310,4 +310,167 @@ span<const m4f32> model3d_renderable::bone_inv_models() const {
   return {_rig->bone_inv_models.data(), _rig->bone_inv_models.size()};
 }
 
+fn model3d_instance_handler::create(const model3d_renderable& model, u32 instances)
+  -> s_expect<model3d_instance_handler> {
+  unique_array<m4f32> bone_transforms, bone_cache;
+  size_t buffer_offset = 0;
+  if (model.has_bones()) {
+    const auto bones = model.bones();
+    const size_t bone_transform_size = instances * bones.size() * sizeof(m4f32);
+    buffer_offset += bone_transform_size;
+    static constexpr m4f32 identity(1.f);
+    bone_transforms = shogle::make_array(bone_transform_size, identity);
+    bone_cache = shogle::make_array(3 * bone_transform_size, identity);
+  }
+
+  const size_t total_size = buffer_offset + instances * sizeof(instance_data);
+  auto buffer = render::create_buffer(total_size);
+  if (!buffer) {
+    return {unexpect, "Failed to allocate buffer"};
+  }
+  assert(!is_nil_handle(*buffer));
+
+  return {in_place, model,    std::move(bone_transforms), std::move(bone_cache), buffer_offset,
+          *buffer,  instances};
+}
+
+namespace {
+
+fn update_bone_hierarchy(span<const m4f32> transforms, span<m4f32> cache,
+                         const model3d_renderable& model, const m4f32& root_transform,
+                         buffer_handle buffer, size_t offset) -> void {
+  assert(model.has_bones());
+  assert(cache.size() == 3 * transforms.size());
+  const auto bones = model.bones();
+  const auto bone_locals = model.bone_locals();
+  const auto bone_invs = model.bone_inv_models();
+
+  const span<m4f32> locals(cache.data(), bones.size());
+  const span<m4f32> models(cache.data() + bones.size(), bones.size());
+  const span<m4f32> output(cache.data() + 2 * bones.size(), bones.size());
+
+  // Populate bone local transforms
+  locals[0] = root_transform * bone_locals[0] * transforms[0];
+  for (size_t i = 1; i < bones.size(); ++i) {
+    locals[i] = bone_locals[i] * transforms[i];
+  }
+
+  // Populate bone model transforms
+  models[0] = cache[0]; // Root transform
+  for (size_t i = 1; i < bones.size(); ++i) {
+    const u32 parent = bones[i].parent;
+    // Since the bone hierarchy is sorted, we should be able to read the parent model matrix safely
+    assert(parent < bones.size());
+    models[i] = models[parent] * locals[i];
+  }
+
+  // Prepare shader transform data
+  for (size_t i = 0; i < bones.size(); ++i) {
+    output[i] = models[i] * bone_invs[i];
+  }
+  render::update_buffer(buffer, output.data(), output.size_bytes(), offset);
+}
+
+} // namespace
+
+fn model3d_instance_handler::update_buffers() -> void {
+  assert(_model != nullptr);
+
+  if (!_bone_transforms.empty()) {
+    assert(_buffer_offset != 0);
+    const size_t bone_count = _bone_transforms.size() / _instances;
+    const span<m4f32> cache(_bone_cache.data(), _bone_cache.size());
+    for (u32 i = 0; i < _instances; ++i) {
+      const size_t offset = i * bone_count * sizeof(m4f32);
+      const span<const m4f32> transforms(_bone_transforms.data() + offset, bone_count);
+      update_bone_hierarchy(transforms, cache, *_model, m4f32(1.f), _buffer, offset);
+    }
+  }
+}
+
+fn model3d_instance_handler::retrieve_render_data(const buffer_binding& scene_buffer,
+                                                  std::vector<render_data>& data) const -> u32 {
+  assert(_model != nullptr);
+  u32 count = 0;
+  const auto materials = _model->materials();
+  for (const auto& mesh : _model->meshes()) {
+    assert(mesh.material < materials.size());
+    const auto& material = materials[count++];
+
+    render_data rdata{};
+    rdata.mesh_buffer = _model->mesh_buffer();
+    rdata.draw_count = mesh.index_count ? mesh.index_count : mesh.vertex_count;
+    rdata.pipeline = material.pipeline;
+
+    rdata.shader_binds[0].buffer = scene_buffer.handle;
+    rdata.shader_binds[0].location = glsl_scene_binding;
+    rdata.shader_binds[0].offset = scene_buffer.offset;
+    rdata.shader_binds[0].size = scene_buffer.size;
+
+    rdata.instances = _instances;
+    rdata.shader_binds = {};
+    rdata.uniforms = {};
+    rdata.textures = {};
+    data.push_back(rdata);
+  }
+
+  return count;
+}
+
+fn model3d_instance_handler::set_transform(u32 instance, const m4f32& transform) -> void {
+  static constexpr size_t model_offset = offsetof(instance_data, model);
+  const size_t offset =
+    _instance_buffer.offset + (instance * sizeof(instance_data)) + model_offset;
+  render::update_buffer(_instance_buffer.handle, &transform, sizeof(transform), offset);
+}
+
+fn model3d_instance_handler::set_bone_transform(u32 instance, u32 bone, const m4f32& transform)
+  -> void {
+  if (_instance_buffer.offset == 0) {
+    // We didn't allocate space for the bones!!!!!!!!!!
+    return;
+  }
+  const auto bones = _model->bones();
+}
+
+model3d_instance_handler::model3d_instance_handler(const model3d_renderable& model,
+                                                   unique_array<m4f32>&& bone_transforms,
+                                                   unique_array<m4f32>&& bone_cache,
+                                                   size_t buffer_offset, buffer_handle buffer,
+                                                   u32 instances) :
+    _model(&model), _bone_transforms(std::move(bone_transforms)),
+    _bone_cache(std::move(bone_cache)), _buffer_offset(buffer_offset), _buffer(buffer),
+    _instances(instances) {}
+
+model3d_instance_handler::~model3d_instance_handler() {
+  if (_model) {
+    render::destroy_buffer(_buffer);
+  }
+}
+
+model3d_instance_handler::model3d_instance_handler(model3d_instance_handler&& other) noexcept :
+    _model(other._model), _bone_transforms(std::move(other._bone_transforms)),
+    _bone_cache(std::move(other._bone_cache)), _buffer_offset(other._buffer_offset),
+    _buffer(other._buffer), _instances(other._instances) {
+  other._model = nullptr;
+}
+
+model3d_instance_handler&
+model3d_instance_handler::operator=(model3d_instance_handler&& other) noexcept {
+  if (_model) {
+    render::destroy_buffer(_buffer);
+  }
+
+  _model = other._model;
+  _bone_transforms = std::move(other._bone_transforms);
+  _bone_cache = std::move(other._bone_cache);
+  _buffer = other._buffer;
+  _buffer_offset = other._buffer_offset;
+  _instances = other._instances;
+
+  other._model = nullptr;
+
+  return *this;
+}
+
 } // namespace kappa::render

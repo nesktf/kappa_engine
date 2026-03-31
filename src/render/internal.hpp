@@ -9,6 +9,10 @@ constexpr size_t MAX_PIPELINES = 512;
 constexpr size_t MAX_TEXTURES = 512;
 constexpr size_t MAX_BUFFERS = 512;
 
+constexpr u32 glsl_scene_binding = 1;
+constexpr u32 glsl_instance_binding = 2;
+constexpr u32 glsl_u_samplers = 1;
+
 struct pipeline_data {
   shogle::gl_pipeline pipeline;
   shogle::gl_vertex_layout layout;

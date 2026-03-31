@@ -1,6 +1,5 @@
 #include "./render/model.hpp"
 #include "./util/threadpool.hpp"
-#include "shogle/extern/imgui.h"
 
 namespace {
 

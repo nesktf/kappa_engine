@@ -4,95 +4,167 @@ namespace kappa::render {
 
 namespace {
 
-constexpr char vert_src2[] = R"glsl(
+constexpr char glsl_common_header[] = R"glsl(
 #version 460 core
 
-layout (location = 0) in vec3 att_pos;
-layout (location = 1) in vec3 att_norm;
-layout (location = 2) in vec3 att_tang;
-layout (location = 3) in vec3 att_bitang;
-layout (location = 4) in ivec4 att_bone_indices;
-layout (location = 5) in vec4 att_bone_weights;
-layout (location = 6) in vec2 att_uvs;
+const uint SAMPLER_ALBEDO = 0;
+const uint SAMPLER_SPECULAR = 1;
+const uint SAMPLER_NORMAL = 2;
+const uint SAMPLER_AMBIENT_OCCLUSION = 3;
+const uint SAMPLER_ROUGHNESS = 4;
+const uint SAMPLER_METALLIC = 5;
 
-layout (location = 0) out vec3 frag_norm;
-
-layout (location = 1) uniform mat4 u_proj;
-layout (location = 2) uniform  mat4 u_model;
-
-void main() {
-  gl_Position = u_proj*u_model*vec4(att_pos, 1.0f);
-}  
+struct scene_data {
+  mat4 proj;
+  mat4 view;
+};
+struct instance_data {
+  mat4 model;
+};
+layout(std430, binding = 1) buffer scene_buffer {
+  scene_data u_scene;
+};
+layout(std430, binding = 2) buffer instance_buffer {
+  instance_data u_instances[];
+};
 )glsl";
 
-constexpr char vert_src[] = R"glsl(
-#version 460 core
-
+constexpr u32 glsl_att_pos = 0;
+constexpr u32 glsl_att_norm = 1;
+constexpr u32 glsl_att_uv = 2;
+constexpr u32 glsl_att_tang = 3;
+constexpr u32 glsl_att_bitang = 4;
+constexpr char glsl_vert_tangent_header[] = R"glsl(
 layout (location = 0) in vec3 att_pos;
 layout (location = 1) in vec3 att_norm;
+layout (location = 2) in vec2 att_uvs;
+layout (location = 3) in vec3 att_tang;
+layout (location = 4) in vec3 att_bitang;
 
-layout (location = 0) out vec3 frag_norm;
-
-layout (location = 1) uniform mat4 u_proj;
-layout (location = 2) uniform  mat4 u_model;
-
-void main() {
-  gl_Position = u_proj*u_model*vec4(att_pos, 1.0f);
-  frag_norm = att_norm;
-}  
+out VS_OUT {
+  vec3 vert_normals;
+  vec3 vert_tangents;
+  vec3 vert_bitangents;
+  vec2 vert_uvs;
+} vs_out;
 )glsl";
-
-constexpr char frag_src[] = R"glsl(
-#version 460 core
-
-//layout (location = 0) in vec3 frag_norm;
-//layout (location = 1) in vec2 frag_uvs;
-
-layout (location = 0) out vec4 out_color;
-
-//uniform sampler2D u_tex;
-  
+constexpr char glsl_vert_tangent_body[] = R"glsl(
 void main() {
-out_color = vec4(1.0, 0.0, 0.0, 1.0);
-//  out_color = texture(u_tex, frag_uvs);
+  gl_Position = u_scene.proj * u_scene.view * u_instances[gl_InstanceID].model * model_pos();
+
+  vs_out.vert_normals = att_norm;
+  vs_out.vert_tangents = att_tang;
+  vs_out.vert_bitangents = att_bitang;
+  vs_out.vert_uvs = att_uvs;
+}
+)glsl";
+constexpr char glsl_vert_notangent_header[] = R"glsl(
+layout (location = 0) in vec3 att_pos;
+layout (location = 1) in vec3 att_norm;
+layout (location = 2) in vec2 att_uvs;
+
+out VS_OUT {
+  vec3 vert_normals;
+  vec2 vert_uvs;
+} vs_out;
+)glsl";
+constexpr char glsl_vert_notangent_body[] = R"glsl(
+void main() {
+  gl_Position = u_scene.proj * u_scene.view * u_instances[gl_InstanceID].model * model_pos();
+
+  vs_out.vert_normals = att_norm;
+  vs_out.vert_uvs = att_uvs;
 }
 )glsl";
 
-struct shader_thing {
-  shogle::gl_shader vert, frag;
-};
+constexpr u32 glsl_att_bone_indices = 5;
+constexpr u32 glsl_att_bone_weights = 6;
+constexpr char glsl_vert_bone_header[] = R"glsl(
+layout (location = 5) in ivec4 att_bone_indices;
+layout (location = 6) in vec4 att_bone_weights;
 
-class pn_mesh_layout {
+const int MAX_BONE_INFLUENCE = 4;
+
+vec4 model_pos() {
+  vec4 total_pos = vec4(0.f);
+  for (int i = 0; i < MAX_BONE_INFLUENCE; ++i) {
+    if (att_bone_indices[i] == -1) {
+      continue;
+    }
+    vec4 local_pos = u_bone_mat[att_bone_indices[i]] * vec4(att_pos, 1.f);
+    total_pos += local_pos * att_bone_weights[i];
+    //vec3 local_norm = mat3(u_bone_mat[att_bone_indices[i]]) * att_normals;
+  }
+  return total_pos;
+}
+)glsl";
+constexpr char glsl_vert_nobone_header[] = R"glsl(
+vec4 model_pos() {
+  return vec4(att_pos, 1.f);
+}
+)glsl";
+
+constexpr char glsl_frag_tangent_header[] = R"glsl(
+layout(location = 1) uniform sampler2D u_samplers[6];
+
+in VS_OUT {
+  vec3 vert_normals;
+  vec3 vert_tangents;
+  vec3 vert_bitangents;
+  vec2 vert_uvs;
+} fs_in;
+)glsl";
+constexpr char glsl_frag_notangent_header[] = R"glsl(
+layout(location = 1) uniform sampler2D u_samplers[6];
+
+in VS_OUT {
+  vec3 vert_normals;
+  vec2 vert_uvs;
+} fs_in;
+)glsl";
+
+constexpr char glsl_frag_body[] = R"glsl(
+void main() {
+  frag_color = texture(u_samplers[SAMPLER_ALBEDO], fs_in.vert_uvs);
+}
+)glsl";
+
+class pnt_mesh_layout {
 public:
-  static constexpr size_t attribute_count = 2u;
+  static constexpr size_t attribute_count = 3u;
 
 public:
-  pn_mesh_layout(size_t offset, size_t nverts) noexcept : _offset(offset), _nverts(nverts) {}
+  pnt_mesh_layout(size_t offset, size_t nverts) noexcept : _offset(offset), _nverts(nverts) {}
 
 public:
   static bool test_mesh(bits32 attrib) noexcept {
-    return (attrib & ATTRIB_FLAG_POSITIONS) && (attrib & ATTRIB_FLAG_NORMALS);
+    return (attrib & ATTRIB_FLAG_POSITIONS) && (attrib & ATTRIB_FLAG_NORMALS) &&
+           (attrib & ATTRIB_FLAG_UV0);
   }
 
 public:
   shogle::vertex_attrib_array<attribute_count> attributes() const noexcept {
     const size_t pos_offset = _offset;
     const size_t norm_offset = pos_offset + _nverts * sizeof(v3f32);
+    const size_t uv_offset = norm_offset + _nverts * sizeof(v3f32);
     return std::to_array<shogle::vertex_attribute>({
-      {.location = 0,
+      {.location = glsl_att_pos,
        .type = shogle::attribute_type::vec3,
        .offset = pos_offset,
-       .stride = sizeof(shogle::vec3)},
-      {.location = 1,
+       .stride = sizeof(v3f32)},
+      {.location = glsl_att_norm,
        .type = shogle::attribute_type::vec3,
        .offset = norm_offset,
-       .stride = sizeof(shogle::vec3)},
+       .stride = sizeof(v3f32)},
+      {.location = glsl_att_uv,
+       .type = shogle::attribute_type::vec2,
+       .offset = uv_offset,
+       .stride = sizeof(v2f32)},
     });
   }
 
 private:
-  size_t _offset;
-  size_t _nverts;
+  size_t _offset, _nverts;
 };
 
 class pnttb_mesh_layout {
@@ -113,63 +185,85 @@ public:
   shogle::vertex_attrib_array<attribute_count> attributes() const noexcept {
     const size_t pos_offset = _offset;
     const size_t norm_offset = pos_offset + _nverts * sizeof(v3f32);
-    const size_t tang_offset = norm_offset + _nverts * sizeof(v3f32);
+    const size_t uv_offset = norm_offset + _nverts * sizeof(v3f32);
+    const size_t tang_offset = uv_offset + _nverts * sizeof(v2f32);
     const size_t bitang_offset = tang_offset + _nverts * sizeof(v3f32);
-    const size_t bonei_offset = bitang_offset + _nverts * sizeof(v3f32);
-    const size_t bonew_offset = bonei_offset + _nverts * sizeof(v4i32);
-    const size_t uv_offset = bonew_offset + _nverts * sizeof(v4f32);
+    const size_t bone_indices_offset = bitang_offset + _nverts * sizeof(v3f32);
+    const size_t bone_weights_offset = bone_indices_offset + _nverts * sizeof(v4i32);
     return std::to_array<shogle::vertex_attribute>({
-      {.location = 0,
+      {.location = glsl_att_pos,
        .type = shogle::attribute_type::vec3,
        .offset = pos_offset,
-       .stride = sizeof(shogle::vec3)},
-      {.location = 1,
+       .stride = sizeof(v3f32)},
+      {.location = glsl_att_norm,
        .type = shogle::attribute_type::vec3,
        .offset = norm_offset,
-       .stride = sizeof(shogle::vec3)},
-      {.location = 2,
-       .type = shogle::attribute_type::vec3,
-       .offset = tang_offset,
-       .stride = sizeof(shogle::vec3)},
-      {.location = 3,
-       .type = shogle::attribute_type::vec3,
-       .offset = bitang_offset,
-       .stride = sizeof(shogle::vec3)},
-      {.location = 4,
-       .type = shogle::attribute_type::ivec4,
-       .offset = bonei_offset,
-       .stride = sizeof(shogle::ivec4)},
-      {.location = 5,
-       .type = shogle::attribute_type::vec4,
-       .offset = bonew_offset,
-       .stride = sizeof(shogle::vec4)},
-      {.location = 6,
+       .stride = sizeof(v3f32)},
+      {.location = glsl_att_uv,
        .type = shogle::attribute_type::vec2,
        .offset = uv_offset,
-       .stride = sizeof(shogle::vec2)},
+       .stride = sizeof(v2f32)},
+      {.location = glsl_att_tang,
+       .type = shogle::attribute_type::vec3,
+       .offset = tang_offset,
+       .stride = sizeof(v3f32)},
+      {.location = glsl_att_bitang,
+       .type = shogle::attribute_type::vec3,
+       .offset = bitang_offset,
+       .stride = sizeof(v3f32)},
+      {.location = glsl_att_bone_indices,
+       .type = shogle::attribute_type::ivec4,
+       .offset = bone_indices_offset,
+       .stride = sizeof(v4i32)},
+      {.location = glsl_att_bone_weights,
+       .type = shogle::attribute_type::vec4,
+       .offset = bone_weights_offset,
+       .stride = sizeof(v4f32)},
     });
   }
 
 private:
-  size_t _offset;
-  size_t _nverts;
+  size_t _offset, _nverts;
 };
 
-fn generate_shaders(bits32 attribs, bits32 texes) -> s_expect<shader_thing> {
-  (void)texes;
+struct shader_pair {
+  shogle::gl_shader vert, frag;
+};
+
+fn generate_shaders(bits32 attribs) -> shogle::gl_s_expect<shader_pair> {
   assert(g_ctx.has_value());
+  std::string vert_src = glsl_common_header;
+  std::string frag_src = glsl_common_header;
   if (pnttb_mesh_layout::test_mesh(attribs)) {
-    shogle::gl_shader vert(g_ctx->gl, vert_src2, sizeof(vert_src2),
-                           shogle::gl_shader::STAGE_VERTEX);
-    shogle::gl_shader frag(g_ctx->gl, frag_src, sizeof(frag_src),
-                           shogle::gl_shader::STAGE_FRAGMENT);
-    return {in_place, vert, frag};
+    vert_src += glsl_vert_tangent_header;
+    vert_src += glsl_vert_bone_header;
+    vert_src += glsl_vert_tangent_body;
+
+    frag_src += glsl_frag_tangent_header;
+    frag_src += glsl_frag_body;
+  } else if (pnt_mesh_layout::test_mesh(attribs)) {
+    vert_src += glsl_vert_notangent_header;
+    vert_src += glsl_vert_nobone_header;
+    vert_src += glsl_vert_notangent_body;
+
+    frag_src += glsl_frag_notangent_header;
+    frag_src += glsl_frag_body;
   } else {
-    shogle::gl_shader vert(g_ctx->gl, vert_src, sizeof(vert_src), shogle::gl_shader::STAGE_VERTEX);
-    shogle::gl_shader frag(g_ctx->gl, frag_src, sizeof(frag_src),
-                           shogle::gl_shader::STAGE_FRAGMENT);
-    return {in_place, vert, frag};
+    return {unexpect, "Invalid mesh layout"};
   }
+
+  auto vert = shogle::gl_shader::create(g_ctx->gl, vert_src.data(), vert_src.size(),
+                                        shogle::gl_shader::STAGE_VERTEX);
+  if (!vert) {
+    return {unexpect, std::move(vert).error()};
+  }
+  auto frag = shogle::gl_shader::create(g_ctx->gl, frag_src.data(), frag_src.size(),
+                                        shogle::gl_shader::STAGE_FRAGMENT);
+  if (!frag) {
+    shogle::gl_shader::destroy(g_ctx->gl, *vert);
+    return {unexpect, std::move(frag).error()};
+  }
+  return {in_place, *std::move(vert), *std::move(frag)};
 }
 
 fn make_vertex_layout(buffer_handle attrib_buff, size_t nverts, size_t vertex_offset,
@@ -186,8 +280,8 @@ fn make_vertex_layout(buffer_handle attrib_buff, size_t nverts, size_t vertex_of
   if (pnttb_mesh_layout::test_mesh(attribs)) {
     pnttb_mesh_layout layout(vertex_offset, nverts);
     return layout_builder.build(g_ctx->gl, layout);
-  } else if (pn_mesh_layout::test_mesh(attribs)) {
-    pn_mesh_layout layout(vertex_offset, nverts);
+  } else if (pnt_mesh_layout::test_mesh(attribs)) {
+    pnt_mesh_layout layout(vertex_offset, nverts);
     return layout_builder.build(g_ctx->gl, layout);
   }
   return {unexpect, 0};
@@ -199,9 +293,9 @@ s_expect<pipeline_handle> create_pipeline(const pipeline_create_data& data) {
   assert(g_ctx.has_value());
   assert(!is_nil_handle(data.buffer));
 
-  auto shad = generate_shaders(data.vertex_attributes, data.material_textures);
+  auto shad = generate_shaders(data.vertex_attributes);
   if (!shad) {
-    return {unexpect, std::move(shad).error()};
+    return {unexpect, std::move(shad).error().what()};
   }
   const shogle::scope_end shad_defer = [&]() {
     shogle::gl_shader::destroy(g_ctx->gl, shad->vert);

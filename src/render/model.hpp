@@ -99,4 +99,55 @@ private:
   optional<rig_t> _rig;
 };
 
+struct buffer_binding {
+  size_t offset;
+  size_t size;
+  buffer_handle handle;
+};
+
+class model3d_instance_handler {
+public:
+  struct instance_data {
+    m4f32 model;
+  };
+
+private:
+  struct create_t {};
+
+public:
+  model3d_instance_handler(const model3d_renderable& model, unique_array<m4f32>&& bone_transforms,
+                           unique_array<m4f32>&& bone_cache, size_t buffer_offset,
+                           buffer_handle buffer, u32 instances);
+
+  ~model3d_instance_handler();
+
+  model3d_instance_handler(model3d_instance_handler&& other) noexcept;
+  model3d_instance_handler(const model3d_instance_handler&) = delete;
+
+  model3d_instance_handler& operator=(model3d_instance_handler&& other) noexcept;
+  model3d_instance_handler& operator=(const model3d_instance_handler& other) = delete;
+
+public:
+  static fn create(const model3d_renderable& model, u32 instances)
+    -> s_expect<model3d_instance_handler>;
+
+public:
+  fn update_buffers() -> void;
+  fn retrieve_render_data(const buffer_binding& scene_buffer, vec<render_data>& data) const -> u32;
+
+public:
+  fn set_transform(u32 instance, const m4f32& transform) -> void;
+  fn set_bone_transform(u32 instance, u32 bone, const m4f32& transform) -> void;
+
+public:
+  fn model() const -> const model3d_renderable& { return *_model; }
+
+private:
+  const model3d_renderable* _model;
+  unique_array<m4f32> _bone_transforms, _bone_cache;
+  size_t _buffer_offset;
+  buffer_handle _buffer;
+  u32 _instances;
+};
+
 } // namespace kappa::render

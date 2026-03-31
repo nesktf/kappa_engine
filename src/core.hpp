@@ -41,6 +41,9 @@ using shogle::sv_expect;
 
 using shogle::unique_array;
 
+template<typename T>
+using vec = std::vector<T>;
+
 template<size_t MaxSize>
 struct buffer_str {
   static constexpr size_t buffer_size = MaxSize;
