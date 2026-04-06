@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../defs.hpp"
+#include "../core.hpp"
 
 #include <concepts>
 #include <exception>

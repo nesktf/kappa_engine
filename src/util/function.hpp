@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../defs.hpp"
+#include "../core.hpp"
 
 #include <memory>
 #include <type_traits>
@@ -77,13 +77,13 @@ class FnRef<Ret(Args...) const noexcept(IsNoexcept)> {
 public:
   using signature = Ret(Args...) const noexcept(IsNoexcept);
   using return_type = Ret;
-  using FuncPtrType = Ret (*)(Args...) noexcept(IsNoexcept);
+  using func_ptr_type = Ret (*)(Args...) noexcept(IsNoexcept);
 
 private:
-  using FunctorPtrType = Ret (*)(const void*, Args...) noexcept(IsNoexcept);
+  using functor_ptr_type = Ret (*)(const void*, Args...) noexcept(IsNoexcept);
 
 public:
-  explicit constexpr FnRef(FuncPtrType func) : _data(nullptr), _func_invoke(func) {
+  explicit constexpr FnRef(func_ptr_type func) : _data(nullptr), _func_invoke(func) {
     ka_assert(func);
   }
 
@@ -116,7 +116,7 @@ public:
   }
 
 public:
-  constexpr FnRef& operator=(FuncPtrType func) noexcept {
+  constexpr FnRef& operator=(func_ptr_type func) noexcept {
     _data = nullptr;
     _func_invoke = func;
     return *this;
@@ -137,8 +137,8 @@ private:
   const void* _data;
 
   union {
-    FuncPtrType _func_invoke;
-    FunctorPtrType _functor_invoke;
+    func_ptr_type _func_invoke;
+    functor_ptr_type _functor_invoke;
   };
 };
 
@@ -147,13 +147,13 @@ class FnRef<Ret(Args...) noexcept(IsNoexcept)> {
 public:
   using signature = Ret(Args...) noexcept(IsNoexcept);
   using return_type = Ret;
-  using FuncPtrType = Ret (*)(Args...) noexcept(IsNoexcept);
+  using func_ptr_type = Ret (*)(Args...) noexcept(IsNoexcept);
 
 private:
-  using FunctorPtrType = Ret (*)(void*, Args...) noexcept(IsNoexcept);
+  using functor_ptr_type = Ret (*)(void*, Args...) noexcept(IsNoexcept);
 
 public:
-  explicit constexpr FnRef(FuncPtrType func) : _data(nullptr), _func_invoke(func) {
+  explicit constexpr FnRef(func_ptr_type func) : _data(nullptr), _func_invoke(func) {
     ka_assert(func);
   }
 
@@ -185,7 +185,7 @@ public:
     }
   }
 
-  constexpr FnRef& operator=(FuncPtrType func) noexcept {
+  constexpr FnRef& operator=(func_ptr_type func) noexcept {
     _data = nullptr;
     _func_invoke = func;
     return *this;
@@ -206,8 +206,8 @@ private:
   void* _data;
 
   union {
-    FuncPtrType _func_invoke;
-    FunctorPtrType _functor_invoke;
+    func_ptr_type _func_invoke;
+    functor_ptr_type _functor_invoke;
   };
 };
 
@@ -217,10 +217,10 @@ class TrivFn;
 template<usize MaxSize, usize MaxAlign, bool IsNoexcept, typename Ret, typename... Args>
 class TrivFn<Ret(Args...) const noexcept(IsNoexcept), MaxSize, MaxAlign> {
 public:
-  using FuncPtrType = Ret (*)(Args...) noexcept(IsNoexcept);
+  using func_ptr_type = Ret (*)(Args...) noexcept(IsNoexcept);
 
 private:
-  using FunctorPtrType = Ret (*)(const void*, Args...) noexcept(IsNoexcept);
+  using functor_ptr_type = Ret (*)(const void*, Args...) noexcept(IsNoexcept);
 
   template<typename T>
   static constexpr bool is_valid_func =
@@ -230,7 +230,7 @@ private:
     std::is_trivially_destructible_v<std::remove_cvref_t<T>>;
 
 public:
-  explicit TrivFn(FuncPtrType func) : _func_invoke(func), _is_functor(false) { ka_assert(func); }
+  explicit TrivFn(func_ptr_type func) : _func_invoke(func), _is_functor(false) { ka_assert(func); }
 
   template<typename F>
   requires(is_valid_func<F>)
@@ -292,7 +292,7 @@ public:
     return *this;
   }
 
-  TrivFn& emplace(FuncPtrType func) {
+  TrivFn& emplace(func_ptr_type func) {
     ka_assert(func);
     _func_invoke = func;
     _is_functor = false;
@@ -309,7 +309,7 @@ public:
     return emplace(std::forward<F>(functor));
   }
 
-  TrivFn& operator==(FuncPtrType func) { return emplace(func); }
+  TrivFn& operator==(func_ptr_type func) { return emplace(func); }
 
 private:
   template<typename T>
@@ -321,8 +321,8 @@ private:
   alignas(MaxAlign) u8 _buffer[MaxSize];
 
   union {
-    FuncPtrType _func_invoke;
-    FunctorPtrType _functor_invoke;
+    func_ptr_type _func_invoke;
+    functor_ptr_type _functor_invoke;
   };
 
   bool _is_functor;
@@ -331,10 +331,10 @@ private:
 template<usize MaxSize, usize MaxAlign, bool IsNoexcept, typename Ret, typename... Args>
 class TrivFn<Ret(Args...) noexcept(IsNoexcept), MaxSize, MaxAlign> {
 public:
-  using FuncPtrType = Ret (*)(Args...) noexcept(IsNoexcept);
+  using func_ptr_type = Ret (*)(Args...) noexcept(IsNoexcept);
 
 private:
-  using FunctorPtrType = Ret (*)(void*, Args...) noexcept(IsNoexcept);
+  using functor_ptr_type = Ret (*)(void*, Args...) noexcept(IsNoexcept);
 
   template<typename T>
   static constexpr bool is_valid_func =
@@ -344,7 +344,7 @@ private:
     std::is_trivially_destructible_v<std::remove_cvref_t<T>>;
 
 public:
-  explicit TrivFn(FuncPtrType func) : _func_invoke(func), _is_functor(false) { ka_assert(func); }
+  explicit TrivFn(func_ptr_type func) : _func_invoke(func), _is_functor(false) { ka_assert(func); }
 
   template<typename F>
   requires(is_valid_func<F>)
@@ -406,7 +406,7 @@ public:
     return *this;
   }
 
-  TrivFn& emplace(FuncPtrType func) {
+  TrivFn& emplace(func_ptr_type func) {
     ka_assert(func);
     _func_invoke = func;
     _is_functor = false;
@@ -423,7 +423,7 @@ public:
     return emplace(std::forward<F>(functor));
   }
 
-  TrivFn& operator==(FuncPtrType func) { return emplace(func); }
+  TrivFn& operator==(func_ptr_type func) { return emplace(func); }
 
 private:
   template<typename T>
@@ -435,8 +435,8 @@ private:
   alignas(MaxAlign) u8 _buffer[MaxSize];
 
   union {
-    FuncPtrType _func_invoke;
-    FunctorPtrType _functor_invoke;
+    func_ptr_type _func_invoke;
+    functor_ptr_type _functor_invoke;
   };
 
   bool _is_functor;

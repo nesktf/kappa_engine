@@ -1,201 +1,99 @@
 #pragma once
 
-#include <shogle/core.hpp>
-#include <shogle/util/expected.hpp>
-#include <shogle/util/logger.hpp>
-#include <shogle/util/memory.hpp>
-#include <shogle/util/ptr.hpp>
+#define KA_NOOP         (void)0
+#define KA_UNUSED(expr) (void)(true ? KA_NOOP : ((void)(expr)))
 
-#include <shogle/math/matrix4x4.hpp>
-#include <shogle/math/quaternion.hpp>
-#include <shogle/math/vector3.hpp>
-#include <shogle/math/vector4.hpp>
+#define KA_APPLY_VA_ARGS_(M, args) M args
+#define KA_APPLY_VA_ARGS(M, ...)   KA_APPLY_VA_ARGS_(M, (__VA_ARGS__))
 
-#ifdef assert
-#undef assert
+#define KA_NARG_(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, \
+                 _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, \
+                 ...)                                                                            \
+  _33
+
+#define KA_EMPTY_MACRO
+#define KA_NARG(...)                                                                            \
+  KA_APPLY_VA_ARGS(KA_NARG_, KA_EMPTY_MACRO __VA_OPT__(, ) __VA_ARGS__, 32, 31, 30, 29, 28, 27, \
+                   26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, \
+                   6, 5, 4, 3, 2, 1, 0, KA_EMPTY_MACRO)
+
+#define KA_JOIN__(lhs, rhs) lhs##rhs
+#define KA_JOIN_(lhs, rhs)  KA_JOIN__(lhs, rhs)
+#define KA_JOIN(lhs, rhs)   KA_JOIN_(lhs, rhs)
+
+#define KA_STRINGIFY_(a) #a
+#define KA_STRINGIFY(a)  KA_STRINGIFY_(a)
+
+#define KA_LIKELY(_arg)   __builtin_expect(!!(_arg), !0)
+#define KA_UNLIKELY(_arg) __builtin_expect(!!(_arg), 0)
+
+#define ka_assert_2(_cond, _msg)                                                                  \
+  do {                                                                                            \
+    if (KA_UNLIKELY(!(_cond))) {                                                                  \
+      ::kappa::impl::assert_failure(KA_STRINGIFY(_cond), __FILE__, __PRETTY_FUNCTION__, __LINE__, \
+                                    _msg);                                                        \
+    }                                                                                             \
+  } while (0)
+#define ka_assert_1(_cond) ka_assert_2(_cond, "Assertion failure")
+#define ka_assert(...)     KA_APPLY_VA_ARGS(KA_JOIN(ka_assert_, KA_NARG(__VA_ARGS__)), __VA_ARGS__)
+#define ka_todo(_msg)      ka_assert(false, "TODO: " _msg)
+#define ka_panic(_msg)     ka_assert(false, "PANIC: " _msg)
+
+#if defined(_MSC_VER)
+#define KA_INLINE   __forceinline
+#define KA_NOINLINE __declspec((noinline))
+#elif defined(__GNUC__) || defined(__MINGW32__)
+#define KA_INLINE   inline __attribute__((__always_inline__))
+#define KA_NOINLINE __attribute__((__noinline__))
+#elif defined(__clang__)
+#define KA_INLINE   __forceinline__
+#define KA_NOINLINE __noinline__
+#else
+#define KA_INLINE inline
+#define KA_NOINLINE
 #endif
-#define assert(cond, ...) SHOGLE_ASSERT(cond __VA_OPT__(, ) __VA_ARGS__)
 
-#define ka_assert(cond)       SHOGLE_ASSERT(cond)
-#define ka_assertm(cond, ...) SHOGLE_ASSERT(cond __VA_OPT__(, ) __VA_ARGS__)
+#ifdef __cpp_exceptions
+#define KA_THROW(_obj) throw _obj
+#else
+#define KA_THROW(_obj) ka_panic("Thrown exception " KA_STRINGIFY(_obj))
+#endif
+#define KA_THROW_IF(_cond, _obj) \
+  do {                           \
+    if (_cond) {                 \
+      KA_THROW(_obj);            \
+    }                            \
+  } while (0)
 
 #define fn auto
 
+#include <cassert>
+#include <cstdint>
+
 namespace kappa {
 
-using shogle::logger;
-extern int g_argc;
-extern char** g_argv;
+namespace impl {
 
-using namespace shogle::numdefs;
-using shogle::in_place;
+[[noreturn]] void assert_failure(const char* cond, const char* file, const char* func, int line,
+                                 const char* msg);
 
-using shogle::nullopt;
-using shogle::optional;
+} // namespace impl
 
-using shogle::ptr_view;
-using shogle::ref_view;
+using usize = std::size_t;
+using ptrdiff_t = std::ptrdiff_t;
+using uintptr_t = std::uintptr_t;
 
-using shogle::expected;
-using shogle::unexpect;
+using u8 = uint8_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
+using s8 = int8_t;
+using s32 = int32_t;
+using s64 = int64_t;
 
-using shogle::s_expect;
-using shogle::sv_expect;
-
-using shogle::unique_array;
-
-template<typename T>
-using vec = std::vector<T>;
-
-template<size_t MaxSize>
-struct buffer_str {
-  static constexpr size_t buffer_size = MaxSize;
-
-  char data[MaxSize];
-  size_t len;
-
-  const char* c_str() const noexcept { return data; }
-
-  std::string_view as_view() const noexcept { return {&data[0], len}; }
-
-  size_t copy_from(const char* src, size_t size) {
-    std::memset(data, 0, MaxSize);
-    len = std::min(MaxSize - 1, size);
-    std::memcpy(data, src, len);
-    data[MaxSize - 1] = '\0'; // Make sure we have a null terminator
-    return len;
-  }
-
-  size_t copy_from(const char* src) { return copy_from(src, std::strlen(src)); }
-
-  template<typename... Args>
-  size_t format_from(fmt::format_string<Args...> fmt, Args&&... args) {
-    std::memset(data, 0, MaxSize);
-    const auto res = fmt::format_to_n(data, MaxSize - 1, fmt, std::forward<Args>(args)...);
-    len = res.size;
-    return res.size;
-  }
-};
-
-template<size_t MaxSize>
-buffer_str<MaxSize> buffer_str_copy(const char* data, size_t len) {
-  buffer_str<MaxSize> out;
-  out.copy_from(data, len);
-  return out;
-}
-
-template<size_t MaxSize>
-buffer_str<MaxSize> buffer_str_copy(const char* data) {
-  buffer_str<MaxSize> out;
-  out.copy_from(data);
-  return out;
-}
-
-template<size_t MaxSize, typename... Args>
-buffer_str<MaxSize> buffer_str_fmt(fmt::format_string<Args...> fmt, Args&&... args) {
-  buffer_str<MaxSize> out;
-  out.format_from(fmt, std::forward<Args>(args)...);
-  return out;
-}
-
-using buffer_name = buffer_str<256>;
-using buffer_path = buffer_str<256>;
-
-class asset_error : public std::exception {
-public:
-  asset_error(std::string_view path, std::string_view name, const buffer_str<256>& msg) noexcept :
-      _msg(msg) {
-    _path.copy_from(path.data(), path.size());
-    _name.copy_from(name.data(), name.size());
-  }
-
-  template<typename... Args>
-  static asset_error format(std::string_view path, std::string_view name,
-                            fmt::format_string<Args...> fmt, Args&&... args) {
-    return {path, name, buffer_str_fmt<256>(fmt, std::forward<Args>(args)...)};
-  }
-
-public:
-  const char* what() const noexcept override { return _msg.c_str(); }
-
-public:
-  std::string_view path() const noexcept { return _path.as_view(); }
-
-  std::string_view name() const noexcept { return _name.as_view(); }
-
-  std::string_view msg() const noexcept { return _msg.as_view(); }
-
-private:
-  buffer_path _path;
-  buffer_name _name;
-  buffer_str<256> _msg;
-};
-
-template<typename T>
-using ass_expect = expected<T, asset_error>;
-
-struct array_range {
-  static constexpr u32 index_tomb = static_cast<u32>(-1);
-
-  static constexpr array_range null_range() noexcept { return {index_tomb, index_tomb}; }
-
-  u32 start;
-  u32 count;
-};
-
-template<typename... Fs>
-struct overload : Fs... {
-  using Fs::operator()...;
-};
-
-template<typename... Fs>
-overload(Fs...) -> overload<Fs...>;
-
-using shogle::m4f32;
-using shogle::qf32;
-using shogle::v2f32;
-using shogle::v3f32;
-using shogle::v4f32;
-using v4i32 = shogle::numvec<4, i32>;
-using shogle::extent2d;
-using shogle::extent3d;
-using shogle::span;
+using f32 = float;
+using f64 = double;
 
 using bits32 = u32;
 using bits64 = u64;
-
-enum class image_format {
-  rgb8u = 0,
-  rgba8u,
-  rgb16u,
-  rgba16u,
-  rgb32f,
-  rgba32f,
-};
-
-constexpr inline size_t image_stride(u32 width, u32 height, image_format format) {
-  constexpr auto sizes =
-    std::to_array<size_t>({3 * sizeof(u8), 4 * sizeof(u8), 3 * sizeof(u16), 4 * sizeof(u16),
-                           3 * sizeof(f32), 4 * sizeof(f32)});
-  return sizes[static_cast<size_t>(format) % sizes.size()] * width * height;
-}
-
-enum class texture_type {
-  diffuse = 0,
-  albedo = 0,
-  specular,
-  normal,
-  ambient_occlusion,
-  roughness,
-  metallic,
-};
-
-template<typename T>
-fn make_zero_array(size_t count) -> unique_array<T> {
-  static_assert(std::is_trivial_v<T>);
-  auto ret = shogle::make_array<T>(shogle::uninitialized, count);
-  std::memset(ret.data(), 0x00, sizeof(ret[0]) * count);
-  return ret;
-}
 
 } // namespace kappa

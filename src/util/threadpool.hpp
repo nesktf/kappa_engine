@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../defs.hpp"
+#include "../core.hpp"
 
 #include <future>
 #include <memory>
@@ -25,19 +25,23 @@ private:
         task(std::forward<Args>(args)...), promise(std::move(promise_)) {}
 
     void do_task() noexcept override {
+#ifdef __cpp_exceptions
       try {
+#endif
         if constexpr (std::is_void_v<std::invoke_result_t<T>>) {
           task();
           promise.set_value();
         } else {
           promise.set_value(task());
         }
+#ifdef __cpp_exceptions
       } catch (...) {
         try {
           promise.set_exception(std::current_exception());
         } catch (...) {
         }
       }
+#endif
     }
 
     T task;

@@ -1,11 +1,13 @@
 #pragma once
 
-#include "../defs.hpp"
+#include "../core.hpp"
+
+#include <fmt/format.h>
 
 namespace kappa {
 
 template<usize MaxSize>
-struct BufferStr {
+struct BuffStr {
   static constexpr usize buffer_size = MaxSize;
 
   char data[MaxSize];
@@ -35,22 +37,22 @@ struct BufferStr {
 };
 
 template<usize MaxSize>
-BufferStr<MaxSize> buffer_str_copy(const char* data, usize len) {
-  BufferStr<MaxSize> out;
+BuffStr<MaxSize> buffer_str_copy(const char* data, usize len) {
+  BuffStr<MaxSize> out;
   out.copy_from(data, len);
   return out;
 }
 
 template<usize MaxSize>
-BufferStr<MaxSize> buffer_str_copy(const char* data) {
-  BufferStr<MaxSize> out;
+BuffStr<MaxSize> buffer_str_copy(const char* data) {
+  BuffStr<MaxSize> out;
   out.copy_from(data);
   return out;
 }
 
 template<usize MaxSize, typename... Args>
-BufferStr<MaxSize> buffer_str_fmt(fmt::format_string<Args...> fmt, Args&&... args) {
-  BufferStr<MaxSize> out;
+BuffStr<MaxSize> buffer_str_fmt(fmt::format_string<Args...> fmt, Args&&... args) {
+  BuffStr<MaxSize> out;
   out.format_from(fmt, std::forward<Args>(args)...);
   return out;
 }

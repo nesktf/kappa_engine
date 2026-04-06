@@ -1,7 +1,10 @@
 #pragma once
 
-#include "../defs.hpp"
+#include "../core.hpp"
 
+#include <fmt/format.h>
+
+#include <cstring>
 #include <memory>
 #include <utility>
 #include <vector>

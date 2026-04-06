@@ -1,6 +1,12 @@
 #pragma once
 
-#include "../defs.hpp"
+#include "../core.hpp"
+
+#include <limits>
+#include <memory>
+#include <type_traits>
+
+#include <fmt/format.h>
 
 namespace kappa {
 
