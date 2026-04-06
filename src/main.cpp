@@ -1,213 +1,85 @@
-#include "assets/loader.hpp"
-#include "physics/particle.hpp"
-#include "renderer/camera.hpp"
-#include "renderer/context.hpp"
-#include "scene/model.hpp"
-#include "util/interpolator.hpp"
-
-#include <ntfstl/logger.hpp>
-#include <ntfstl/utility.hpp>
+#include "./render/model.hpp"
+#include "./util/threadpool.hpp"
 
 namespace {
 
 using namespace kappa;
 
-static void run_engine() {
-  auto _rh = render::initialize();
-  auto _ah = assets::initialize();
+constexpr u32 WINDOW_WIDTH = 1280;
+constexpr u32 WINDOW_HEIGHT = 720;
 
-  auto fbo = render::default_fb();
-  auto& win = render::window();
-
-  bool do_things = true;
-
-  camera cam;
-  bool first_mouse = true;
-  f32 last_cam_x = 0.f;
-  f32 last_cam_y = 0.f;
-
-  f32 fb_ratio = (f32)1280 / (f32)720;
-  mat4 proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
-
-  win
-    .set_viewport_callback([&](shogle::window&, const shogle::extent2d& ext) {
-      fb_ratio = (f32)ext.x / (f32)ext.y;
-      proj_mat = glm::perspective(glm::radians(90.f), fb_ratio, .1f, 100.f);
-      fbo.viewport({0, 0, ext.x, ext.y});
-    })
-    .set_key_press_callback([&](shogle::window& win, const shogle::win_key_data& k) {
-      if (k.action == shogle::win_action::press) {
-        if (k.key == shogle::win_key::escape) {
-          win.close();
-        }
-        if (k.key == shogle::win_key::enter) {
-          do_things = !do_things;
-        }
-      }
-    })
-    .set_cursor_pos_callback([&](shogle::window&, shogle::dvec2 pos) {
-      f32 xpos = (float)pos.x;
-      f32 ypos = (float)pos.y;
-      if (first_mouse) {
-        last_cam_x = xpos;
-        last_cam_y = ypos;
-        first_mouse = false;
-      }
-      f32 xoff = xpos - last_cam_x;
-      f32 yoff = last_cam_y - ypos; // inverted y
-      last_cam_x = xpos;
-      last_cam_y = ypos;
-      cam.process_mouse_move(xoff, yoff);
-    });
-
-  // hack
-  glfwSetInputMode((GLFWwindow*)win.get(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-  scene::entity_registry registry;
-  const assets::rigged_model_opts cirno_opts{
-    .flags = assets::assimp_parser::DEFAULT_ASS_FLAGS,
-    .armature = "model",
+fn run_engine() -> void {
+  thread_pool pool;
+  render::initialize(WINDOW_WIDTH, WINDOW_HEIGHT);
+  const shogle::scope_end render_defer = []() {
+    render::destroy();
   };
-  const assets::rigged_model_opts koosh_opts{
-    .flags = assets::assimp_parser::DEFAULT_ASS_FLAGS,
-    .armature = "Koishi V1.0_arm",
+
+  render::buffer_binding scene_buffer{
+    .offset = 0,
+    .size = 2 * sizeof(m4f32),
+    .handle = render::create_buffer(2 * sizeof(m4f32)).value(),
   };
-  const assets::rigged_model_opts mari_opts = cirno_opts;
-
-  ntf::nullable<scene::ent_handle> cirno;
-  ntf::nullable<scene::ent_handle> cirno2;
-  const auto cirno_cb = [&](expect<assets::rigged_model_handle> model) {
-    if (!model) {
-      logger::error("Failed to load Cirno: {}", model.error());
-      return;
-    }
-    const vec3 cirno_pos{-.9f, -.75f, -1.f};
-    cirno.emplace(registry.add_entity(*model, cirno_pos, 1.f));
-    cirno2.emplace(registry.add_entity(*model, cirno_pos + vec3{-1.f, 0.f, 0.f}, 1.f));
+  const shogle::scope_end buffer_defer = [&]() {
+    render::destroy_buffer(scene_buffer.handle);
   };
-  assets::request_asset<assets::rigged_model>("cirno", "./res/chiruno/chiruno.gltf", cirno_opts,
-                                              cirno_cb);
 
-  ntf::nullable<scene::ent_handle> koosh;
-  const auto koosh_cb = [&](expect<assets::rigged_model_handle> model) {
-    if (!model) {
-      logger::error("Failed to load Koishi: {}", model.error());
-      return;
-    }
-    const vec3 koosh_pos{.9f, -.75f, -1.f};
-    koosh.emplace(registry.add_entity(*model, koosh_pos, 1.f));
+  const fn update_scene = [&](f32 w, f32 h) {
+    const m4f32 proj = shogle::math::perspective(shogle::math::rad(90.f), w / h, 0.1f, 100.f);
+    const m4f32 view(1.f);
+    render::update_buffer(scene_buffer.handle, &proj, sizeof(proj), 0);
+    render::update_buffer(scene_buffer.handle, &view, sizeof(view), sizeof(proj));
   };
-  assets::request_asset<assets::rigged_model>("Koishi V1.0", "./res/koishi/koishi.gltf",
-                                              koosh_opts, koosh_cb);
 
-  ntf::nullable<scene::ent_handle> mari;
-  const auto mari_cb = [&](expect<assets::rigged_model_handle> model) {
-    if (!model) {
-      logger::error("Failed to load Marisa: {}", model.error());
-      return;
-    }
-    const vec3 mari_pos{0, -.75f, -1.f};
-    mari.emplace(registry.add_entity(*model, mari_pos, 1.f));
+  assets::model3d_loader marisa_loader("./res/marisa_miy/marisa_miy.gltf", "marisa");
+  auto marisa = marisa_loader.load().value();
+  const fn filter_thing = [&](const assets::model3d_data::mesh_data& mesh) {
+    auto pos = mesh.name.as_view().find("Marisa Miy-");
+    return pos != std::string::npos;
   };
-  assets::request_asset<assets::rigged_model>("marisa", "./res/mari/mari.gltf", mari_opts,
-                                              mari_cb);
+  auto model = render::model3d_renderable::from_asset(marisa, filter_thing).value();
+  vec<render::render_data> render_data;
 
-  auto scene_transf = [&]() {
-    mat4 transf_mats[2u] = {
-      proj_mat,
-      cam.view(),
-    };
-    return render::create_ubo(sizeof(transf_mats), transf_mats).value();
-  }();
+  auto mari_instancer = render::model3d_instance_handler::create(model, 1).value();
 
-  // auto rarm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
-  // auto larm_transform = shogle::transform3d<f32>{}.scale(1.f, 1.f, 1.f).pos(0.f, 0.f, 0.f);
-  // const quat q1{1.f, 0.f, 0.f, 0.f};
-  // const auto q1 = shogle::axisquat(glm::radians(45.f), vec3{1.f, 0.f, 0.f});
-  // const quat q2 = shogle::axisquat(glm::radians(-45.f), vec3{1.f, 0.f, 0.f});
-  // steplerp<quat, f32, glm_mixer<quat, f32>, 120> rarm_rotlerp{q1, q2};
-  // steplerp<quat, f32, glm_mixer<quat, f32>, 120> larm_rotlerp{q2, q1};
-  //
-  // const vec3 p1{0.f, 0.f, 0.f};
-  // const vec3 p2{2.f, 0.f, 0.f};
-  // steplerp<vec3, f32, easing_back_inout<vec3>, 60> poslerp{p1, p2};
+  const fn on_fixed_update = [&](u32 ups) {
+    (void)ups;
+  };
+  const fn on_render = [&](f64 dt, f64 alpha) {
+    (void)dt;
+    (void)alpha;
+    render_data.clear();
+    render::start_frame();
 
-  f32 t = 0.f;
-  auto loop = ntf::overload{
-    [&](u32 fdt) {
-      f32 delta = 1 / (f32)fdt;
-      assets::handle_requests();
-      t += delta;
+    update_scene(WINDOW_WIDTH, WINDOW_HEIGHT);
 
-      if (win.poll_key(shogle::win_key::w) == shogle::win_action::press) {
-        cam.process_keyboard(CAM_FORWARD, delta);
-      } else if (win.poll_key(shogle::win_key::s) == shogle::win_action::press) {
-        cam.process_keyboard(CAM_BACKWARD, delta);
-      }
+    const m4f32 mari_transform(1.f);
+    mari_instancer.set_transform(0, mari_transform);
+    mari_instancer.update_buffers();
+    mari_instancer.retrieve_render_data(scene_buffer, render_data);
 
-      if (win.poll_key(shogle::win_key::a) == shogle::win_action::press) {
-        cam.process_keyboard(CAM_LEFT, delta);
-      } else if (win.poll_key(shogle::win_key::d) == shogle::win_action::press) {
-        cam.process_keyboard(CAM_RIGHT, delta);
-      }
+    // ImGui::ShowDemoWindow();
 
-      if (win.poll_key(shogle::win_key::space) == shogle::win_action::press) {
-        cam.process_keyboard(CAM_UP, delta);
-      } else if (win.poll_key(shogle::win_key::lshift) == shogle::win_action::press) {
-        cam.process_keyboard(CAM_DOWN, delta);
-      }
+    render::submit_render_batch({render_data.data(), render_data.size()});
 
-      if (!do_things) {
-        return;
-      }
-      // rotlerp.tick_loop();
-      // rarm_transform.rot(rarm_rotlerp.value());
-      // larm_transform.rot(larm_rotlerp.value());
-      registry.update();
+    render::end_frame();
+  };
 
-      // force_registry.update_forces(delta);
-      //
-      // for (auto& [idx, pos] : rmodels) {
-      //   auto& model = bundle.get_rmodel(idx);
-      //   // model.transform().pos(pos+*poslerp).rot(*rotlerp);
-      //   model.set_transform("Arm_R", rarm_transform.local());
-      //   model.set_transform("Arm_L", larm_transform.local());
-      //   if (model.name() == "cirno") {
-      //     chiruno_particle.integrate(delta);
-      //     model.transform().pos(chiruno_particle.pos());
-      //   }
-      //   model.tick();
-      // }
-      // poslerp.tick_loop();
-      // rarm_rotlerp.tick_loop();
-      // larm_rotlerp.tick_loop();
-    },
-    [&](f32 dt, f32 alpha) {
-      NTF_UNUSED(dt);
-      NTF_UNUSED(alpha);
-      const render::scene_render_data rdata{.transform = scene_transf};
-      scene_transf.upload(proj_mat, 0u);
-      scene_transf.upload(cam.view(), sizeof(mat4));
-      render::render_thing(fbo, 0u, rdata, registry);
-    }};
-  render::render_loop(GAME_UPS, loop);
+  shogle::render_loop<60>(render::window(), overload{on_fixed_update, on_render});
 }
 
 } // namespace
 
+int kappa::g_argc;
+char** kappa::g_argv;
+
 int main(int argc, char* argv[]) {
-  NTF_UNUSED(argc);
-  NTF_UNUSED(argv);
-  ntf::logger::set_level(ntf::log_level::verbose);
+  g_argc = argc;
+  g_argv = argv;
+  shogle::logger::set_level(shogle::logger::LEVEL_VERBOSE);
   try {
     run_engine();
   } catch (const std::exception& ex) {
-    ntf::logger::error("{}", ex.what());
-    return EXIT_FAILURE;
-  } catch (...) {
-    ntf::logger::error("Caught (...)");
-    return EXIT_FAILURE;
+    logger::error("{}", ex.what());
   }
-
-  return EXIT_SUCCESS;
 }

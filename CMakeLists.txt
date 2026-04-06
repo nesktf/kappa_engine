@@ -1,36 +1,41 @@
-cmake_minimum_required(VERSION 3.10)
-include(ExternalProject)
+cmake_minimum_required(VERSION 3.25)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -O0 -g2 -ggdb -Wno-psabi")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -O3 -Wno-psabi")
+set(BUILD_SHARED_LIBS OFF)
 
 project(kappa CXX C)
 
 set(LIB_INCLUDE)
 set(LIB_LINK)
 
-# shogle
-add_subdirectory("lib/shogle")
-list(APPEND LIB_INCLUDE shogle)
-list(APPEND LIB_LINK shogle)
+# vulkan
+find_package(VulkanHeaders REQUIRED)
+#list(APPEND LIB_INCLUDE ${VULKANHEADERS_INCLUDE_DIRS})
+list(APPEND LIB_LINK vulkan)
+
+# vulkan allocator
+add_subdirectory("${LIB_PATH}/VulkanMemoryAllocator")
+#list(APPEND LIB_INCLUDE GPUOpen::VulkanMemoryAllocator)
+list(APPEND LIB_LINK GPUOpen::VulkanMemoryAllocator)
 
 # chimatools
-ExternalProject_Add(chimatools
-  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/chimatools"
-  BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib/chimatools"
-  CONFIGURE_COMMAND ""
-  BUILD_COMMAND make -C <SOURCE_DIR> BUILD_DIR=<BINARY_DIR> lib
-  BUILD_BYPRODUCTS <BINARY_DIR>/libchimatools.a
-  INSTALL_COMMAND ""
-)
-list(APPEND LIB_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/lib/chimatools/include")
-list(APPEND LIB_LINK "${CMAKE_CURRENT_BINARY_DIR}/lib/chimatools/libchimatools.a")
+add_subdirectory("lib/chimatools")
+list(APPEND LIB_LINK chimatools)
+
+# assimp
+set(ASSIMP_NO_EXPORT ON)
+set(ASSIMP_INSTALL OFF)
+set(ASSIMP_BUILD_TESTS OFF)
+add_subdirectory("lib/assimp")
+list(APPEND LIB_LINK assimp)
 
 # Project files
-file(GLOB_RECURSE SOURCE_FILES "src/*.cpp")
+file(GLOB_RECURSE SOURCE_FILES "src/**.cpp")
+file(GLOB_RECURSE HEADER_FILES "src/**.hpp")
 
-add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-target_include_directories(${PROJECT_NAME} PUBLIC src ${LIB_INCLUDE})
+add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES})
+target_include_directories(${PROJECT_NAME} PUBLIC src)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries(${PROJECT_NAME} ${LIB_LINK})

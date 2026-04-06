@@ -2,3 +2,4 @@ build/*
 .cache/*
 res/*
 .project.toml.bak
+imgui.ini

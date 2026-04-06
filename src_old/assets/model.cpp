@@ -1,8 +1,10 @@
-#pragma once
-
-#include "./loader2.hpp"
+#include "./model.hpp"
 
 namespace kappa::assets {
+
+fn rigged_model_data::from_file(const std::string& path, u32 flags) -> expect<rigged_model_data> {
+  assimp_parser parser;
+}
 
 fn rigged_model_data::vertex_count() const -> u32 {
   return meshes.positions.size();
@@ -77,6 +79,10 @@ fn rigged_model_data::vertex_data(u32 attr_idx, u32 mesh_idx) const -> mesh_attr
       break;
   }
   NTF_UNREACHABLE();
+}
+
+fn static_model_data::from_file(const std::string& path, u32 flags) -> expect<static_model_data> {
+  Assimp::Importer imp;
 }
 
 fn static_model_data::vertex_count() const -> u32 {

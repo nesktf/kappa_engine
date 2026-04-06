@@ -166,89 +166,6 @@ private:
   std::string _dir;
 };
 
-struct vertex_config {
-  size_t size;
-  std::string_view name;
-};
-
-namespace meta {
-
-template<typename T>
-concept mesh_data_type = requires(const T mesh_data, u32 attr_idx, u32 mesh_idx) {
-  requires ntf::meta::std_cont<std::remove_const_t<decltype(T::VERT_CONFIG)>, vertex_config>;
-  { mesh_data.vertex_count() } -> std::convertible_to<u32>;
-  { mesh_data.index_count() } -> std::convertible_to<u32>;
-  { mesh_data.mesh_count() } -> std::convertible_to<u32>;
-  { mesh_data.mesh_index_range(mesh_idx) } -> std::same_as<vec_span>;
-  { mesh_data.vertex_data(attr_idx, mesh_idx) } -> std::same_as<std::pair<const void*, u32>>;
-  { mesh_data.index_data() } -> std::same_as<cspan<u32>>;
-};
-
-} // namespace meta
-
-struct mesh_offset {
-  u32 index_offset;
-  u32 index_count;
-  u32 vertex_offset;
-};
-
-template<meta::mesh_data_type MeshDataT>
-class model_meshes {
-public:
-  static constexpr size_t VERTEX_ATTRIB_COUNT = MeshDataT::VERT_CONFIG.size();
-  using vert_buffs = std::array<shogle::buffer_t, VERTEX_ATTRIB_COUNT>;
-  using vert_binds = std::array<shogle::vertex_binding, VERTEX_ATTRIB_COUNT>;
-
-public:
-  model_meshes(vert_buffs buffs, u32 vertex_count, shogle::index_buffer&& idx_buff,
-               u32 index_count, ntf::unique_array<mesh_offset>&& offsets);
-
-  model_meshes(model_meshes&& other) noexcept;
-  model_meshes(const model_meshes&) = delete;
-
-  ~model_meshes() noexcept { _free_buffs(); }
-
-public:
-  model_meshes& operator=(model_meshes&& other) noexcept;
-  model_meshes& operator=(const model_meshes&) = delete;
-
-private:
-  void _reset_buffs() noexcept;
-  void _free_buffs() noexcept;
-
-public:
-  static expect<model_meshes> create(const MeshDataT& mesh_data);
-
-public:
-  render::mesh_render_data& retrieve_mesh_data(u32 mesh_idx,
-                                               std::vector<render::mesh_render_data>& data) const;
-
-public:
-  bool has_indices() const { return !_idx_buff.empty(); }
-
-  shogle::vertex_buffer_view vertex_buffer(u32 idx) const {
-    NTF_ASSERT(idx < _buffs.size());
-    return shogle::to_typed<shogle::buffer_type::vertex>(shogle::buffer_view{_buffs[idx]});
-  }
-
-  shogle::index_buffer_view index_buffer() const { return _idx_buff; }
-
-  cspan<mesh_offset> offsets() const { return {_offsets.data(), _offsets.size()}; }
-
-  u32 mesh_count() const { return _offsets.size(); }
-
-  u32 vertex_count() const { return _vertex_count; }
-
-  u32 index_count() const { return _index_count; }
-
-private:
-  vert_buffs _buffs;
-  vert_binds _binds;
-  ntf::unique_array<mesh_offset> _offsets;
-  shogle::index_buffer _idx_buff;
-  u32 _vertex_count, _index_count;
-};
-
 class model_textures {
 private:
   struct texture_t {
@@ -285,7 +202,3 @@ private:
 };
 
 } // namespace kappa::assets
-
-#ifndef KAPPA_MODEL_DATA_INL
-#include "./model_data.inl"
-#endif
