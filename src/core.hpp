@@ -26,6 +26,7 @@
 
 #define KA_LIKELY(_arg)   __builtin_expect(!!(_arg), !0)
 #define KA_UNLIKELY(_arg) __builtin_expect(!!(_arg), 0)
+#define KA_UNREACHABLE()  __builtin_unreachable()
 
 #define ka_assert_2(_cond, _msg)                                                                  \
   do {                                                                                            \
@@ -34,10 +35,14 @@
                                     _msg);                                                        \
     }                                                                                             \
   } while (0)
-#define ka_assert_1(_cond) ka_assert_2(_cond, "Assertion failure")
+#define ka_assert_1(_cond) ka_assert_2(_cond, nullptr)
 #define ka_assert(...)     KA_APPLY_VA_ARGS(KA_JOIN(ka_assert_, KA_NARG(__VA_ARGS__)), __VA_ARGS__)
-#define ka_todo(_msg)      ka_assert(false, "TODO: " _msg)
-#define ka_panic(_msg)     ka_assert(false, "PANIC: " _msg)
+
+#define ka_panic(_msg)                                                      \
+  do {                                                                      \
+    ::kappa::impl::on_panic(__FILE__, __PRETTY_FUNCTION__, __LINE__, _msg); \
+  } while (0)
+#define ka_todo(_msg) ka_panic("TODO: " _msg)
 
 #if defined(_MSC_VER)
 #define KA_INLINE   __forceinline
@@ -77,6 +82,8 @@ namespace impl {
 [[noreturn]] void assert_failure(const char* cond, const char* file, const char* func, int line,
                                  const char* msg);
 
+[[noreturn]] void on_panic(const char* file, const char* func, int line, const char* msg);
+
 } // namespace impl
 
 using usize = std::size_t;
@@ -97,6 +104,14 @@ using f64 = double;
 
 using bits32 = u32;
 using bits64 = u64;
+
+struct Extent2D {
+  u32 width, height;
+};
+
+struct Extent3D {
+  u32 width, height, depth;
+};
 
 template<typename T>
 struct RectanglePos {

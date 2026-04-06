@@ -1,19 +1,21 @@
 #pragma once
 
-#include "../util.hpp"
+#include "../util/array.hpp"
+#include "../util/ptr.hpp"
+
 #include "./vk_common.hpp"
 
-namespace keiki::render {
+namespace kappa::render {
 
-class vk_device {
+class GraphicsDevice {
 public:
-  struct swapchain_caps {
-    vk_view<VkSurfaceKHR> surface;
-    std::vector<VkSurfaceFormatKHR> formats;
-    std::vector<VkPresentModeKHR> present_modes;
+  struct SwapchainCaps {
+    VkView<VkSurfaceKHR> surface;
+    Vec<VkSurfaceFormatKHR> formats;
+    Vec<VkPresentModeKHR> present_modes;
   };
 
-  enum queue_family {
+  enum QueueFamily {
     QUEUE_FAMILY_GRAPHICS = 0,
     QUEUE_FAMILY_PRESENT,
     QUEUE_FAMILY_TRANSFER,
@@ -21,47 +23,45 @@ public:
     QUEUE_FAMILY_COUNT,
   };
 
-  struct queue_family_indices {
+  struct QueueFamilyIndices {
     u32 graphics;
     u32 present;
     u32 transfer;
   };
 
 public:
-  vk_device(VkPhysicalDevice physical_device, VkDevice device, const queue_family_indices& indices,
-            swapchain_caps&& caps);
+  GraphicsDevice(VkView<VkInstance> vk, VkView<VkSurfaceKHR> surface);
+
+  GraphicsDevice(VkPhysicalDevice physical_device, VkDevice device,
+                 const QueueFamilyIndices& indices, SwapchainCaps&& caps);
 
 public:
-  static fn create(scratch_arena& arena, vk_view<VkInstance> vk, vk_view<VkSurfaceKHR> surface,
-                   span<const char*> device_extensions, span<const char*> layers,
-                   ptr_view<const VkAllocationCallbacks> vkalloc) -> vk_sv_expect<vk_device>;
-
-  fn destroy(ptr_view<const VkAllocationCallbacks> vkalloc) -> void;
+  fn destroy() -> void;
 
 public:
-  fn device() const -> vk_view<VkDevice>;
-  fn physical_device() const -> vk_view<VkPhysicalDevice>;
+  fn device() const -> VkView<VkDevice>;
+  fn physical_device() const -> VkView<VkPhysicalDevice>;
 
-  fn swapchain_formats() const -> span<const VkSurfaceFormatKHR>;
-  fn swapchain_present_modes() const -> span<const VkPresentModeKHR>;
+  fn swapchain_formats() const -> Span<const VkSurfaceFormatKHR>;
+  fn swapchain_present_modes() const -> Span<const VkPresentModeKHR>;
   fn swapchain_capabilities() const -> VkSurfaceCapabilitiesKHR;
 
-  fn queue_families() const -> queue_family_indices;
+  fn queue_families() const -> QueueFamilyIndices;
 
-  fn get_queue(queue_family family, u32 queue_index = 0u) const -> vk_view<VkQueue>;
+  fn get_queue(QueueFamily family, u32 queue_index = 0u) const -> VkView<VkQueue>;
 
   fn physical_device_props() const -> VkPhysicalDeviceProperties;
 
 public:
-  operator VkDevice() const { return device(); }
+  operator VkDevice() const { return _device; }
 
-  operator VkPhysicalDevice() const { return physical_device(); }
+  operator VkPhysicalDevice() const { return _physical_device; }
 
 private:
   VkPhysicalDevice _physical_device;
   VkDevice _device;
-  queue_family_indices _family_indices;
-  swapchain_caps _swapchain_capabilities;
+  QueueFamilyIndices _family_indices;
+  SwapchainCaps _swapchain_capabilities;
 };
 
-} // namespace keiki::render
+} // namespace kappa::render

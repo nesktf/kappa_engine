@@ -2,17 +2,49 @@
 
 #include "../core.hpp"
 
-#include <shogle/render/opengl.hpp>
-#include <shogle/render/window.hpp>
+#include <string_view>
 
 namespace kappa::render {
 
-void initialize(u32 win_w, u32 win_h);
-void destroy();
+using ResHandle = u64;
 
-void start_frame();
-void end_frame();
+fn initialize(u32 win_w, u32 win_h) -> void;
+fn destroy() -> void;
 
+fn start_frame() -> void;
+fn end_frame() -> void;
+fn device_wait() -> void;
+fn flag_dirty_framebufer() -> void;
+
+struct IndexedDrawCmd {
+  ResHandle pipeline;
+  ResHandle vertex_buffer;
+  ResHandle index_buffer;
+  u32 indices;
+};
+
+fn record_command(const IndexedDrawCmd& cmd) -> void;
+
+struct LayoutInfo {};
+
+fn create_pipeline(const LayoutInfo& layout, std::string_view vert, std::string_view frag)
+  -> ResHandle;
+
+fn destroy_pipeline(ResHandle pipeline) -> void;
+
+enum class VkBufferType {
+  vertex = 0,
+  index,
+  uniform,
+};
+
+fn create_buffer(VkBufferType type, usize size, bits32 flags) -> ResHandle;
+
+fn upload_buffer_data(ResHandle buffer, const void* data, usize size, usize offset) -> void;
+
+fn destroy_buffer(ResHandle buffer) -> void;
+
+#if 0
 shogle::glfw_win& window();
 
 enum class pipeline_handle : u32 {};
@@ -135,5 +167,6 @@ struct render_data {
 };
 
 void submit_render_batch(span<const render_data> data);
+#endif
 
 } // namespace kappa::render

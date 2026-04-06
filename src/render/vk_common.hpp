@@ -1,47 +1,44 @@
 #pragma once
 
-#include "../util.hpp"
+#include "../util/expected.hpp"
 
-#include <type_traits>
-#include <vulkan/vulkan_core.h>
+#include "../util/logger.hpp"
 
-#include <vk_mem_alloc.h>
+#define VK_LOG(_level, _msg, ...) \
+  ::kappa::log_##_level("[VULKAN] " _msg __VA_OPT__(, ) __VA_ARGS__)
 
-#define VK_ASSERT(func)                                                         \
-  {                                                                             \
-    VkResult vkres = (func);                                                    \
-    if (vkres != VK_SUCCESS) {                                                  \
-      logger::error("[VK ERROR] {} ", ::keiki::render::vk_error_string(vkres)); \
-      NTF_ASSERT(false);                                                        \
-    }                                                                           \
+#include <string>
+
+#define VK_ASSERT(func)         \
+  {                             \
+    VkResult vkres = (func);    \
+    if (vkres != VK_SUCCESS) {  \
+      ka_panic("VULKAN ERROR"); \
+    }                           \
   }
 
-namespace keiki::render {
+#include <vk_mem_alloc.h>
+#include <vulkan/vulkan_core.h>
+
+namespace kappa::render {
+
+constexpr auto base_device_extensions = std::to_array<const char*>(
+  {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DEVICE_GROUP_EXTENSION_NAME});
+constexpr auto validation_layers = std::to_array<const char*>({
+  "VK_LAYER_KHRONOS_validation",
+#ifndef NDEBUG
+  VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+#endif
+});
 
 template<typename T>
-using vk_view = T;
-
-enum class vk_buffer_type {
-  vertex = 0,
-  index,
-  uniform,
-};
-
-using vk_handle = u64;
-
-struct vk_surface_provider {
-  virtual ~vk_surface_provider() = default;
-  virtual fn get_extensions(scratch_vec<const char*>& extensions) -> u32 = 0;
-  virtual fn create_surface(VkInstance vk, VkSurfaceKHR& surface,
-                            ptr_view<const VkAllocationCallbacks> vkalloc) -> bool = 0;
-  virtual fn framebuffer_size() const -> std::pair<u32, u32> = 0;
-};
+using VkView = T;
 
 fn vk_error_string(VkResult result) noexcept -> std::string_view;
 
-class vk_error : public std::exception {
+class VkError : public std::exception {
 public:
-  vk_error(std::string msg, VkResult err) : _msg(std::move(msg)), _err(err) {}
+  VkError(std::string msg, VkResult err) : _msg(std::move(msg)), _err(err) {}
 
 public:
   const char* what() const noexcept override { return _msg.c_str(); }
@@ -55,9 +52,9 @@ private:
   VkResult _err;
 };
 
-class vk_sv_error : public std::exception {
+class VkSvError : public std::exception {
 public:
-  vk_sv_error(const char* msg, VkResult err) noexcept : _msg(msg), _err(err) {}
+  VkSvError(const char* msg, VkResult err) noexcept : _msg(msg), _err(err) {}
 
 public:
   const char* what() const noexcept override { return _msg; }
@@ -72,13 +69,16 @@ private:
 };
 
 template<typename T>
-using vk_sv_expect = ntf::expected<T, vk_sv_error>;
+using VkSExpect = Expected<T, VkSvError>;
+
+template<typename T>
+using VkSvExpect = Expected<T, VkSvError>;
 
 template<typename T>
 requires(std::is_arithmetic_v<T>)
-constexpr fn to_vk_extent2d(const std::pair<T, T>& extent) -> VkExtent2D {
+constexpr fn to_vk_extent2d(Extent2D extent) -> VkExtent2D {
   const auto [width, height] = extent;
   return VkExtent2D{.width = static_cast<u32>(width), .height = static_cast<u32>(height)};
 }
 
-} // namespace keiki::render
+} // namespace kappa::render

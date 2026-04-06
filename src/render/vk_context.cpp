@@ -274,20 +274,6 @@ fn vk_context::create(size_t arena_size, vk_surface_provider& surf_prov)
   }
   const VkAllocationCallbacks* vkalloc = nullptr; // TODO: Get this from the user?
 
-  const fn make_allocator = [&](VkInstance vk, const vk_device& device) {
-    VmaAllocatorCreateInfo vma_info{};
-    vma_info.instance = vk;
-    vma_info.device = device;
-    vma_info.physicalDevice = device.physical_device();
-    vma_info.vulkanApiVersion = KEIKI_VULKAN_VERSION;
-    vma_info.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT |
-                     VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-
-    VmaAllocator vmalloc;
-    VK_ASSERT(vmaCreateAllocator(&vma_info, &vmalloc));
-    return vmalloc;
-  };
-
   const fn create_command_pool = [&](const vk_device& device) -> vk_context::command_pool {
     // Commands in vulkan are recorded in a command buffer
     // instead of being executed directly using function calls

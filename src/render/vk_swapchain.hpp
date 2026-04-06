@@ -2,31 +2,31 @@
 
 #include "./vk_device.hpp"
 
-namespace keiki::render {
+namespace kappa::render {
 
-class vk_swapchain {
+class WindowSwapchain {
 public:
-  vk_swapchain(VkSwapchainKHR swapchain, VkFormat format, VkExtent2D extent,
-               VkRenderPass renderpass, std::vector<VkImage>&& images,
-               std::vector<VkImageView>&& image_views, std::vector<VkFramebuffer>&& framebuffers);
-
-public:
-  static fn create(const vk_device& device, vk_view<VkSurfaceKHR> surface, VkExtent2D extent,
-                   vk_view<VkSwapchainKHR> old_swapchain,
-                   ptr_view<const VkAllocationCallbacks> vkalloc) -> vk_sv_expect<vk_swapchain>;
-
-  fn rebuild(const vk_device& device, vk_view<VkSurfaceKHR> surface, VkExtent2D extent,
-             ptr_view<const VkAllocationCallbacks> vkalloc) -> vk_sv_expect<void>;
-  fn destroy(const vk_device& device, ptr_view<const VkAllocationCallbacks> vkalloc) -> void;
+  WindowSwapchain(VkSwapchainKHR swapchain, VkFormat format, VkExtent2D extent,
+                  VkRenderPass renderpass, std::vector<VkImage>&& images,
+                  std::vector<VkImageView>&& image_views,
+                  std::vector<VkFramebuffer>&& framebuffers);
 
 public:
-  fn swapchain() const -> vk_view<VkSwapchainKHR>;
+  static fn create(const GraphicsDevice& device, VkView<VkSurfaceKHR> surface, VkExtent2D extent,
+                   VkView<VkSwapchainKHR> old_swapchain) -> VkSvExpect<WindowSwapchain>;
+
+  fn rebuild(const GraphicsDevice& device, VkView<VkSurfaceKHR> surface, VkExtent2D extent)
+    -> VkSvExpect<void>;
+  fn destroy(const GraphicsDevice& device) -> void;
+
+public:
+  fn swapchain() const -> VkView<VkSwapchainKHR>;
   fn format() const -> VkFormat;
   fn extent() const -> VkExtent2D;
-  fn renderpass() const -> vk_view<VkRenderPass>;
-  fn images() const -> span<const VkImage>;
-  fn image_views() const -> span<const VkImageView>;
-  fn framebuffers() const -> span<const VkFramebuffer>;
+  fn renderpass() const -> VkView<VkRenderPass>;
+  fn images() const -> Span<const VkImage>;
+  fn image_views() const -> Span<const VkImageView>;
+  fn framebuffers() const -> Span<const VkFramebuffer>;
 
 public:
   operator VkSwapchainKHR() const { return swapchain(); }
@@ -43,4 +43,4 @@ private:
   std::vector<VkFramebuffer> _framebuffers;
 };
 
-} // namespace keiki::render
+} // namespace kappa::render

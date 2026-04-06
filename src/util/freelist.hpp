@@ -3,13 +3,13 @@
 #include "../core.hpp"
 
 #include <cstring>
-#include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace kappa {
 
 template<typename T, usize MaxElems>
-class fixed_freelist {
+class FixedFreelist {
 public:
   static constexpr usize max_element_count = MaxElems;
   using value_type = T;
@@ -26,11 +26,11 @@ private:
   static_assert(MaxElems < ELEM_ACTIVE, "Invalid max element count");
 
 public:
-  fixed_freelist() noexcept : _empty_head(0), _count(0) {
+  FixedFreelist() noexcept : _empty_head(0), _count(0) {
     std::memset(_slots, 0xFF, sizeof(_slots)); // Sets every slot to ELEM_TOMB
   }
 
-  fixed_freelist(fixed_freelist&& other) noexcept(std::is_nothrow_move_constructible_v<T>)
+  FixedFreelist(FixedFreelist&& other) noexcept(std::is_nothrow_move_constructible_v<T>)
   requires(!std::is_trivially_move_constructible_v<T>)
       : _count(other._count), _empty_head(other._empty_head) {
     std::memcpy(_slots, other._slots, sizeof(_slots));
@@ -39,11 +39,11 @@ public:
     });
   }
 
-  fixed_freelist(fixed_freelist&& other) noexcept
+  FixedFreelist(FixedFreelist&& other) noexcept
   requires(std::is_trivially_move_constructible_v<T>)
   = default;
 
-  fixed_freelist(const fixed_freelist& other) noexcept(std::is_nothrow_copy_constructible_v<T>)
+  FixedFreelist(const FixedFreelist& other) noexcept(std::is_nothrow_copy_constructible_v<T>)
   requires(!std::is_trivially_copy_constructible_v<T>)
       : _count(other._count), _empty_head(other._empty_head) {
     std::memcpy(_slots, other._slots, sizeof(_slots));
@@ -52,15 +52,15 @@ public:
     });
   }
 
-  fixed_freelist(const fixed_freelist& other) noexcept
+  FixedFreelist(const FixedFreelist& other) noexcept
   requires(std::is_trivially_copy_constructible_v<T>)
   = default;
 
-  ~fixed_freelist() noexcept
+  ~FixedFreelist() noexcept
   requires(std::is_trivially_destructible_v<T>)
   = default;
 
-  ~fixed_freelist() noexcept
+  ~FixedFreelist() noexcept
   requires(!std::is_trivially_destructible_v<T>)
   {
     static_assert(std::is_nothrow_destructible_v<T>);
