@@ -10,10 +10,15 @@ project(kappa CXX C)
 set(LIB_INCLUDE)
 set(LIB_LINK)
 
-# shogle
-set(SHOGLE_ENABLE_IMGUI ON)
-add_subdirectory("lib/shogle")
-list(APPEND LIB_LINK shogle)
+# vulkan
+find_package(VulkanHeaders REQUIRED)
+#list(APPEND LIB_INCLUDE ${VULKANHEADERS_INCLUDE_DIRS})
+list(APPEND LIB_LINK vulkan)
+
+# vulkan allocator
+add_subdirectory("${LIB_PATH}/VulkanMemoryAllocator")
+#list(APPEND LIB_INCLUDE GPUOpen::VulkanMemoryAllocator)
+list(APPEND LIB_LINK GPUOpen::VulkanMemoryAllocator)
 
 # chimatools
 add_subdirectory("lib/chimatools")
@@ -29,9 +34,8 @@ list(APPEND LIB_LINK assimp)
 # Project files
 file(GLOB_RECURSE SOURCE_FILES "src/**.cpp")
 file(GLOB_RECURSE HEADER_FILES "src/**.hpp")
-file(GLOB_RECURSE INLINE_FILES "src/**.innl")
 
-add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES} ${INLINE_FILES})
-target_include_directories(${PROJECT_NAME} PUBLIC src/)
+add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES})
+target_include_directories(${PROJECT_NAME} PUBLIC src)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries(${PROJECT_NAME} ${LIB_LINK})

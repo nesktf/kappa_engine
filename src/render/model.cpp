@@ -82,7 +82,7 @@ fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable:
   // - UVs
   // - Indices
   const auto meshes_data = model.meshes();
-  assert(meshes_data.size() == model.mesh_count());
+  ka_assert(meshes_data.size() == model.mesh_count());
   for (size_t i = 0; i < index_count; ++i) {
     const auto& mesh_data = meshes_data[indices[i]];
     auto& mesh = meshes[i];
@@ -96,7 +96,7 @@ fn prealloc_vertex_buffer(const assets::model3d_data& model, model3d_renderable:
     size += mesh_data.has_uvs(0) * nverts * sizeof(v2f32);
 
     if (mesh_data.has_indices()) {
-      assert(mesh_data.index_count > 0);
+      ka_assert(mesh_data.index_count > 0);
       mesh.index_offset = size;
       mesh.index_count = mesh_data.index_count;
       size += mesh_data.index_count * sizeof(u32);
@@ -166,7 +166,7 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model, asset_fil
     size_t buffer_offset = mesh.vertex_offset;
     logger::debug("MESH ({}): {}", mesh_pos, mesh_data.name.as_view());
     const fn upload_data = [&]<typename T>(span<T> data, bits32 flag) {
-      assert(data.size() == nverts);
+      ka_assert(data.size() == nverts);
       mesh.attribute_flags |= flag;
       render::update_buffer(mesh_buffer, data.data(), data.size_bytes(), buffer_offset);
       buffer_offset += data.size_bytes();
@@ -205,9 +205,9 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model, asset_fil
     }
     if (mesh_data.has_indices()) {
       logger::debug("INDICES");
-      assert(buffer_offset == mesh.index_offset);
+      ka_assert(buffer_offset == mesh.index_offset);
       const auto indices = model.mesh_indices(mesh_data.indices());
-      assert(indices.size() == mesh_data.index_count);
+      ka_assert(indices.size() == mesh_data.index_count);
       render::update_buffer(mesh_buffer, indices.data(), indices.size_bytes(), buffer_offset);
       buffer_offset += indices.size_bytes();
     }
@@ -216,13 +216,13 @@ auto model3d_renderable::from_asset(const assets::model3d_data& model, asset_fil
     bits32 material_texes{};
     if (texes && !texes->empty()) {
       for (const u32 tex_idx : tex_indices) {
-        assert(tex_idx < texes->size());
+        ka_assert(tex_idx < texes->size());
         material_texes |= flag_from_tex_type((*texes)[tex_idx].type);
       }
     }
     mesh.name.copy_from(mesh_data.name.data, mesh_data.name.len);
 
-    assert(!is_nil_handle(mesh_buffer));
+    ka_assert(!is_nil_handle(mesh_buffer));
     const pipeline_create_data pip_data{
       .buffer = mesh_buffer,
       .nverts = nverts,
@@ -312,13 +312,19 @@ span<const m4f32> model3d_renderable::bone_inv_models() const {
 
 fn model3d_instance_handler::create(const model3d_renderable& model, u32 instances)
   -> s_expect<model3d_instance_handler> {
+  ka_assert(instances > 0);
+  static constexpr m4f32 identity(1.f);
+  static constexpr instance_data init_data{
+    .model = identity,
+  };
+  auto data = shogle::make_array(instances, init_data);
+
   unique_array<m4f32> bone_transforms, bone_cache;
   size_t buffer_offset = 0;
   if (model.has_bones()) {
     const auto bones = model.bones();
     const size_t bone_transform_size = instances * bones.size() * sizeof(m4f32);
     buffer_offset += bone_transform_size;
-    static constexpr m4f32 identity(1.f);
     bone_transforms = shogle::make_array(bone_transform_size, identity);
     bone_cache = shogle::make_array(3 * bone_transform_size, identity);
   }
@@ -328,10 +334,16 @@ fn model3d_instance_handler::create(const model3d_renderable& model, u32 instanc
   if (!buffer) {
     return {unexpect, "Failed to allocate buffer"};
   }
-  assert(!is_nil_handle(*buffer));
+  ka_assert(!is_nil_handle(*buffer));
 
-  return {in_place, model,    std::move(bone_transforms), std::move(bone_cache), buffer_offset,
-          *buffer,  instances};
+  return {in_place,
+          model,
+          std::move(bone_transforms),
+          std::move(bone_cache),
+          std::move(data),
+          buffer_offset,
+          *buffer,
+          instances};
 }
 
 namespace {
@@ -339,8 +351,8 @@ namespace {
 fn update_bone_hierarchy(span<const m4f32> transforms, span<m4f32> cache,
                          const model3d_renderable& model, const m4f32& root_transform,
                          buffer_handle buffer, size_t offset) -> void {
-  assert(model.has_bones());
-  assert(cache.size() == 3 * transforms.size());
+  ka_assert(model.has_bones());
+  ka_assert(cache.size() == 3 * transforms.size());
   const auto bones = model.bones();
   const auto bone_locals = model.bone_locals();
   const auto bone_invs = model.bone_inv_models();
@@ -360,7 +372,7 @@ fn update_bone_hierarchy(span<const m4f32> transforms, span<m4f32> cache,
   for (size_t i = 1; i < bones.size(); ++i) {
     const u32 parent = bones[i].parent;
     // Since the bone hierarchy is sorted, we should be able to read the parent model matrix safely
-    assert(parent < bones.size());
+    ka_assert(parent < bones.size());
     models[i] = models[parent] * locals[i];
   }
 
@@ -374,73 +386,88 @@ fn update_bone_hierarchy(span<const m4f32> transforms, span<m4f32> cache,
 } // namespace
 
 fn model3d_instance_handler::update_buffers() -> void {
-  assert(_model != nullptr);
+  ka_assert(_model != nullptr);
 
   if (!_bone_transforms.empty()) {
-    assert(_buffer_offset != 0);
+    ka_assert(_buffer_offset != 0);
     const size_t bone_count = _bone_transforms.size() / _instances;
-    const span<m4f32> cache(_bone_cache.data(), _bone_cache.size());
     for (u32 i = 0; i < _instances; ++i) {
       const size_t offset = i * bone_count * sizeof(m4f32);
       const span<const m4f32> transforms(_bone_transforms.data() + offset, bone_count);
-      update_bone_hierarchy(transforms, cache, *_model, m4f32(1.f), _buffer, offset);
+      update_bone_hierarchy(transforms, _bone_cache.data(), *_model, m4f32(1.f), _buffer, offset);
     }
   }
+  render::update_buffer(_buffer, _instance_data.data(),
+                        _instance_data.size() * sizeof(_instance_data[0]), _buffer_offset);
 }
 
 fn model3d_instance_handler::retrieve_render_data(const buffer_binding& scene_buffer,
                                                   std::vector<render_data>& data) const -> u32 {
-  assert(_model != nullptr);
-  u32 count = 0;
+  ka_assert(_model != nullptr);
+  u32 mesh_count = 0;
   const auto materials = _model->materials();
   for (const auto& mesh : _model->meshes()) {
-    assert(mesh.material < materials.size());
-    const auto& material = materials[count++];
+    ka_assert(mesh.material < materials.size());
+    const auto& material = materials[mesh_count++];
 
     render_data rdata{};
     rdata.mesh_buffer = _model->mesh_buffer();
     rdata.draw_count = mesh.index_count ? mesh.index_count : mesh.vertex_count;
     rdata.pipeline = material.pipeline;
 
+    // Bind scene data
     rdata.shader_binds[0].buffer = scene_buffer.handle;
     rdata.shader_binds[0].location = glsl_scene_binding;
     rdata.shader_binds[0].offset = scene_buffer.offset;
     rdata.shader_binds[0].size = scene_buffer.size;
 
+    // Bind bones
+    rdata.shader_binds[1].buffer = _buffer;
+    rdata.shader_binds[1].location = glsl_bone_mat_binding;
+    rdata.shader_binds[1].offset = 0;
+    rdata.shader_binds[1].size = _bone_transforms.size() * sizeof(m4f32);
+
+    // Bind instances
+    rdata.shader_binds[2].buffer = _buffer;
+    rdata.shader_binds[2].location = glsl_instance_binding;
+    rdata.shader_binds[2].offset = _buffer_offset;
+    rdata.shader_binds[2].size = _instance_data.size() * sizeof(_instance_data[0]);
+
+    rdata.shader_bind_count = 3;
+
     rdata.instances = _instances;
-    rdata.shader_binds = {};
-    rdata.uniforms = {};
-    rdata.textures = {};
     data.push_back(rdata);
   }
 
-  return count;
+  return mesh_count;
 }
 
 fn model3d_instance_handler::set_transform(u32 instance, const m4f32& transform) -> void {
-  static constexpr size_t model_offset = offsetof(instance_data, model);
-  const size_t offset =
-    _instance_buffer.offset + (instance * sizeof(instance_data)) + model_offset;
-  render::update_buffer(_instance_buffer.handle, &transform, sizeof(transform), offset);
+  ka_assert(instance < _instances);
+  _instance_data[instance].model = transform;
 }
 
 fn model3d_instance_handler::set_bone_transform(u32 instance, u32 bone, const m4f32& transform)
   -> void {
-  if (_instance_buffer.offset == 0) {
+  ka_assert(instance < _instances);
+  if (!_buffer_offset) {
     // We didn't allocate space for the bones!!!!!!!!!!
     return;
   }
   const auto bones = _model->bones();
+  ka_assert(bone < bones.size());
+  _bone_transforms[instance * bones.size() + bone] = transform;
 }
 
 model3d_instance_handler::model3d_instance_handler(const model3d_renderable& model,
                                                    unique_array<m4f32>&& bone_transforms,
                                                    unique_array<m4f32>&& bone_cache,
+                                                   unique_array<instance_data>&& data,
                                                    size_t buffer_offset, buffer_handle buffer,
                                                    u32 instances) :
     _model(&model), _bone_transforms(std::move(bone_transforms)),
-    _bone_cache(std::move(bone_cache)), _buffer_offset(buffer_offset), _buffer(buffer),
-    _instances(instances) {}
+    _bone_cache(std::move(bone_cache)), _instance_data(std::move(data)),
+    _buffer_offset(buffer_offset), _buffer(buffer), _instances(instances) {}
 
 model3d_instance_handler::~model3d_instance_handler() {
   if (_model) {
@@ -450,8 +477,8 @@ model3d_instance_handler::~model3d_instance_handler() {
 
 model3d_instance_handler::model3d_instance_handler(model3d_instance_handler&& other) noexcept :
     _model(other._model), _bone_transforms(std::move(other._bone_transforms)),
-    _bone_cache(std::move(other._bone_cache)), _buffer_offset(other._buffer_offset),
-    _buffer(other._buffer), _instances(other._instances) {
+    _bone_cache(std::move(other._bone_cache)), _instance_data(std::move(other._instance_data)),
+    _buffer_offset(other._buffer_offset), _buffer(other._buffer), _instances(other._instances) {
   other._model = nullptr;
 }
 
@@ -464,6 +491,7 @@ model3d_instance_handler::operator=(model3d_instance_handler&& other) noexcept {
   _model = other._model;
   _bone_transforms = std::move(other._bone_transforms);
   _bone_cache = std::move(other._bone_cache);
+  _instance_data = std::move(other._instance_data);
   _buffer = other._buffer;
   _buffer_offset = other._buffer_offset;
   _instances = other._instances;

@@ -88,7 +88,7 @@ void end_frame() {
   g_ctx->gl.end_frame();
 }
 
-void submit_render_batch(span<const render_data>& batch) {
+void submit_render_batch(span<const render_data> batch) {
   assert(g_ctx.has_value());
   shogle::gl_cmd_builder builder;
   static f32 t = 0.f;

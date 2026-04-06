@@ -100,8 +100,8 @@ private:
 };
 
 struct buffer_binding {
-  size_t offset;
   size_t size;
+  size_t offset;
   buffer_handle handle;
 };
 
@@ -116,8 +116,8 @@ private:
 
 public:
   model3d_instance_handler(const model3d_renderable& model, unique_array<m4f32>&& bone_transforms,
-                           unique_array<m4f32>&& bone_cache, size_t buffer_offset,
-                           buffer_handle buffer, u32 instances);
+                           unique_array<m4f32>&& bone_cache, unique_array<instance_data>&& data,
+                           size_t buffer_offset, buffer_handle buffer, u32 instances);
 
   ~model3d_instance_handler();
 
@@ -145,6 +145,7 @@ public:
 private:
   const model3d_renderable* _model;
   unique_array<m4f32> _bone_transforms, _bone_cache;
+  unique_array<instance_data> _instance_data;
   size_t _buffer_offset;
   buffer_handle _buffer;
   u32 _instances;

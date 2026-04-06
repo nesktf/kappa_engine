@@ -11,6 +11,7 @@ constexpr size_t MAX_BUFFERS = 512;
 
 constexpr u32 glsl_scene_binding = 1;
 constexpr u32 glsl_instance_binding = 2;
+constexpr u32 glsl_bone_mat_binding = 3;
 constexpr u32 glsl_u_samplers = 1;
 
 struct pipeline_data {

@@ -96,7 +96,8 @@ struct pipeline_create_data {
 s_expect<pipeline_handle> create_pipeline(const pipeline_create_data& data);
 void destroy_pipeline(pipeline_handle pipeline);
 
-static constexpr size_t MAX_BOUND_TEXTURES = 16;
+static constexpr size_t MAX_BOUND_TEXTURES = 8;
+static constexpr size_t MAX_SHADER_BINDS = 8;
 
 struct shader_binding {
   size_t size;
@@ -110,22 +111,29 @@ struct texture_binding {
   u32 location;
 };
 
+#if 0
 struct uniform_data {
   alignas(m4f32) u8 data[sizeof(m4f32)];
   shogle::attribute_type type;
   u32 location;
 };
+#endif
 
 struct render_data {
   pipeline_handle pipeline;
   buffer_handle mesh_buffer;
-  span<texture_binding> textures;
-  span<shader_binding> shader_binds;
-  span<uniform_data> uniforms;
+  std::array<texture_binding, MAX_BOUND_TEXTURES> textures;
+  size_t texture_count;
+  std::array<shader_binding, MAX_SHADER_BINDS> shader_binds;
+  size_t shader_bind_count;
+#if 0
+  std::array<uniform_data, MAX_SHADER_BINDS> uniforms;
+	size_t uniform_count;
+#endif
   size_t draw_count;
   size_t instances;
 };
 
-void submit_render_batch(span<const render_data>& data);
+void submit_render_batch(span<const render_data> data);
 
 } // namespace kappa::render

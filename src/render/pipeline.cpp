@@ -83,6 +83,10 @@ constexpr char glsl_vert_bone_header[] = R"glsl(
 layout (location = 5) in ivec4 att_bone_indices;
 layout (location = 6) in vec4 att_bone_weights;
 
+layout(std430, binding = 3) buffer bone_buffer {
+  mat4 u_bone_mat[];
+};
+
 const int MAX_BONE_INFLUENCE = 4;
 
 vec4 model_pos() {

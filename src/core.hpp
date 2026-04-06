@@ -16,6 +16,9 @@
 #endif
 #define assert(cond, ...) SHOGLE_ASSERT(cond __VA_OPT__(, ) __VA_ARGS__)
 
+#define ka_assert(cond)       SHOGLE_ASSERT(cond)
+#define ka_assertm(cond, ...) SHOGLE_ASSERT(cond __VA_OPT__(, ) __VA_ARGS__)
+
 #define fn auto
 
 namespace kappa {
