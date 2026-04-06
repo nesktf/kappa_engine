@@ -2,43 +2,41 @@
 
 #include "./matrix4x4.hpp"
 
-namespace shogle::math {
+namespace kappa::math {
 
 template<typename Func, typename T>
 concept cam3d_view_func =
-  requires(const Func f, const ::shogle::numvec<3, typename Func::value_type>& pos,
-           const ::shogle::numvec<3, typename Func::value_type>& target,
-           const ::shogle::numvec<3, typename Func::value_type>& up) {
-    {
-      std::invoke(f, pos, target, up)
-    } -> std::same_as<::shogle::nummat<4, 4, typename Func::value_type>>;
-    requires noexcept(std::invoke(f, pos, target, up));
+  requires(const Func f, const ::kappa::VecNum<3, typename Func::value_type>& pos,
+           const ::kappa::VecNum<3, typename Func::value_type>& target,
+           const ::kappa::VecNum<3, typename Func::value_type>& up) {
+    { f(pos, target, up) } -> std::same_as<::kappa::Mat<4, 4, typename Func::value_type>>;
+    requires noexcept(f(pos, target, up));
     std::convertible_to<typename Func::value_type, T>;
   };
 
 template<numeric_type T>
-struct cam3d_lookat_rhs {
+struct Cam3DLookatRHS {
 public:
   using value_type = T;
 
 public:
-  SHOGLE_MATH_DEF nummat<4, 4, T> operator()(const ::shogle::numvec<3, T>& pos,
-                                             const ::shogle::numvec<3, T>& target,
-                                             const ::shogle::numvec<3, T>& up) const noexcept {
-    return ::shogle::math::lookat_rh(pos, target, up);
+  KA_MATH_DEF Mat<4, 4, T> operator()(const ::kappa::VecNum<3, T>& pos,
+                                      const ::kappa::VecNum<3, T>& target,
+                                      const ::kappa::VecNum<3, T>& up) const noexcept {
+    return ::kappa::math::lookat_rh(pos, target, up);
   }
 };
 
 template<numeric_type T>
-struct cam3d_lookat_lhs {
+struct Cam3DLookatLHS {
 public:
   using value_type = T;
 
 public:
-  SHOGLE_MATH_DEF nummat<4, 4, T> operator()(const ::shogle::numvec<3, T>& pos,
-                                             const ::shogle::numvec<3, T>& target,
-                                             const ::shogle::numvec<3, T>& up) const noexcept {
-    return ::shogle::math::lookat_lh(pos, target, up);
+  KA_MATH_DEF Mat<4, 4, T> operator()(const ::kappa::VecNum<3, T>& pos,
+                                      const ::kappa::VecNum<3, T>& target,
+                                      const ::kappa::VecNum<3, T>& up) const noexcept {
+    return ::kappa::math::lookat_lh(pos, target, up);
   }
 };
 
@@ -51,16 +49,16 @@ enum class cam3d_movement {
   down,
 };
 
-template<numeric_type T, cam3d_view_func<T> ViewFunc = cam3d_lookat_rhs<T>>
-struct camera3d_euler {
+template<numeric_type T, cam3d_view_func<T> ViewFunc = Cam3DLookatRHS<T>>
+struct Camera3DEuler {
 public:
   using value_type = T;
   using func_type = ViewFunc;
 
 public:
-  camera3d_euler() noexcept :
+  Camera3DEuler() noexcept :
       pos(T(0), T(0), T(0)), world_up(T(0), T(1), T(0)), _front(T(0), T(0), T(1)),
-      _up(T(0), T(1), T(0)), _right(T(-1), T(0), T(0)), _yaw(::shogle::math::rad(T(-90))),
+      _up(T(0), T(1), T(0)), _right(T(-1), T(0), T(0)), _yaw(::kappa::math::rad(T(-90))),
       _pitch(T(0)), _mouse_sens(T(0.0025)) {}
 
 public:
@@ -72,8 +70,8 @@ public:
     _pitch += yoff;
 
     if (clamp_pitch) {
-      constexpr T pitch_limit = ::shogle::math::rad(T(89));
-      _pitch = ::shogle::math::clamp(_pitch, -pitch_limit, pitch_limit);
+      constexpr T pitch_limit = ::kappa::math::rad(T(89));
+      _pitch = ::kappa::math::clamp(_pitch, -pitch_limit, pitch_limit);
     }
     _update_vecs();
   }
@@ -102,36 +100,36 @@ public:
   }
 
 public:
-  nummat<4, 4, T> matrix() const noexcept { return get_func()(pos, pos + _front, _up); }
+  Mat<4, 4, T> matrix() const noexcept { return get_func()(pos, pos + _front, _up); }
 
 public:
-  SHOGLE_MATH_DEF func_type& get_func() noexcept { return static_cast<ViewFunc&>(*this); }
+  KA_MATH_DEF func_type& get_func() noexcept { return static_cast<ViewFunc&>(*this); }
 
-  SHOGLE_MATH_DEF const func_type& get_func() const noexcept {
+  KA_MATH_DEF const func_type& get_func() const noexcept {
     return static_cast<const ViewFunc&>(*this);
   }
 
 private:
-  SHOGLE_MATH_DEF void _update_vecs() noexcept {
-    const T cpitch = ::shogle::math::cos(_pitch);
-    numvec<3, T> front;
-    front.x = ::shogle::math::cos(_yaw) * cpitch;
-    front.y = ::shogle::math::sin(_pitch);
-    front.z = ::shogle::math::sin(_yaw) * cpitch;
-    _right = ::shogle::math::normalize(::shogle::math::cross(front, world_up));
-    _front = ::shogle::math::normalize(front);
-    _up = ::shogle::math::normalize(::shogle::math::cross(_right, _front));
+  KA_MATH_DEF void _update_vecs() noexcept {
+    const T cpitch = ::kappa::math::cos(_pitch);
+    VecNum<3, T> front;
+    front.x = ::kappa::math::cos(_yaw) * cpitch;
+    front.y = ::kappa::math::sin(_pitch);
+    front.z = ::kappa::math::sin(_yaw) * cpitch;
+    _right = ::kappa::math::normalize(::kappa::math::cross(front, world_up));
+    _front = ::kappa::math::normalize(front);
+    _up = ::kappa::math::normalize(::kappa::math::cross(_right, _front));
   }
 
 public:
-  ::shogle::numvec<3, T> pos;
-  ::shogle::numvec<3, T> world_up;
+  ::kappa::VecNum<3, T> pos;
+  ::kappa::VecNum<3, T> world_up;
 
 private:
-  ::shogle::numvec<3, T> _front;
-  ::shogle::numvec<3, T> _up;
-  ::shogle::numvec<3, T> _right;
+  ::kappa::VecNum<3, T> _front;
+  ::kappa::VecNum<3, T> _up;
+  ::kappa::VecNum<3, T> _right;
   T _yaw, _pitch, _mouse_sens;
 };
 
-} // namespace shogle::math
+} // namespace kappa::math

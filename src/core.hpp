@@ -84,9 +84,11 @@ using ptrdiff_t = std::ptrdiff_t;
 using uintptr_t = std::uintptr_t;
 
 using u8 = uint8_t;
+using u16 = uint16_t;
 using u32 = uint32_t;
 using u64 = uint64_t;
 using s8 = int8_t;
+using s16 = int16_t;
 using s32 = int32_t;
 using s64 = int64_t;
 
@@ -95,5 +97,17 @@ using f64 = double;
 
 using bits32 = u32;
 using bits64 = u64;
+
+template<typename T>
+struct RectanglePos {
+  T x, y;
+  T width, height;
+};
+
+template<typename T>
+struct CirclePos {
+  T x, y;
+  T radius;
+};
 
 } // namespace kappa

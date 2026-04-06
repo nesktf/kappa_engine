@@ -1,6 +1,9 @@
 #pragma once
 
-#include "../core.hpp"
+#include "./common.hpp"
+
+#include <concepts>
+#include <functional>
 
 namespace kappa {
 
@@ -16,10 +19,12 @@ concept lerp_func = requires(const F func, const T& a, const T& b, U t) {
   { std::invoke(func, a, b, t) } -> std::convertible_to<T>;
 };
 
+/*
 template<typename T, typename U = f32>
 struct glm_mixer {
-  constexpr T operator()(const T& a, const T& b, U t) const { return glm::mix(a, b, t); }
+constexpr T operator()(const T& a, const T& b, U t) const { return glm::mix(a, b, t); }
 };
+*/
 
 template<typename T, std::floating_point U, typename Derived>
 requires(interpolable<T, U>)
@@ -167,16 +172,16 @@ private:
   constexpr T _eval(U delta) const { return base_t::evaluate(delta / static_cast<U>(steps())); }
 
 public:
-  [[nodiscard]] constexpr T eval(i32 steps) const { return _eval(static_cast<U>(steps)); }
+  [[nodiscard]] constexpr T eval(s32 steps) const { return _eval(static_cast<U>(steps)); }
 
-  [[nodiscard]] constexpr T eval(i32 steps, U alpha) const {
+  [[nodiscard]] constexpr T eval(s32 steps, U alpha) const {
     return _eval(static_cast<U>(steps) + alpha);
   }
 
 public:
-  [[nodiscard]] constexpr T operator()(i32 steps) const { return eval(steps); }
+  [[nodiscard]] constexpr T operator()(s32 steps) const { return eval(steps); }
 
-  [[nodiscard]] constexpr T operator()(i32 steps, U alpha) const { return eval(steps, alpha); }
+  [[nodiscard]] constexpr T operator()(s32 steps, U alpha) const { return eval(steps, alpha); }
 
 public:
   constexpr u32 steps() const { return step_size; }
@@ -210,16 +215,16 @@ private:
   constexpr T _eval(U delta) const { return base_t::evaluate(delta / static_cast<U>(steps())); }
 
 public:
-  [[nodiscard]] constexpr T eval(i32 steps) const { return _eval(static_cast<U>(steps)); }
+  [[nodiscard]] constexpr T eval(s32 steps) const { return _eval(static_cast<U>(steps)); }
 
-  [[nodiscard]] constexpr T eval(i32 steps, U alpha) const {
+  [[nodiscard]] constexpr T eval(s32 steps, U alpha) const {
     return _eval(static_cast<U>(steps) + alpha);
   }
 
 public:
-  [[nodiscard]] constexpr T operator()(i32 steps) const { return eval(steps); }
+  [[nodiscard]] constexpr T operator()(s32 steps) const { return eval(steps); }
 
-  [[nodiscard]] constexpr T operator()(i32 steps, U alpha) const { return eval(steps, alpha); }
+  [[nodiscard]] constexpr T operator()(s32 steps, U alpha) const { return eval(steps, alpha); }
 
 public:
   constexpr u32 steps() const { return _steps; }
@@ -292,17 +297,17 @@ public:
 public:
   using base_t::base_t;
 
-  explicit constexpr steplerp(const T& first, const T& last, i32 age) :
+  explicit constexpr steplerp(const T& first, const T& last, s32 age) :
       base_t{first, last}, _age{age} {}
 
-  constexpr steplerp(const T& first, const T& last, i32 age, const F& lerper) :
+  constexpr steplerp(const T& first, const T& last, s32 age, const F& lerper) :
       base_t{first, last, lerper}, _age{age} {}
 
-  constexpr steplerp(const T& first, const T& last, i32 age, F&& lerper) :
+  constexpr steplerp(const T& first, const T& last, s32 age, F&& lerper) :
       base_t{first, last, std::move(lerper)}, _age{age} {}
 
   template<typename... Args>
-  explicit constexpr steplerp(const T& first, const T& last, i32 age, std::in_place_t t,
+  explicit constexpr steplerp(const T& first, const T& last, s32 age, std::in_place_t t,
                               Args&&... args) :
       base_t{first, last, t, std::forward<Args>(args)...}, _age{age} {}
 
@@ -320,25 +325,25 @@ public:
 public:
   constexpr u32 steps() const { return step_size; }
 
-  constexpr i32 age() const { return _age; }
+  constexpr s32 age() const { return _age; }
 
-  constexpr steplerp& tick(i32 count = 1) {
+  constexpr steplerp& tick(s32 count = 1) {
     _age += count;
     return *this;
   }
 
-  constexpr steplerp& tick_loop(i32 count = 1) {
-    _age = (_age + count) % static_cast<i32>(steps());
+  constexpr steplerp& tick_loop(s32 count = 1) {
+    _age = (_age + count) % static_cast<s32>(steps());
     return *this;
   }
 
-  constexpr steplerp& age(i32 value) {
+  constexpr steplerp& age(s32 value) {
     _age = value;
     return *this;
   }
 
 private:
-  i32 _age{};
+  s32 _age{};
 };
 
 template<typename T, typename U, typename F>
@@ -365,17 +370,17 @@ public:
                               Args&&... args) :
       base_t{first, last, tag, std::forward<Args>(args)...}, _steps{steps}, _age{} {}
 
-  explicit constexpr steplerp(const T& first, const T& last, u32 steps, i32 age) :
+  explicit constexpr steplerp(const T& first, const T& last, u32 steps, s32 age) :
       base_t{first, last}, _steps{steps}, _age{age} {}
 
-  constexpr steplerp(const T& first, const T& last, u32 steps, i32 age, const F& lerper) :
+  constexpr steplerp(const T& first, const T& last, u32 steps, s32 age, const F& lerper) :
       base_t{first, last, lerper}, _steps{steps}, _age{age} {}
 
-  constexpr steplerp(const T& first, const T& last, u32 steps, i32 age, F&& lerper) :
+  constexpr steplerp(const T& first, const T& last, u32 steps, s32 age, F&& lerper) :
       base_t{first, last, std::move(lerper)}, _steps{steps}, _age{age} {}
 
   template<typename... Args>
-  explicit constexpr steplerp(const T& first, const T& last, u32 steps, i32 age,
+  explicit constexpr steplerp(const T& first, const T& last, u32 steps, s32 age,
                               std::in_place_t tag, Args&&... args) :
       base_t{first, last, tag, std::forward<Args>(args)...}, _steps{steps}, _age{age} {}
 
@@ -398,26 +403,26 @@ public:
     return *this;
   }
 
-  constexpr i32 age() const { return _age; }
+  constexpr s32 age() const { return _age; }
 
-  constexpr steplerp& tick(i32 count = 1) {
+  constexpr steplerp& tick(s32 count = 1) {
     _age += count;
     return *this;
   }
 
-  constexpr steplerp& tick_loop(i32 count = 1) {
-    _age = (_age + count) % static_cast<i32>(steps());
+  constexpr steplerp& tick_loop(s32 count = 1) {
+    _age = (_age + count) % static_cast<s32>(steps());
     return *this;
   }
 
-  constexpr steplerp& age(i32 value) {
+  constexpr steplerp& age(s32 value) {
     _age = value;
     return *this;
   }
 
 private:
   u32 _steps;
-  i32 _age;
+  s32 _age;
 };
 
 } // namespace kappa

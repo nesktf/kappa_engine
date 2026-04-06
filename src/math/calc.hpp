@@ -2,7 +2,7 @@
 
 #include "./common.hpp"
 
-namespace shogle::math {
+namespace kappa::math {
 
 // TODO: integrator traits?
 template<typename Fun, typename T>
@@ -13,13 +13,13 @@ concept integr_fun = std::is_invocable_r_v<T, Fun, T>;
 template<typename T>
 struct integr_trap {
   template<integr_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T a, T b, Fun&& f) {
+  KA_MATH_DEF T operator()(T a, T b, Fun&& f) {
     const T size = b - a;
     return (size / 2) * (f(a) + f(b));
   }
 
   template<integr_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T a, T b, uint n, Fun&& f) {
+  KA_MATH_DEF T operator()(T a, T b, uint n, Fun&& f) {
     const T size = b - a;
     const T h = size / static_cast<T>(n);
 
@@ -36,7 +36,7 @@ struct integr_trap {
 template<typename T>
 struct integr_simp13 {
   template<integr_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T a, T b, Fun&& f) {
+  KA_MATH_DEF T operator()(T a, T b, Fun&& f) {
     const T size = b - a;
     const T x_1 = a + ((b - a) / 3);
 
@@ -44,7 +44,7 @@ struct integr_simp13 {
   }
 
   template<integr_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T a, T b, uint n, Fun&& f) {
+  KA_MATH_DEF T operator()(T a, T b, uint n, Fun&& f) {
     const T size = b - a;
     const T h = size / static_cast<T>(n);
 
@@ -64,7 +64,7 @@ struct integr_simp13 {
 template<typename T>
 struct integr_simp38 {
   template<integr_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T a, T b, Fun&& f) {
+  KA_MATH_DEF T operator()(T a, T b, Fun&& f) {
     const T size = b - a;
     const T h = size / 4;
     const T x_1 = a + h;
@@ -84,7 +84,7 @@ concept ode_fun = std::is_invocable_r_v<T, Fun, T, T>;
 template<typename T>
 struct ode_rk4 {
   template<ode_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T x, T y, T h, Fun&& f) {
+  KA_MATH_DEF T operator()(T x, T y, T h, Fun&& f) {
     const auto k1 = h * f(x, y);
     const auto k2 = h * f(x + h * T{0.5}, y + k1 * T{0.5});
     const auto k3 = h * f(x + h * T{0.5}, y + k2 * T{0.5});
@@ -97,8 +97,8 @@ struct ode_rk4 {
 template<typename T>
 struct ode_euler {
   template<ode_fun<T> Fun>
-  SHOGLE_MATH_DEF T operator()(T x, T y, T h, Fun&& f) {
+  KA_MATH_DEF T operator()(T x, T y, T h, Fun&& f) {
     return y + h * f(x, y);
   }
 };
-} // namespace shogle::math
+} // namespace kappa::math

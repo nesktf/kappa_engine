@@ -1,11 +1,15 @@
-#define SHOGLE_MATH_MATRIX4x4_INL
+#define KA_MATH_MATRIX4x4_INL
 #include "./matrix4x4.hpp"
-#undef SHOGLE_MATH_MATRIX4x4_INL
+#undef KA_MATH_MATRIX4x4_INL
 
-namespace shogle::math {
+#include "./matrix3x3.hpp"
+#include "./vector3.hpp"
+#include "./vector4.hpp"
+
+namespace kappa::math {
 
 template<typename T>
-SHOGLE_MATH_DEF T determinant(const nummat<4, 4, T>& m) noexcept {
+KA_MATH_DEF T determinant(const Mat<4, 4, T>& m) noexcept {
   const T t0 = (m.y2 * (m.z3 * m.w4 - m.z4 * m.w3) - m.z2 * (m.y3 * m.w4 - m.y4 * m.w3) +
                 m.w2 * (m.y3 * m.z4 - m.y4 * m.z3));
   const T t1 = -(m.y1 * (m.z3 * m.w4 - m.z4 * m.w3) - m.z1 * (m.y3 * m.w4 - m.y4 * m.w3) +
@@ -18,7 +22,7 @@ SHOGLE_MATH_DEF T determinant(const nummat<4, 4, T>& m) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> inverse(const nummat<4, 4, T>& m) noexcept {
+KA_MATH_DEF Mat<4, 4, T> inverse(const Mat<4, 4, T>& m) noexcept {
   const T c01 = m.y2 * (m.z3 * m.w4 - m.z4 * m.w3) - m.z2 * (m.y3 * m.w4 - m.y4 * m.w3) +
                 m.w2 * (m.y3 * m.z4 - m.y4 * m.z3);
   const T c02 = -(m.y1 * (m.z3 * m.w4 - m.z4 * m.w3) - m.z1 * (m.y3 * m.w4 - m.y4 * m.w3) +
@@ -29,7 +33,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T> inverse(const nummat<4, 4, T>& m) noexcept {
                   m.w1 * (m.y2 * m.z3 - m.y3 * m.z2));
 
   const T invdet = static_cast<T>(1) / (m.x1 * c01 + m.x2 * c02 + m.x3 * c03 + m.x4 * c04);
-  nummat<4, 4, T> out;
+  Mat<4, 4, T> out;
   out.x1 = c01 * invdet;
   out.y1 = c02 * invdet;
   out.z1 = c03 * invdet;
@@ -74,8 +78,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> inverse(const nummat<4, 4, T>& m) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> transpose(const nummat<4, 4, T>& m) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> transpose(const Mat<4, 4, T>& m) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = m.x1;
   out.y1 = m.x2;
   out.z1 = m.x3;
@@ -96,9 +100,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> transpose(const nummat<4, 4, T>& m) noexcept {
 }
 
 template<typename T, numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> translate(const nummat<4, 4, T>& m,
-                                          const numvec<3, U>& v) noexcept {
-  nummat<4, 4, T> out = m;
+KA_MATH_DEF Mat<4, 4, T> translate(const Mat<4, 4, T>& m, const VecNum<3, U>& v) noexcept {
+  Mat<4, 4, T> out = m;
   out.x4 = (m.x1 * static_cast<T>(v.x)) + (m.x2 * static_cast<T>(v.y)) +
            (m.x3 * static_cast<T>(v.z)) + m.x4;
   out.y4 = (m.y1 * static_cast<T>(v.x)) + (m.y2 * static_cast<T>(v.y)) +
@@ -111,8 +114,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> translate(const nummat<4, 4, T>& m,
 }
 
 template<typename T, numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> scale(const nummat<4, 4, T>& m, const numvec<3, U>& v) noexcept {
-  nummat<4, 4, T> out(T(1));
+KA_MATH_DEF Mat<4, 4, T> scale(const Mat<4, 4, T>& m, const VecNum<3, U>& v) noexcept {
+  Mat<4, 4, T> out(T(1));
   out.x1 = m.x1 * static_cast<T>(v.x);
   out.y1 = m.y1 * static_cast<T>(v.x);
   out.z1 = m.z1 * static_cast<T>(v.x);
@@ -129,20 +132,15 @@ SHOGLE_MATH_DEF nummat<4, 4, T> scale(const nummat<4, 4, T>& m, const numvec<3, 
 }
 
 template<typename T, numeric_convertible<T> U, numeric_convertible<T> V>
-SHOGLE_MATH_DEF nummat<4, 4, T> rotate(const nummat<4, 4, T>& m, U angle,
-                                       const numvec<3, V>& axis) noexcept {
-  const T c = static_cast<T>(std::cos(angle));
-  const T s = static_cast<T>(std::sin(angle));
+KA_MATH_DEF Mat<4, 4, T> rotate(const Mat<4, 4, T>& m, U angle,
+                                const VecNum<3, V>& axis) noexcept {
+  const T c = static_cast<T>(::kappa::math::cos(angle));
+  const T s = static_cast<T>(::kappa::math::sin(angle));
 
-  const auto ax = ::shogle::vec_cast<T>(::shogle::math::normalize(axis));
+  const auto ax = ::kappa::vec_cast<T>(::kappa::math::normalize(axis));
   const auto inv_c = (ax * (T(1) - c));
 
-  struct {
-    T x1, y1, z1;
-    T x2, y2, z2;
-    T x3, y3, z3;
-  } rot; // temporary matrix, just to avoid including matrix3x3
-
+  Mat<3, 3, T> rot;
   rot.x1 = c + (inv_c.x * ax.x);
   rot.y1 = (inv_c.x * ax.y) + (s * ax.z);
   rot.z1 = (inv_c.x * ax.z) - (s * ax.y);
@@ -153,7 +151,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T> rotate(const nummat<4, 4, T>& m, U angle,
   rot.y3 = (inv_c.z * ax.y) - (s * ax.x);
   rot.z3 = c + (inv_c.z * ax.z);
 
-  nummat<4, 4, T> out;
+  Mat<4, 4, T> out;
   out.x1 = (m.x1 * rot.x1) + (m.x2 * rot.y1) + (m.x3 * rot.z1);
   out.y1 = (m.y1 * rot.x1) + (m.y2 * rot.y1) + (m.y3 * rot.z1);
   out.z1 = (m.z1 * rot.x1) + (m.z2 * rot.y1) + (m.z3 * rot.z1);
@@ -171,8 +169,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> rotate(const nummat<4, 4, T>& m, U angle,
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<3, 3, T> to_mat3(const nummat<4, 4, T>& m) noexcept {
-  nummat<3, 3, T> out;
+KA_MATH_DEF Mat<3, 3, T> to_mat3(const Mat<4, 4, T>& m) noexcept {
+  Mat<3, 3, T> out;
   out.x1 = m.x1;
   out.y1 = m.y1;
   out.z1 = m.z1;
@@ -186,8 +184,8 @@ SHOGLE_MATH_DEF nummat<3, 3, T> to_mat3(const nummat<4, 4, T>& m) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> to_mat4(const nummat<3, 3, T>& m) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> to_mat4(const Mat<3, 3, T>& m) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = m.x1;
   out.y1 = m.y1;
   out.z1 = m.z1;
@@ -208,25 +206,25 @@ SHOGLE_MATH_DEF nummat<4, 4, T> to_mat4(const nummat<3, 3, T>& m) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> lookat_rh(const numvec<3, T>& pos, const numvec<3, T>& center,
-                                          const numvec<3, T>& up) noexcept {
-  const numvec<3, T> row3 = ::shogle::math::normalize(center - pos);
-  const numvec<3, T> row1 = ::shogle::math::normalize(::shogle::math::cross(row3, up));
-  const numvec<3, T> row2 = ::shogle::math::cross(row1, row3);
+KA_MATH_DEF Mat<4, 4, T> lookat_rh(const VecNum<3, T>& pos, const VecNum<3, T>& center,
+                                   const VecNum<3, T>& up) noexcept {
+  const VecNum<3, T> row3 = ::kappa::math::normalize(center - pos);
+  const VecNum<3, T> row1 = ::kappa::math::normalize(::kappa::math::cross(row3, up));
+  const VecNum<3, T> row2 = ::kappa::math::cross(row1, row3);
 
-  nummat<4, 4, T> out;
+  Mat<4, 4, T> out;
   out.x1 = row1.x;
   out.x2 = row1.y;
   out.x3 = row1.z;
-  out.x4 = -::shogle::math::dot(row1, pos);
+  out.x4 = -::kappa::math::dot(row1, pos);
   out.y1 = row2.x;
   out.y2 = row2.y;
   out.y3 = row2.z;
-  out.y4 = -shogle::math::dot(row2, pos);
+  out.y4 = -kappa::math::dot(row2, pos);
   out.z1 = -row3.x;
   out.z2 = -row3.y;
   out.z3 = -row3.z;
-  out.z4 = ::shogle::math::dot(row3, pos);
+  out.z4 = ::kappa::math::dot(row3, pos);
   out.w1 = T(0);
   out.w2 = T(0);
   out.w3 = T(0);
@@ -235,25 +233,25 @@ SHOGLE_MATH_DEF nummat<4, 4, T> lookat_rh(const numvec<3, T>& pos, const numvec<
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> lookat_lh(const numvec<3, T>& pos, const numvec<3, T>& center,
-                                          const numvec<3, T>& up) noexcept {
-  const numvec<3, T> row3 = ::shogle::math::normalize(center - pos);
-  const numvec<3, T> row1 = ::shogle::math::normalize(::shogle::math::cross(row3, up));
-  const numvec<3, T> row2 = ::shogle::math::cross(row1, row3);
+KA_MATH_DEF Mat<4, 4, T> lookat_lh(const VecNum<3, T>& pos, const VecNum<3, T>& center,
+                                   const VecNum<3, T>& up) noexcept {
+  const VecNum<3, T> row3 = ::kappa::math::normalize(center - pos);
+  const VecNum<3, T> row1 = ::kappa::math::normalize(::kappa::math::cross(row3, up));
+  const VecNum<3, T> row2 = ::kappa::math::cross(row1, row3);
 
-  nummat<4, 4, T> out;
+  Mat<4, 4, T> out;
   out.x1 = row1.x;
   out.x2 = row1.y;
   out.x3 = row1.z;
-  out.x4 = -::shogle::math::dot(row1, pos);
+  out.x4 = -::kappa::math::dot(row1, pos);
   out.y1 = row2.x;
   out.y2 = row2.y;
   out.y3 = row2.z;
-  out.y4 = -shogle::math::dot(row2, pos);
+  out.y4 = -kappa::math::dot(row2, pos);
   out.z1 = row3.x;
   out.z2 = row3.y;
   out.z3 = row3.z;
-  out.z4 = -::shogle::math::dot(row3, pos);
+  out.z4 = -::kappa::math::dot(row3, pos);
   out.w1 = T(0);
   out.w2 = T(0);
   out.w3 = T(0);
@@ -262,8 +260,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> lookat_lh(const numvec<3, T>& pos, const numvec<
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> ortho(T left, T right, T bottom, T top) noexcept {
-  nummat<4, 4, T> out(T(1));
+KA_MATH_DEF Mat<4, 4, T> ortho(T left, T right, T bottom, T top) noexcept {
+  Mat<4, 4, T> out(T(1));
   out.x1 = T(2) / (right - left);
   out.y2 = T(2) / (top - bottom);
   out.z3 = -T(1);
@@ -273,8 +271,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> ortho(T left, T right, T bottom, T top) noexcept
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> ortho(T left, T right, T bottom, T top, T znear, T zfar) noexcept {
-  nummat<4, 4, T> out(T(1));
+KA_MATH_DEF Mat<4, 4, T> ortho(T left, T right, T bottom, T top, T znear, T zfar) noexcept {
+  Mat<4, 4, T> out(T(1));
   out.x1 = T(2) / (right - left);
   out.y2 = T(2) / (top - bottom);
   out.z3 = T(2) / (zfar - znear);
@@ -285,9 +283,9 @@ SHOGLE_MATH_DEF nummat<4, 4, T> ortho(T left, T right, T bottom, T top, T znear,
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> perspective(T fov, T aspect, T znear, T zfar) noexcept {
+KA_MATH_DEF Mat<4, 4, T> perspective(T fov, T aspect, T znear, T zfar) noexcept {
   if constexpr (std::floating_point<T>) {
-    if (::shogle::math::fequal(fov, T(0))) {
+    if (::kappa::math::fequal(fov, T(0))) {
       fov = T(0.0001);
     }
   } else {
@@ -295,9 +293,9 @@ SHOGLE_MATH_DEF nummat<4, 4, T> perspective(T fov, T aspect, T znear, T zfar) no
       fov = 1;
     }
   }
-  const T halftan = ::shogle::math::tan(fov / T(2));
+  const T halftan = ::kappa::math::tan(fov / T(2));
 
-  nummat<4, 4, T> out(T(0));
+  Mat<4, 4, T> out(T(0));
   out.x1 = T(1) / (aspect * halftan);
   out.y2 = T(1) / halftan;
   out.z3 = -(zfar + znear) / (zfar - znear);
@@ -306,13 +304,13 @@ SHOGLE_MATH_DEF nummat<4, 4, T> perspective(T fov, T aspect, T znear, T zfar) no
   return out;
 }
 
-} // namespace shogle::math
+} // namespace kappa::math
 
-namespace shogle {
+namespace kappa {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator=(U scalar) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator=(U scalar) noexcept {
   this->x1 = static_cast<T>(scalar);
   this->y1 = static_cast<T>(scalar);
   this->z1 = static_cast<T>(scalar);
@@ -334,7 +332,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator=(U scalar) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator+=(U scalar) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator+=(U scalar) noexcept {
   this->x1 += static_cast<T>(scalar);
   this->y1 += static_cast<T>(scalar);
   this->z1 += static_cast<T>(scalar);
@@ -356,7 +354,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator+=(U scalar) noexcept 
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator-=(U scalar) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator-=(U scalar) noexcept {
   this->x1 -= static_cast<T>(scalar);
   this->y1 -= static_cast<T>(scalar);
   this->z1 -= static_cast<T>(scalar);
@@ -378,7 +376,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator-=(U scalar) noexcept 
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator*=(U scalar) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator*=(U scalar) noexcept {
   this->x1 *= static_cast<T>(scalar);
   this->y1 *= static_cast<T>(scalar);
   this->z1 *= static_cast<T>(scalar);
@@ -400,7 +398,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator*=(U scalar) noexcept 
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator/=(U scalar) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator/=(U scalar) noexcept {
   this->x1 /= static_cast<T>(scalar);
   this->y1 /= static_cast<T>(scalar);
   this->z1 /= static_cast<T>(scalar);
@@ -422,8 +420,7 @@ SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator/=(U scalar) noexcept 
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>&
-nummat<4, 4, T>::operator=(const nummat<4, 4, U>& other) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator=(const Mat<4, 4, U>& other) noexcept {
   this->x1 = static_cast<T>(other.x1);
   this->y1 = static_cast<T>(other.y1);
   this->z1 = static_cast<T>(other.z1);
@@ -445,8 +442,7 @@ nummat<4, 4, T>::operator=(const nummat<4, 4, U>& other) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>&
-nummat<4, 4, T>::operator+=(const nummat<4, 4, U>& other) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator+=(const Mat<4, 4, U>& other) noexcept {
   this->x1 += static_cast<T>(other.x1);
   this->y1 += static_cast<T>(other.y1);
   this->z1 += static_cast<T>(other.z1);
@@ -468,8 +464,7 @@ nummat<4, 4, T>::operator+=(const nummat<4, 4, U>& other) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>&
-nummat<4, 4, T>::operator-=(const nummat<4, 4, U>& other) noexcept {
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator-=(const Mat<4, 4, U>& other) noexcept {
   this->x1 -= static_cast<T>(other.x1);
   this->y1 -= static_cast<T>(other.y1);
   this->z1 -= static_cast<T>(other.z1);
@@ -491,8 +486,8 @@ nummat<4, 4, T>::operator-=(const nummat<4, 4, U>& other) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator*=(const nummat<4, 4, U>& m) noexcept {
-  const nummat<4, 4, T> self = *this;
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator*=(const Mat<4, 4, U>& m) noexcept {
+  const Mat<4, 4, T> self = *this;
   this->x1 = (self.x1 * m.x1) + (self.x2 * m.y1) + (self.x3 * m.z1) + (self.x4 * m.w1);
   this->y1 = (self.y1 * m.x1) + (self.y2 * m.y1) + (self.y3 * m.z1) + (self.y4 * m.w1);
   this->z1 = (self.z1 * m.x1) + (self.z2 * m.y1) + (self.z3 * m.z1) + (self.z4 * m.w1);
@@ -514,13 +509,12 @@ SHOGLE_MATH_DEF nummat<4, 4, T>& nummat<4, 4, T>::operator*=(const nummat<4, 4, 
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T>&
-nummat<4, 4, T>::operator/=(const nummat<4, 4, U>& other) noexcept {
-  return (*this *= ::shogle::math::inverse(other));
+KA_MATH_DEF Mat<4, 4, T>& Mat<4, 4, T>::operator/=(const Mat<4, 4, U>& other) noexcept {
+  return (*this *= ::kappa::math::inverse(other));
 }
 
 template<typename T>
-SHOGLE_MATH_DEF bool operator==(const nummat<4, 4, T>& a, const nummat<4, 4, T>& b) noexcept {
+KA_MATH_DEF bool operator==(const Mat<4, 4, T>& a, const Mat<4, 4, T>& b) noexcept {
   return (a.x1 == b.x1) && (a.y1 == b.y1) && (a.z1 == b.z1) && (a.w1 == b.w1) && (a.x2 == b.x2) &&
          (a.y2 == b.y2) && (a.z2 == b.z2) && (a.w2 == b.w2) && (a.x3 == b.x3) && (a.y3 == b.y3) &&
          (a.z3 == b.z3) && (a.w3 == b.w3) && (a.x4 == b.x4) && (a.y4 == b.y4) && (a.z4 == b.z4) &&
@@ -528,7 +522,7 @@ SHOGLE_MATH_DEF bool operator==(const nummat<4, 4, T>& a, const nummat<4, 4, T>&
 }
 
 template<typename T>
-SHOGLE_MATH_DEF bool operator!=(const nummat<4, 4, T>& a, const nummat<4, 4, T>& b) noexcept {
+KA_MATH_DEF bool operator!=(const Mat<4, 4, T>& a, const Mat<4, 4, T>& b) noexcept {
   return (a.x1 != b.x1) || (a.y1 != b.y1) || (a.z1 != b.z1) || (a.w1 != b.w1) || (a.x2 != b.x2) ||
          (a.y2 != b.y2) || (a.z2 != b.z2) || (a.w2 != b.w2) || (a.x3 != b.x3) || (a.y3 != b.y3) ||
          (a.z3 != b.z3) || (a.w3 != b.w3) || (a.x4 != b.x4) || (a.y4 != b.y4) || (a.z4 != b.z4) ||
@@ -536,8 +530,8 @@ SHOGLE_MATH_DEF bool operator!=(const nummat<4, 4, T>& a, const nummat<4, 4, T>&
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator+(const nummat<4, 4, T>& mat) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator+(const Mat<4, 4, T>& mat) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = +mat.x1;
   out.y1 = +mat.y1;
   out.z1 = +mat.z1;
@@ -558,9 +552,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator+(const nummat<4, 4, T>& mat) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator+(const nummat<4, 4, T>& a,
-                                          const nummat<4, 4, T>& b) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator+(const Mat<4, 4, T>& a, const Mat<4, 4, T>& b) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = a.x1 + b.x1;
   out.y1 = a.y1 + b.y1;
   out.z1 = a.z1 + b.z1;
@@ -581,8 +574,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator+(const nummat<4, 4, T>& a,
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator+(const nummat<4, 4, T>& mat, U scalar) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator+(const Mat<4, 4, T>& mat, U scalar) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = mat.x1 + static_cast<T>(scalar);
   out.y1 = mat.y1 + static_cast<T>(scalar);
   out.z1 = mat.z1 + static_cast<T>(scalar);
@@ -603,8 +596,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator+(const nummat<4, 4, T>& mat, U scalar) 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator+(U scalar, const nummat<4, 4, T>& mat) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator+(U scalar, const Mat<4, 4, T>& mat) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = static_cast<T>(scalar) + mat.x1;
   out.y1 = static_cast<T>(scalar) + mat.y1;
   out.z1 = static_cast<T>(scalar) + mat.z1;
@@ -625,8 +618,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator+(U scalar, const nummat<4, 4, T>& mat) 
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator-(const nummat<4, 4, T>& mat) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator-(const Mat<4, 4, T>& mat) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = -mat.x1;
   out.y1 = -mat.y1;
   out.z1 = -mat.z1;
@@ -647,9 +640,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator-(const nummat<4, 4, T>& mat) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator-(const nummat<4, 4, T>& a,
-                                          const nummat<4, 4, T>& b) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator-(const Mat<4, 4, T>& a, const Mat<4, 4, T>& b) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = a.x1 - b.x1;
   out.y1 = a.y1 - b.y1;
   out.z1 = a.z1 - b.z1;
@@ -670,8 +662,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator-(const nummat<4, 4, T>& a,
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator-(const nummat<4, 4, T>& mat, U scalar) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator-(const Mat<4, 4, T>& mat, U scalar) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = mat.x1 - static_cast<T>(scalar);
   out.y1 = mat.y1 - static_cast<T>(scalar);
   out.z1 = mat.z1 - static_cast<T>(scalar);
@@ -692,8 +684,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator-(const nummat<4, 4, T>& mat, U scalar) 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator-(U scalar, const nummat<4, 4, T>& mat) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator-(U scalar, const Mat<4, 4, T>& mat) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = static_cast<T>(scalar) - mat.x1;
   out.y1 = static_cast<T>(scalar) - mat.y1;
   out.z1 = static_cast<T>(scalar) - mat.z1;
@@ -714,9 +706,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator-(U scalar, const nummat<4, 4, T>& mat) 
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator*(const nummat<4, 4, T>& a,
-                                          const nummat<4, 4, T>& b) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator*(const Mat<4, 4, T>& a, const Mat<4, 4, T>& b) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = (a.x1 * b.x1) + (a.x2 * b.y1) + (a.x3 * b.z1) + (a.x4 * b.w1);
   out.y1 = (a.y1 * b.x1) + (a.y2 * b.y1) + (a.y3 * b.z1) + (a.y4 * b.w1);
   out.z1 = (a.z1 * b.x1) + (a.z2 * b.y1) + (a.z3 * b.z1) + (a.z4 * b.w1);
@@ -737,8 +728,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator*(const nummat<4, 4, T>& a,
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator*(const nummat<4, 4, T>& mat, U scalar) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator*(const Mat<4, 4, T>& mat, U scalar) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = mat.x1 * static_cast<T>(scalar);
   out.y1 = mat.y1 * static_cast<T>(scalar);
   out.z1 = mat.z1 * static_cast<T>(scalar);
@@ -759,8 +750,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator*(const nummat<4, 4, T>& mat, U scalar) 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator*(U scalar, const nummat<4, 4, T>& mat) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator*(U scalar, const Mat<4, 4, T>& mat) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = static_cast<T>(scalar) * mat.x1;
   out.y1 = static_cast<T>(scalar) * mat.y1;
   out.z1 = static_cast<T>(scalar) * mat.z1;
@@ -781,9 +772,9 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator*(U scalar, const nummat<4, 4, T>& mat) 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF typename nummat<4, 4, T>::col_type operator*(const nummat<4, 4, T>& m,
-                                                             const numvec<4, U>& v) noexcept {
-  typename nummat<4, 4, T>::col_type out;
+KA_MATH_DEF typename Mat<4, 4, T>::col_type operator*(const Mat<4, 4, T>& m,
+                                                      const VecNum<4, U>& v) noexcept {
+  typename Mat<4, 4, T>::col_type out;
   out.x = m.x1 * v.x + m.x2 * v.y + m.x3 * v.z + m.x4 * v.w;
   out.y = m.y1 * v.x + m.y2 * v.y + m.y3 * v.z + m.y4 * v.w;
   out.z = m.z1 * v.x + m.z2 * v.y + m.z3 * v.z + m.z4 * v.w;
@@ -792,9 +783,9 @@ SHOGLE_MATH_DEF typename nummat<4, 4, T>::col_type operator*(const nummat<4, 4, 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF typename nummat<4, 4, T>::row_type operator*(const numvec<4, U>& v,
-                                                             const nummat<4, 4, T>& m) noexcept {
-  typename nummat<4, 4, T>::row_type out;
+KA_MATH_DEF typename Mat<4, 4, T>::row_type operator*(const VecNum<4, U>& v,
+                                                      const Mat<4, 4, T>& m) noexcept {
+  typename Mat<4, 4, T>::row_type out;
   out.x = v.x * m.x1 + v.y * m.y1 + v.z * m.z1 + v.w * m.w1;
   out.y = v.x * m.x2 + v.y * m.y2 + v.z * m.z2 + v.w * m.w2;
   out.z = v.x * m.x3 + v.y * m.y3 + v.z * m.z3 + v.w * m.w3;
@@ -803,14 +794,13 @@ SHOGLE_MATH_DEF typename nummat<4, 4, T>::row_type operator*(const numvec<4, U>&
 }
 
 template<typename T>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator/(const nummat<4, 4, T>& a,
-                                          const nummat<4, 4, T>& b) noexcept {
-  return a * ::shogle::math::inverse(b);
+KA_MATH_DEF Mat<4, 4, T> operator/(const Mat<4, 4, T>& a, const Mat<4, 4, T>& b) noexcept {
+  return a * ::kappa::math::inverse(b);
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator/(const nummat<4, 4, T>& mat, U scalar) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator/(const Mat<4, 4, T>& mat, U scalar) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = mat.x1 / static_cast<T>(scalar);
   out.y1 = mat.y1 / static_cast<T>(scalar);
   out.z1 = mat.z1 / static_cast<T>(scalar);
@@ -831,8 +821,8 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator/(const nummat<4, 4, T>& mat, U scalar) 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF nummat<4, 4, T> operator/(U scalar, const nummat<4, 4, T>& mat) noexcept {
-  nummat<4, 4, T> out;
+KA_MATH_DEF Mat<4, 4, T> operator/(U scalar, const Mat<4, 4, T>& mat) noexcept {
+  Mat<4, 4, T> out;
   out.x1 = static_cast<T>(scalar) / mat.x1;
   out.y1 = static_cast<T>(scalar) / mat.y1;
   out.z1 = static_cast<T>(scalar) / mat.z1;
@@ -853,15 +843,15 @@ SHOGLE_MATH_DEF nummat<4, 4, T> operator/(U scalar, const nummat<4, 4, T>& mat) 
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF typename nummat<4, 4, T>::col_type operator/(const nummat<4, 4, T>& mat,
-                                                             const numvec<4, U>& vec) noexcept {
-  return ::shogle::math::inverse(mat) * vec;
+KA_MATH_DEF typename Mat<4, 4, T>::col_type operator/(const Mat<4, 4, T>& mat,
+                                                      const VecNum<4, U>& vec) noexcept {
+  return ::kappa::math::inverse(mat) * vec;
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF typename nummat<4, 4, T>::row_type operator/(const numvec<4, U>& vec,
-                                                             const nummat<4, 4, T>& mat) noexcept {
-  return vec * ::shogle::math::inverse(mat);
+KA_MATH_DEF typename Mat<4, 4, T>::row_type operator/(const VecNum<4, U>& vec,
+                                                      const Mat<4, 4, T>& mat) noexcept {
+  return vec * ::kappa::math::inverse(mat);
 }
 
-} // namespace shogle
+} // namespace kappa

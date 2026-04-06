@@ -1,12 +1,12 @@
-#define SHOGLE_MATH_VECTOR4_INL
+#define KA_MATH_VECTOR4_INL
 #include "./vector4.hpp"
-#undef SHOGLE_MATH_VECTOR4_INL
+#undef KA_MATH_VECTOR4_INL
 
-namespace shogle {
+namespace kappa {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator=(U scalar) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator=(U scalar) noexcept {
   this->x = static_cast<T>(scalar);
   this->y = static_cast<T>(scalar);
   this->z = static_cast<T>(scalar);
@@ -16,7 +16,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator=(U scalar) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator+=(U scalar) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator+=(U scalar) noexcept {
   this->x += static_cast<T>(scalar);
   this->y += static_cast<T>(scalar);
   this->z += static_cast<T>(scalar);
@@ -26,7 +26,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator+=(U scalar) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator-=(U scalar) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator-=(U scalar) noexcept {
   this->x -= static_cast<T>(scalar);
   this->y -= static_cast<T>(scalar);
   this->z -= static_cast<T>(scalar);
@@ -36,7 +36,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator-=(U scalar) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator*=(U scalar) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator*=(U scalar) noexcept {
   this->x *= static_cast<T>(scalar);
   this->y *= static_cast<T>(scalar);
   this->z *= static_cast<T>(scalar);
@@ -46,7 +46,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator*=(U scalar) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator/=(U scalar) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator/=(U scalar) noexcept {
   this->x /= static_cast<T>(scalar);
   this->y /= static_cast<T>(scalar);
   this->z /= static_cast<T>(scalar);
@@ -56,7 +56,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator/=(U scalar) noexcept {
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator=(const numvec<4, U>& other) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator=(const VecNum<4, U>& other) noexcept {
   this->x = static_cast<T>(other.x);
   this->y = static_cast<T>(other.y);
   this->z = static_cast<T>(other.z);
@@ -66,7 +66,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator=(const numvec<4, U>& other)
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator+=(const numvec<4, U>& other) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator+=(const VecNum<4, U>& other) noexcept {
   this->x += static_cast<T>(other.x);
   this->y += static_cast<T>(other.y);
   this->z += static_cast<T>(other.z);
@@ -76,7 +76,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator+=(const numvec<4, U>& other
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator-=(const numvec<4, U>& other) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator-=(const VecNum<4, U>& other) noexcept {
   this->x -= static_cast<T>(other.x);
   this->y -= static_cast<T>(other.y);
   this->z -= static_cast<T>(other.z);
@@ -86,7 +86,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator-=(const numvec<4, U>& other
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator*=(const numvec<4, U>& other) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator*=(const VecNum<4, U>& other) noexcept {
   this->x *= static_cast<T>(other.x);
   this->y *= static_cast<T>(other.y);
   this->z *= static_cast<T>(other.z);
@@ -96,7 +96,7 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator*=(const numvec<4, U>& other
 
 template<math::numeric_type T>
 template<math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator/=(const numvec<4, U>& other) noexcept {
+KA_MATH_DEF VecNum<4, T>& VecNum<4, T>::operator/=(const VecNum<4, U>& other) noexcept {
   this->x /= static_cast<T>(other.x);
   this->y /= static_cast<T>(other.y);
   this->z /= static_cast<T>(other.z);
@@ -105,18 +105,18 @@ SHOGLE_MATH_DEF numvec<4, T>& numvec<4, T>::operator/=(const numvec<4, U>& other
 }
 
 template<typename T>
-SHOGLE_MATH_DEF bool operator==(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
+KA_MATH_DEF bool operator==(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
   return (a.x == b.x) && (a.y == b.y) && (a.z == b.z) && (a.w == b.w);
 }
 
 template<typename T>
-SHOGLE_MATH_DEF bool operator!=(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
+KA_MATH_DEF bool operator!=(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
   return (a.x != b.x) || (a.y != b.y) || (a.z != b.z) || (a.w != b.w);
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> operator+(const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator+(const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
   out.x = +vec.x;
   out.y = +vec.y;
   out.z = +vec.z;
@@ -125,8 +125,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator+(const numvec<4, T>& vec) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> operator+(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator+(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
+  VecNum<4, T> out;
   out.x = a.x + b.x;
   out.y = a.y + b.y;
   out.z = a.z + b.z;
@@ -135,8 +135,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator+(const numvec<4, T>& a, const numvec<4, T>
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator+(const numvec<4, T>& vec, U scalar) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator+(const VecNum<4, T>& vec, U scalar) noexcept {
+  VecNum<4, T> out;
   out.x = vec.x + static_cast<T>(scalar);
   out.y = vec.y + static_cast<T>(scalar);
   out.z = vec.z + static_cast<T>(scalar);
@@ -145,8 +145,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator+(const numvec<4, T>& vec, U scalar) noexce
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator+(U scalar, const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator+(U scalar, const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
   out.x = static_cast<T>(scalar) + vec.x;
   out.y = static_cast<T>(scalar) + vec.y;
   out.z = static_cast<T>(scalar) + vec.z;
@@ -155,8 +155,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator+(U scalar, const numvec<4, T>& vec) noexce
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> operator-(const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator-(const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
   out.x = -vec.x;
   out.y = -vec.y;
   out.z = -vec.z;
@@ -165,8 +165,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator-(const numvec<4, T>& vec) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> operator-(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator-(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
+  VecNum<4, T> out;
   out.x = a.x - b.x;
   out.y = a.y - b.y;
   out.z = a.z - b.z;
@@ -175,8 +175,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator-(const numvec<4, T>& a, const numvec<4, T>
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator-(const numvec<4, T>& vec, U scalar) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator-(const VecNum<4, T>& vec, U scalar) noexcept {
+  VecNum<4, T> out;
   out.x = vec.x - static_cast<T>(scalar);
   out.y = vec.y - static_cast<T>(scalar);
   out.z = vec.z - static_cast<T>(scalar);
@@ -185,8 +185,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator-(const numvec<4, T>& vec, U scalar) noexce
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator-(U scalar, const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator-(U scalar, const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
   out.x = static_cast<T>(scalar) - vec.x;
   out.y = static_cast<T>(scalar) - vec.y;
   out.z = static_cast<T>(scalar) - vec.z;
@@ -195,8 +195,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator-(U scalar, const numvec<4, T>& vec) noexce
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> operator*(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator*(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
+  VecNum<4, T> out;
   out.x = a.x * b.x;
   out.y = a.y * b.y;
   out.z = a.z * b.z;
@@ -205,8 +205,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator*(const numvec<4, T>& a, const numvec<4, T>
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator*(const numvec<4, T>& vec, U scalar) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator*(const VecNum<4, T>& vec, U scalar) noexcept {
+  VecNum<4, T> out;
   out.x = vec.x * static_cast<T>(scalar);
   out.y = vec.y * static_cast<T>(scalar);
   out.z = vec.z * static_cast<T>(scalar);
@@ -215,8 +215,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator*(const numvec<4, T>& vec, U scalar) noexce
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator*(U scalar, const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator*(U scalar, const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
   out.x = static_cast<T>(scalar) * vec.x;
   out.y = static_cast<T>(scalar) * vec.y;
   out.z = static_cast<T>(scalar) * vec.z;
@@ -225,8 +225,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator*(U scalar, const numvec<4, T>& vec) noexce
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> operator/(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator/(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
+  VecNum<4, T> out;
   out.x = a.x / b.x;
   out.y = a.y / b.y;
   out.z = a.z / b.z;
@@ -235,8 +235,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator/(const numvec<4, T>& a, const numvec<4, T>
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator/(const numvec<4, T>& vec, U scalar) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator/(const VecNum<4, T>& vec, U scalar) noexcept {
+  VecNum<4, T> out;
   out.x = vec.x / static_cast<T>(scalar);
   out.y = vec.y / static_cast<T>(scalar);
   out.z = vec.z / static_cast<T>(scalar);
@@ -245,8 +245,8 @@ SHOGLE_MATH_DEF numvec<4, T> operator/(const numvec<4, T>& vec, U scalar) noexce
 }
 
 template<typename T, math::numeric_convertible<T> U>
-SHOGLE_MATH_DEF numvec<4, T> operator/(U scalar, const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
+KA_MATH_DEF VecNum<4, T> operator/(U scalar, const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
   out.x = static_cast<T>(scalar) / vec.x;
   out.y = static_cast<T>(scalar) / vec.y;
   out.z = static_cast<T>(scalar) / vec.z;
@@ -256,28 +256,28 @@ SHOGLE_MATH_DEF numvec<4, T> operator/(U scalar, const numvec<4, T>& vec) noexce
 
 template<typename U, typename T>
 requires(math::numeric_convertible<U, T>)
-SHOGLE_MATH_DEF numvec<4, U> vec_cast(const numvec<4, T>& vec) noexcept {
+KA_MATH_DEF VecNum<4, U> vec_cast(const VecNum<4, T>& vec) noexcept {
   return {static_cast<U>(vec.x), static_cast<U>(vec.y), static_cast<U>(vec.z),
           static_cast<U>(vec.z)};
 }
 
-} // namespace shogle
+} // namespace kappa
 
-namespace shogle::math {
+namespace kappa::math {
 
 template<typename T>
-SHOGLE_MATH_DEF T length2(const numvec<4, T>& vec) noexcept {
+KA_MATH_DEF T length2(const VecNum<4, T>& vec) noexcept {
   return (vec.x * vec.x) + (vec.y * vec.y) + (vec.z * vec.z) + (vec.w * vec.w);
 }
 
 template<typename T>
-SHOGLE_MATH_DEF T length(const numvec<4, T>& vec) noexcept {
+KA_MATH_DEF T length(const VecNum<4, T>& vec) noexcept {
   return std::sqrt((vec.x * vec.c) + (vec.y * vec.y) + (vec.z * vec.z) + (vec.w * vec.w));
 }
 
 template<typename T>
-SHOGLE_MATH_DEF void normalize_at(numvec<4, T>& vec) noexcept {
-  const T len = ::shogle::math::length(vec);
+KA_MATH_DEF void normalize_at(VecNum<4, T>& vec) noexcept {
+  const T len = ::kappa::math::length(vec);
   vec.x /= len;
   vec.y /= len;
   vec.z /= len;
@@ -285,9 +285,9 @@ SHOGLE_MATH_DEF void normalize_at(numvec<4, T>& vec) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF numvec<4, T> normalize(const numvec<4, T>& vec) noexcept {
-  numvec<4, T> out;
-  const T len = ::shogle::math::length(vec);
+KA_MATH_DEF VecNum<4, T> normalize(const VecNum<4, T>& vec) noexcept {
+  VecNum<4, T> out;
+  const T len = ::kappa::math::length(vec);
   out.x = vec.x / len;
   out.y = vec.y / len;
   out.z = vec.z / len;
@@ -296,8 +296,8 @@ SHOGLE_MATH_DEF numvec<4, T> normalize(const numvec<4, T>& vec) noexcept {
 }
 
 template<typename T>
-SHOGLE_MATH_DEF T dot(const numvec<4, T>& a, const numvec<4, T>& b) noexcept {
+KA_MATH_DEF T dot(const VecNum<4, T>& a, const VecNum<4, T>& b) noexcept {
   return (a.x * b.x) + (a.y * b.y) + (a.z * b.z) + (a.w * b.w);
 }
 
-} // namespace shogle::math
+} // namespace kappa::math
