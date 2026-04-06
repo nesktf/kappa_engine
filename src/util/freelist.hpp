@@ -1,13 +1,15 @@
 #pragma once
 
-#include "../core.hpp"
+#include "../defs.hpp"
+
+#include <utility>
 
 namespace kappa {
 
-template<typename T, size_t MaxElems>
-class inplace_freelist {
+template<typename T, usize MaxElems>
+class FixedFreelist {
 public:
-  static constexpr size_t max_element_count = MaxElems;
+  static constexpr usize max_element_count = MaxElems;
   using value_type = T;
   using element_slot = u32;
 
@@ -22,11 +24,11 @@ private:
   static_assert(MaxElems < ELEM_ACTIVE, "Invalid max element count");
 
 public:
-  inplace_freelist() noexcept : _empty_head(0), _count(0) {
+  FixedFreelist() noexcept : _empty_head(0), _count(0) {
     std::memset(_slots, 0xFF, sizeof(_slots)); // Sets every slot to ELEM_TOMB
   }
 
-  inplace_freelist(inplace_freelist&& other) noexcept(std::is_nothrow_move_constructible_v<T>)
+  FixedFreelist(FixedFreelist&& other) noexcept(std::is_nothrow_move_constructible_v<T>)
   requires(!std::is_trivially_move_constructible_v<T>)
       : _count(other._count), _empty_head(other._empty_head) {
     std::memcpy(_slots, other._slots, sizeof(_slots));
@@ -35,11 +37,11 @@ public:
     });
   }
 
-  inplace_freelist(inplace_freelist&& other) noexcept
+  FixedFreelist(FixedFreelist&& other) noexcept
   requires(std::is_trivially_move_constructible_v<T>)
   = default;
 
-  inplace_freelist(const inplace_freelist& other) noexcept(std::is_nothrow_copy_constructible_v<T>)
+  FixedFreelist(const FixedFreelist& other) noexcept(std::is_nothrow_copy_constructible_v<T>)
   requires(!std::is_trivially_copy_constructible_v<T>)
       : _count(other._count), _empty_head(other._empty_head) {
     std::memcpy(_slots, other._slots, sizeof(_slots));
@@ -48,15 +50,15 @@ public:
     });
   }
 
-  inplace_freelist(const inplace_freelist& other) noexcept
+  FixedFreelist(const FixedFreelist& other) noexcept
   requires(std::is_trivially_copy_constructible_v<T>)
   = default;
 
-  ~inplace_freelist() noexcept
+  ~FixedFreelist() noexcept
   requires(std::is_trivially_destructible_v<T>)
   = default;
 
-  ~inplace_freelist() noexcept
+  ~FixedFreelist() noexcept
   requires(!std::is_trivially_destructible_v<T>)
   {
     static_assert(std::is_nothrow_destructible_v<T>);
@@ -141,9 +143,9 @@ public:
   }
 
 public:
-  size_t size() const noexcept { return _count; }
+  usize size() const noexcept { return _count; }
 
-  size_t capacity() const noexcept { return max_element_count; }
+  usize capacity() const noexcept { return max_element_count; }
 
   bool empty() const noexcept { return size() == 0; }
 

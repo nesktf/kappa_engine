@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../defs.hpp"
+
 #include <future>
 #include <memory>
 #include <queue>
@@ -7,19 +9,19 @@
 
 namespace kappa {
 
-class thread_pool {
+class ThreadPool {
 private:
-  struct task_interface {
-    virtual ~task_interface() = default;
+  struct ITask {
+    virtual ~ITask() = default;
     virtual void do_task() = 0;
   };
 
   template<typename T>
-  struct promise_task_type : public task_interface {
+  struct PromiseTaskType : public ITask {
     using promise_t = std::promise<std::invoke_result_t<T>>;
 
     template<typename... Args>
-    promise_task_type(promise_t&& promise_, Args&&... args) :
+    PromiseTaskType(promise_t&& promise_, Args&&... args) :
         task(std::forward<Args>(args)...), promise(std::move(promise_)) {}
 
     void do_task() noexcept override {
@@ -44,17 +46,17 @@ private:
 
 public:
   template<typename T>
-  using task_promise = std::promise<std::invoke_result_t<std::remove_cvref_t<T>>>;
+  using TaskPromise = std::promise<std::invoke_result_t<std::remove_cvref_t<T>>>;
 
   template<typename T>
-  using task_future = std::future<std::invoke_result_t<std::remove_cvref_t<T>>>;
+  using TaskFuture = std::future<std::invoke_result_t<std::remove_cvref_t<T>>>;
 
 public:
-  thread_pool(size_t n_threads = std::thread::hardware_concurrency()) {
+  ThreadPool(size_t n_threads = std::thread::hardware_concurrency()) {
     for (size_t i = 0; i < n_threads; ++i) {
       _threads.emplace_back([this]() {
         for (;;) {
-          std::unique_ptr<task_interface> task;
+          std::unique_ptr<ITask> task;
 
           {
             std::unique_lock<std::mutex> lock(_task_mtx);
@@ -74,7 +76,7 @@ public:
     }
   }
 
-  ~thread_pool() noexcept {
+  ~ThreadPool() noexcept {
     {
       std::unique_lock<std::mutex> lock(_task_mtx);
       _stop = true;
@@ -87,19 +89,19 @@ public:
     }
   }
 
-  thread_pool(thread_pool&&) = delete;
-  thread_pool(const thread_pool&) = delete;
-  thread_pool& operator=(thread_pool&&) = delete;
-  thread_pool& operator=(const thread_pool&) = delete;
+  ThreadPool(ThreadPool&&) = delete;
+  ThreadPool(const ThreadPool&) = delete;
+  ThreadPool& operator=(ThreadPool&&) = delete;
+  ThreadPool& operator=(const ThreadPool&) = delete;
 
 public:
   template<typename T>
-  auto enqueue_future(T&& task) -> task_future<T> {
-    task_promise<T> promise;
+  fn enqueue_future(T&& task) -> TaskFuture<T> {
+    TaskPromise<T> promise;
     auto future = promise.get_future();
     {
       std::unique_lock<std::mutex> lock(_task_mtx);
-      auto bundled_task = std::make_unique<promise_task_type<std::remove_cvref_t<T>>>(
+      auto bundled_task = std::make_unique<PromiseTaskType<std::remove_cvref_t<T>>>(
         std::move(promise), std::forward<T>(task));
       _tasks.emplace(std::move(bundled_task));
     }
@@ -108,12 +110,12 @@ public:
   }
 
   template<typename T, typename... Args>
-  auto enqueue_future(std::in_place_type_t<T>, Args&&... args) -> task_future<T> {
-    task_promise<T> promise;
+  fn enqueue_future(std::in_place_type_t<T>, Args&&... args) -> TaskFuture<T> {
+    TaskPromise<T> promise;
     auto future = promise.get_future();
     {
       std::unique_lock<std::mutex> lock(_task_mtx);
-      auto bundled_task = std::make_unique<promise_task_type<std::remove_cvref_t<T>>>(
+      auto bundled_task = std::make_unique<PromiseTaskType<std::remove_cvref_t<T>>>(
         std::move(promise), std::forward<Args>(args)...);
       _tasks.emplace(std::move(bundled_task));
     }
@@ -124,7 +126,7 @@ public:
 private:
   bool _stop;
   std::vector<std::thread> _threads;
-  std::queue<std::unique_ptr<task_interface>> _tasks;
+  std::queue<std::unique_ptr<ITask>> _tasks;
   std::mutex _task_mtx;
   std::condition_variable _cv;
 };
