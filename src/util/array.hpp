@@ -193,22 +193,22 @@ public:
   UniqueArray& operator=(const UniqueArray&) = delete;
 
   value_type& operator[](size_type idx) {
-    SHOGLE_ASSERT(idx < size());
+    ka_assert(idx < size());
     return get()[idx];
   }
 
   const value_type& operator[](size_type idx) const {
-    SHOGLE_ASSERT(idx < size());
+    ka_assert(idx < size());
     return get()[idx];
   }
 
   value_type& at(size_type idx) {
-    SHOGLE_THROW_IF(idx >= size(), std::out_of_range(fmt::format("Index {} out of range", idx)));
+    KA_THROW_IF(idx >= size(), std::out_of_range(fmt::format("Index {} out of range", idx)));
     return _arr[idx];
   }
 
   const value_type& at(size_type idx) const {
-    SHOGLE_THROW_IF(idx >= size(), std::out_of_range(fmt::format("Index {} out of range", idx)));
+    KA_THROW_IF(idx >= size(), std::out_of_range(fmt::format("Index {} out of range", idx)));
     return _arr[idx];
   }
 

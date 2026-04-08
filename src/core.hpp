@@ -72,6 +72,26 @@
 
 #define fn auto
 
+#ifndef KA_INTERNAL_
+#define KA_DECL_OPAQUE(_typename, _align, _size) \
+  struct _typename {                             \
+    alignas(_align) u8 _data[_size];             \
+  }
+#else
+#define KA_DECL_OPAQUE(_typename, _align, _size)    \
+  struct _typename;                                 \
+  constexpr size_t _align_##_typename##_t = _align; \
+  constexpr size_t _size_##_typename##_t = _size;
+#endif
+
+#define KA_CHECK_OPAQUE(_typename)                                                     \
+  static_assert(alignof(_typename) <= _opaque_align_##_typename, "Invalid alignment"); \
+  static_assert(sizeof(_typename) == _opaque_size_##_typename, "Invalid size")
+
+#define KA_VER_MAJ 0
+#define KA_VER_MIN 0
+#define KA_VER_REV 1
+
 #include <cassert>
 #include <cstdint>
 
@@ -85,6 +105,9 @@ namespace impl {
 [[noreturn]] void on_panic(const char* file, const char* func, int line, const char* msg);
 
 } // namespace impl
+
+extern int g_argc;
+extern char** g_argv;
 
 using usize = std::size_t;
 using ptrdiff_t = std::ptrdiff_t;

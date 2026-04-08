@@ -15,7 +15,7 @@ public:
   BadExpectedAccess() = default;
 
 public:
-  const char* what() const noexcept override { return "BadExpectedAccess"; }
+  const char* what() const noexcept override { return "bad_expected_access"; }
 };
 
 template<typename E>
@@ -26,6 +26,16 @@ public:
   explicit BadExpectedAccess(E&& err) : _err(std::move(err)) {}
 
 public:
+  const char* what() const noexcept override {
+    if constexpr (requires(const E err) {
+                    { err.what() } -> std::same_as<const char*>;
+                  }) {
+      return _err.what();
+    } else {
+      return BadExpectedAccess<void>::what();
+    }
+  }
+
   E& error() & noexcept { return _err; }
 
   const E& error() const& noexcept { return _err; }

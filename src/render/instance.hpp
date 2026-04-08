@@ -2,6 +2,7 @@
 
 #include "../core.hpp"
 
+#include <chrono>
 #include <string_view>
 
 namespace kappa::render {
@@ -15,6 +16,9 @@ fn start_frame() -> void;
 fn end_frame() -> void;
 fn device_wait() -> void;
 fn flag_dirty_framebufer() -> void;
+
+fn win_poll_events() -> void;
+fn win_should_close() -> bool;
 
 struct IndexedDrawCmd {
   ResHandle pipeline;
@@ -43,6 +47,109 @@ fn create_buffer(VkBufferType type, usize size, bits32 flags) -> ResHandle;
 fn upload_buffer_data(ResHandle buffer, const void* data, usize size, usize offset) -> void;
 
 fn destroy_buffer(ResHandle buffer) -> void;
+
+namespace meta {
+
+template<typename F>
+concept delta_render_func = std::invocable<F, f64>; // f(dt) -> void
+
+template<typename T>
+concept delta_render_object = requires(T obj, f64 delta_time) {
+  { obj.on_render(delta_time) } -> std::same_as<void>;
+};
+
+template<typename F>
+concept fixed_render_func = std::invocable<F, f64, f64>; // f(dt, alpha) -> void
+
+template<typename F, u32 UPS>
+concept fixed_update_func =
+  std::invocable<F, u32> || std::invocable<F, std::integral_constant<u32, UPS>>; // f(ups) -> void
+
+template<typename T>
+concept fixed_render_object = requires(T obj, f64 delta_time, f64 alpha) {
+  { obj.on_render(delta_time, alpha) } -> std::convertible_to<void>;
+};
+
+template<typename T, u32 UPS>
+concept fixed_update_object = requires(T obj, u32 fixed_delta) {
+  { obj.on_fixed_update(fixed_delta) } -> std::same_as<void>;
+} || requires(T obj) {
+  { obj.on_fixed_update(std::integral_constant<u32, UPS>{}) } -> std::same_as<void>;
+};
+
+template<typename T, u32 UPS>
+concept fixed_loop_object = (fixed_render_func<T> && fixed_update_func<T, UPS>) ||
+                            (fixed_render_object<T> && fixed_update_object<T, UPS>);
+
+template<typename T>
+concept delta_loop_object = delta_render_func<T> || delta_render_object<T>;
+
+} // namespace meta
+
+template<meta::delta_loop_object LoopObj>
+void render_loop(LoopObj&& obj) {
+  using namespace std::literals;
+
+  using clock = std::chrono::steady_clock;
+  using duration = clock::duration;
+  using time_point = std::chrono::time_point<clock, duration>;
+
+  time_point last_time = clock::now();
+  while (!win_should_close()) {
+    const time_point start_time = clock::now();
+    const auto elapsed_time = start_time - last_time;
+    last_time = start_time;
+    const f64 dt = (std::chrono::duration<f64>(elapsed_time) / 1s);
+
+    win_poll_events();
+    if constexpr (meta::delta_render_object<LoopObj>) {
+      obj.on_render(dt);
+    } else {
+      obj(dt);
+    }
+  }
+};
+
+template<u32 UPS, meta::fixed_loop_object<UPS> LoopObj>
+void render_loop(LoopObj&& obj) {
+  using namespace std::literals;
+
+  static constexpr std::chrono::duration<f64> fixed_elapsed_time =
+    std::chrono::microseconds(1000000 / UPS);
+
+  using clock = std::chrono::steady_clock;
+  using duration = decltype(clock::duration{} + fixed_elapsed_time);
+  using time_point = std::chrono::time_point<clock, duration>;
+
+  time_point last_time = clock::now();
+  duration lag = 0s;
+  while (!win_should_close()) {
+    const time_point start_time = clock::now();
+    const auto elapsed_time = start_time - last_time;
+    last_time = start_time;
+    lag += elapsed_time;
+
+    const f64 dt = (std::chrono::duration<f64>(elapsed_time) / 1s);
+    const f64 alpha = (std::chrono::duration<f64>(lag) / fixed_elapsed_time);
+
+    win_poll_events();
+
+    while (lag >= fixed_elapsed_time) {
+      if constexpr (meta::fixed_update_object<LoopObj, UPS>) {
+        obj.on_fixed_update(std::integral_constant<u32, UPS>{});
+      } else {
+        obj(std::integral_constant<u32, UPS>{});
+      }
+      lag -= fixed_elapsed_time;
+    }
+
+    if constexpr (meta::fixed_render_object<LoopObj>) {
+      obj.on_render(dt, alpha);
+    } else {
+      obj(dt, alpha);
+    }
+  }
+}
 
 #if 0
 shogle::glfw_win& window();
@@ -167,6 +274,38 @@ struct render_data {
 };
 
 void submit_render_batch(span<const render_data> data);
-#endif
 
+constexpr size_t MAX_PIPELINES = 512;
+constexpr size_t MAX_TEXTURES = 512;
+constexpr size_t MAX_BUFFERS = 512;
+
+constexpr u32 glsl_scene_binding = 1;
+constexpr u32 glsl_instance_binding = 2;
+constexpr u32 glsl_bone_mat_binding = 3;
+constexpr u32 glsl_u_samplers = 1;
+
+struct pipeline_data {
+  shogle::gl_pipeline pipeline;
+  shogle::gl_vertex_layout layout;
+};
+
+struct render_context {
+public:
+  render_context(shogle::gl_context&& gl_, shogle::glfw_win&& win_,
+                 shogle::gl_texture&& default_tex_);
+
+public:
+  shogle::glfw_win win;
+  shogle::gl_context gl;
+  shogle::glfw_imgui imgui;
+  shogle::gl_texture default_texture;
+  inplace_freelist<pipeline_data, MAX_PIPELINES> pipelines;
+  inplace_freelist<shogle::gl_texture, MAX_TEXTURES> textures;
+  inplace_freelist<shogle::gl_buffer, MAX_BUFFERS> buffers;
+  m4f32 proj{1.f};
+};
+
+extern shogle::nullable<render_context> g_ctx;
+
+#endif
 } // namespace kappa::render

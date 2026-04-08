@@ -1,3 +1,4 @@
+#if 0
 #pragma once
 
 #include "../assets/model.hpp"
@@ -152,3 +153,4 @@ private:
 };
 
 } // namespace kappa::render
+#endif

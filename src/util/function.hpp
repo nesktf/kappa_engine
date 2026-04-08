@@ -43,6 +43,9 @@ private:
   bool _engaged;
 };
 
+template<typename F>
+DeferFn(F) -> DeferFn<F>;
+
 namespace impl {
 
 template<typename T, bool IsConst, bool IsNoexcept, typename Ret, typename... Args>
@@ -211,7 +214,7 @@ private:
   };
 };
 
-template<typename Signature, usize MaxSize, usize MaxAlign = alignof(std::max_align_t)>
+template<typename Signature, usize MaxSize, usize MaxAlign>
 class TrivFn;
 
 template<usize MaxSize, usize MaxAlign, bool IsNoexcept, typename Ret, typename... Args>
@@ -230,7 +233,7 @@ private:
     std::is_trivially_destructible_v<std::remove_cvref_t<T>>;
 
 public:
-  explicit TrivFn(func_ptr_type func) : _func_invoke(func), _is_functor(false) { ka_assert(func); }
+  TrivFn(func_ptr_type func) : _func_invoke(func), _is_functor(false) { ka_assert(func); }
 
   template<typename F>
   requires(is_valid_func<F>)

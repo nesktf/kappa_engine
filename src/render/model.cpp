@@ -1,3 +1,4 @@
+#if 0
 #include "./model.hpp"
 #include "./internal.hpp"
 
@@ -502,3 +503,4 @@ model3d_instance_handler::operator=(model3d_instance_handler&& other) noexcept {
 }
 
 } // namespace kappa::render
+#endif

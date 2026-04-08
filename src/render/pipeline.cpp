@@ -1,3 +1,4 @@
+#if 0
 #include "./internal.hpp"
 
 namespace kappa::render {
@@ -340,3 +341,4 @@ void destroy_pipeline(pipeline_handle pipeline) {
 }
 
 } // namespace kappa::render
+#endif

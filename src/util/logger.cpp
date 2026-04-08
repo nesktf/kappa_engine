@@ -35,6 +35,10 @@ void set_log_level(LogLevel level_) {
   level = level_;
 }
 
+LogLevel get_log_level() {
+  return level;
+}
+
 void log_str(std::string_view prefix, std::string_view str) {
   const auto [time, ms] = get_time();
   const std::tm* time_tm = std::localtime(&time);

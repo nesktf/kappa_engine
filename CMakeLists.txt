@@ -31,8 +31,8 @@ list(APPEND LIB_LINK GPUOpen::VulkanMemoryAllocator)
 
 # glfw
 pkg_search_module(GLFW REQUIRED glfw3)
-list(APPEND SHOGLE_EXTERN_INCLUDES ${GLFW_INCLUDE_DIRS})
-list(APPEND SHOGLE_EXTERN_LINK glfw)
+list(APPEND LIB_INCLUDE ${GLFW_INCLUDE_DIRS})
+list(APPEND LIB_LINK glfw)
 
 # imgui
 file(GLOB IMGUI_SOURCES "lib/imgui/*.cpp")
