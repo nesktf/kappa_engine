@@ -1,5 +1,7 @@
 #include "./logger.hpp"
 
+#include <iostream>
+
 #include <fmt/chrono.h>
 #include <fmt/printf.h>
 
@@ -49,17 +51,20 @@ namespace impl {
 
 [[noreturn]] void assert_failure(const char* cond, const char* file, const char* func, int line,
                                  const char* msg) {
+  std::string str;
   if (msg) {
-    fmt::print(PANIC_PREFIX " assertion '{}' failed: {}", file, line, func, cond, msg);
+    str = fmt::format(PANIC_PREFIX " assertion '{}' failed: {}", file, line, func, cond, msg);
   } else {
-    fmt::print(PANIC_PREFIX " assertion '{}' failed", file, line, func, cond);
+    str = fmt::format(PANIC_PREFIX " assertion '{}' failed", file, line, func, cond);
   }
+  std::cout << str << std::endl;
   KA_ABORT();
   KA_UNREACHABLE();
 }
 
 [[noreturn]] void on_panic(const char* file, const char* func, int line, const char* msg) {
-  fmt::print(PANIC_PREFIX " {}", file, line, func, msg);
+  const auto str = fmt::format(PANIC_PREFIX " {}", file, line, func, msg);
+  std::cout << str << std::endl;
   KA_ABORT();
   KA_UNREACHABLE();
 }

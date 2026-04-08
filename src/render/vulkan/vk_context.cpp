@@ -395,8 +395,6 @@ fn select_device(VulkanContextImpl& ctx) -> VkSvExpect<void> {
   ctx.device.surface_formats = std::move(swapchain_formats);
   ctx.device.surface_present_modes = std::move(swapchain_present_modes);
   ctx.device.physical_device = physical_device;
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ctx.surface,
-                                            &ctx.device.surface_capabilities);
 
   VmaAllocatorCreateInfo vma_info{};
   vma_info.instance = ctx.vk;
@@ -438,7 +436,9 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
     return VK_PRESENT_MODE_FIFO_KHR; // Only one guaranteed to be available
   };
 
-  const auto& capabilities = ctx.device.surface_capabilities;
+  VkSurfaceCapabilitiesKHR capabilities{};
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.device.physical_device, ctx.surface,
+                                            &capabilities);
 
   // What is the format of the swapchain images?
   const auto swapchain_format = [&]() -> VkSurfaceFormatKHR {
@@ -529,7 +529,9 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
   } else {
     ka_assert(image_count == ctx.swapchain.images.size());
     // Swapchain recreations
-    // Do i have to destroy the old swapchain??
+    for (usize i = 0; i < ctx.swapchain.images.size(); ++i) {
+      vkDestroyImageView(ctx.device.device, ctx.swapchain.image_views[i], vkalloc);
+    }
     vkDestroySwapchainKHR(ctx.device.device, old_swapchain, vkalloc);
   }
 
@@ -885,8 +887,10 @@ fn VulkanContext::draw() -> void {
 
   // Acquire swapchain image
   u32 swapchain_image_idx;
-  VK_ASSERT(vkAcquireNextImageKHR(_impl->device.device, _impl->swapchain.swapchain, 1000000000,
-                                  frame.swapchain_sem, nullptr, &swapchain_image_idx));
+  VkResult res =
+    vkAcquireNextImageKHR(_impl->device.device, _impl->swapchain.swapchain, 1000000000,
+                          frame.swapchain_sem, nullptr, &swapchain_image_idx);
+  ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 
   // Initialize command buffer
   VK_ASSERT(vkResetCommandBuffer(frame.cmdbuf, 0));
@@ -950,7 +954,8 @@ fn VulkanContext::draw() -> void {
 
   presentInfo.pImageIndices = &swapchain_image_idx;
 
-  VK_ASSERT(vkQueuePresentKHR(queue, &presentInfo));
+  res = vkQueuePresentKHR(queue, &presentInfo);
+  ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 
   ++_impl->curr_frame;
 }

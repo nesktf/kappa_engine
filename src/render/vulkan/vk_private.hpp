@@ -39,7 +39,6 @@ struct VulkanDevice {
   u32 graphics_queue;
   u32 present_queue;
   u32 transfer_queue;
-  VkSurfaceCapabilitiesKHR surface_capabilities;
   Vec<VkSurfaceFormatKHR> surface_formats;
   Vec<VkPresentModeKHR> surface_present_modes;
 };
