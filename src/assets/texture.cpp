@@ -1,7 +1,10 @@
 #include "./internal.hpp"
 
-#define TEX_LOG(level_, fmt_, ...) \
-  ::kappa::logger::level_("[TEXTURE_IMPORTER] " fmt_ __VA_OPT__(, ) __VA_ARGS__)
+#include "../util/function.hpp"
+#include "../util/logger.hpp"
+
+#define TEX_LOG(_level, _fmt, ...) \
+  ::kappa::log_##_level("[TEXTURE_IMPORTER] " _fmt __VA_OPT__(, ) __VA_ARGS__)
 
 namespace kappa::assets {
 
@@ -12,9 +15,9 @@ image_loader::image_loader(std::string_view texture_path, std::string_view textu
   _impl->chima_flags = flags;
 }
 
-ass_expect<image_data> image_loader::load() {
-  assert(_impl, "texture_loader use after free");
-  const shogle::scope_end defer = [this]() {
+AssExpect<image_data> image_loader::load() {
+  ka_assert(_impl, "texture_loader use after free");
+  const DeferFn defer = [this]() {
     delete _impl;
     _impl = nullptr;
   };
@@ -22,8 +25,8 @@ ass_expect<image_data> image_loader::load() {
   chima::error chimaerr;
   auto chima = chima::context::create(nullptr, &chimaerr);
   if (!chima) {
-    auto err = asset_error::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
-                                   "Failed to create loading context, {}", chimaerr.what());
+    auto err = AssetErr::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
+                                "Failed to create loading context, {}", chimaerr.what());
     TEX_LOG(error, "{}", err.msg());
     return {unexpect, std::move(err)};
   }
@@ -33,8 +36,8 @@ ass_expect<image_data> image_loader::load() {
 
   auto image = chima::image::load(*chima, CHIMA_DEPTH_8U, _impl->texture_path.c_str(), &chimaerr);
   if (!image) {
-    auto err = asset_error::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
-                                   "Failed to load image at, {}", chimaerr.what());
+    auto err = AssetErr::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
+                                "Failed to load image at, {}", chimaerr.what());
     TEX_LOG(error, "{}", err.msg());
     return {unexpect, std::move(err)};
   }
@@ -50,8 +53,8 @@ ass_expect<image_data> image_loader::load() {
     return {in_place, *ptr};
   } catch (const std::bad_alloc&) {
     chima::image::destroy(*chima, *image);
-    auto err = asset_error::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
-                                   "Failed to allocate texture internals");
+    auto err = AssetErr::format(_impl->texture_path.as_view(), _impl->texture_name.as_view(),
+                                "Failed to allocate texture internals");
     TEX_LOG(error, "{}", err.msg());
     return {unexpect, std::move(err)};
   }
@@ -67,28 +70,28 @@ void image_data::destroy() noexcept {
   _data = nullptr;
 }
 
-buffer_name& image_data::name() const {
-  assert(_data, "texture_data use after free");
+BufferName& image_data::name() const {
+  ka_assert(_data, "texture_data use after free");
   return _data->name;
 }
 
-buffer_path& image_data::path() const {
-  assert(_data, "texture_data use after free");
+BufferPath& image_data::path() const {
+  ka_assert(_data, "texture_data use after free");
   return _data->path;
 }
 
 void* image_data::data() const {
-  assert(_data, "texture_data use after free");
+  ka_assert(_data, "texture_data use after free");
   return _data->image.data();
 }
 
-extent2d image_data::extent() const {
-  assert(_data, "texture_data use after free");
+Extent2D image_data::extent() const {
+  ka_assert(_data, "texture_data use after free");
   return {_data->image.get().extent.width, _data->image.get().extent.height};
 }
 
-image_format image_data::format() const {
-  assert(_data, "texture_data use after free");
+ImageFormat image_data::format() const {
+  ka_assert(_data, "texture_data use after free");
   return _data->format;
 }
 

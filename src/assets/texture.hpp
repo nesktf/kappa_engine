@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../core.hpp"
+#include "./ass_common.hpp"
 
 namespace kappa::assets {
 
@@ -14,11 +14,11 @@ public:
   void destroy() noexcept;
 
 public:
-  buffer_name& name() const;
-  buffer_path& path() const;
+  BufferName& name() const;
+  BufferPath& path() const;
   void* data() const;
-  extent2d extent() const;
-  image_format format() const;
+  Extent2D extent() const;
+  ImageFormat format() const;
 
 private:
   image_internal* _data;
@@ -40,10 +40,10 @@ public:
 public:
   // Should be only called ONCE, preferably in a threadpool
   // The internal data is destroyed at the end of the function
-  ass_expect<image_data> load();
+  AssExpect<image_data> load();
 
 public:
-  ass_expect<image_data> operator()() { return load(); }
+  AssExpect<image_data> operator()() { return load(); }
 
 private:
   loader_internal* _impl;
