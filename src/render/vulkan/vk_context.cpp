@@ -877,9 +877,12 @@ fn make_submit_info(VkCommandBufferSubmitInfo* cmd_info, VkSemaphoreSubmitInfo* 
 fn VulkanContext::draw() -> void {
   auto& frame = _impl->frames[_impl->curr_frame % MAX_FRAMES_IN_FLIGHT];
 
-  VkQueue queue{};
-  vkGetDeviceQueue(_impl->device.device, _impl->device.graphics_queue, 0, &queue);
-  ka_assert(queue != VK_NULL_HANDLE);
+  VkQueue graphics_queue{};
+  vkGetDeviceQueue(_impl->device.device, _impl->device.graphics_queue, 0, &graphics_queue);
+  ka_assert(graphics_queue != VK_NULL_HANDLE);
+  VkQueue present_queue{};
+  vkGetDeviceQueue(_impl->device.device, _impl->device.present_queue, 0, &present_queue);
+  ka_assert(present_queue != VK_NULL_HANDLE);
 
   // Wait for fences
   VK_ASSERT(vkWaitForFences(_impl->device.device, 1, &frame.render_fen, true, 1000000000));
@@ -936,7 +939,7 @@ fn VulkanContext::draw() -> void {
 
   // submit command buffer to the queue and execute it.
   //  _renderFence will now block until the graphic commands finish execution
-  VK_ASSERT(vkQueueSubmit2(queue, 1, &submit, frame.render_fen));
+  VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, frame.render_fen));
 
   // prepare present
   //  this will put the image we just rendered to into the visible window.
@@ -954,7 +957,7 @@ fn VulkanContext::draw() -> void {
 
   presentInfo.pImageIndices = &swapchain_image_idx;
 
-  res = vkQueuePresentKHR(queue, &presentInfo);
+  res = vkQueuePresentKHR(present_queue, &presentInfo);
   ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 
   ++_impl->curr_frame;
