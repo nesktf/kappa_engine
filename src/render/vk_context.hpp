@@ -10,6 +10,116 @@ namespace kappa::render {
 
 constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
 
+struct ISurfaceProvider {
+  virtual ~ISurfaceProvider() = default;
+  virtual fn get_extensions(Vec<const char*> extensions) -> void;
+  virtual fn create_surface(VkInstance vk, VkSurfaceKHR* surface) -> bool;
+  virtual fn get_surface_extent() -> VkExtent2D;
+};
+
+class VulkanContext;
+
+struct VulkanAppInfo {};
+
+enum class VulkanCommandType {
+  transfer = 0,
+  graphics,
+};
+
+class VulkanCommandHandler {
+private:
+  struct create_t {};
+
+  friend VulkanContext;
+
+public:
+  VulkanCommandHandler(create_t, VulkanContext& ctx, VulkanCommandType type, VkCommandPool cmdpool,
+                       UniqueArray<VkCommandBuffer>&& cmdbufs) :
+      _ctx(ctx), _cmdpool(cmdpool), _cmdbufs(std::move(cmdbufs)), _type(type) {
+    ka_assert(_cmdpool != VK_NULL_HANDLE);
+    ka_assert(!_cmdbufs.empty());
+  }
+
+  ~VulkanCommandHandler() noexcept;
+
+  VulkanCommandHandler(VulkanCommandHandler&& other) noexcept;
+  VulkanCommandHandler(const VulkanCommandHandler&) = delete;
+
+  VulkanCommandHandler& operator=(VulkanCommandHandler&& other) noexcept;
+  VulkanCommandHandler& operator=(const VulkanCommandHandler&) = delete;
+
+private:
+  RefView<VulkanContext> _ctx;
+  VkCommandPool _cmdpool;
+  UniqueArray<VkCommandBuffer> _cmdbufs;
+  VulkanCommandType _type;
+  VkSemaphore _semaphore;
+  VkFence _fence;
+};
+
+class VulkanContext {
+public:
+  struct Swapchain {
+    VkSwapchainKHR swapchain;
+    VkFormat format;
+    UniqueArray<VkImage> images;
+    UniqueArray<VkImageView> image_views;
+    VkExtent2D extent;
+    VkSemaphore semaphore;
+  };
+
+  struct Device {
+    VkPhysicalDevice pdevice;
+    VkDevice device;
+    VkQueue graphics_queue;
+    VkQueue present_queue;
+    VkQueue transfer_queue;
+    UniqueArray<VkSurfaceFormatKHR> surface_formats;
+    UniqueArray<VkPresentModeKHR> surface_present_modes;
+  };
+
+public:
+  VulkanContext(VkInstance vk, VkDebugUtilsMessengerEXT messenger, VmaAllocator vmalloc,
+                Device&& device, VkSurfaceKHR surface, ISurfaceProvider& surface_provider,
+                Swapchain&& swapchain) :
+      _vk(vk), _messenger(messenger), _vmalloc(vmalloc), _device(std::move(device)),
+      _surface(surface), _surface_provider(surface_provider), _swapchain(std::move(swapchain)) {
+    ka_assert(_vk != VK_NULL_HANDLE);
+    ka_assert(_surface != VK_NULL_HANDLE);
+    ka_assert(_vmalloc != VK_NULL_HANDLE);
+    ka_assert(_device.pdevice != VK_NULL_HANDLE);
+    ka_assert(_device.device != VK_NULL_HANDLE);
+    ka_assert(_swapchain.swapchain != VK_NULL_HANDLE);
+  }
+
+  ~VulkanContext() noexcept;
+
+  VulkanContext(VulkanContext&& other) noexcept;
+  VulkanContext(const VulkanContext&) = delete;
+
+  VulkanContext& operator=(VulkanContext&& other) noexcept;
+  VulkanContext& operator=(const VulkanContext& other) noexcept;
+
+public:
+  static fn create(const VulkanAppInfo& app_info, ISurfaceProvider& surface_provider)
+    -> VkSvExpect<VulkanContext>;
+
+private:
+  fn rebuild_swapchain(u32 width, u32 height) -> VkSvExpect<void>;
+
+  fn create_command_handler(VulkanCommandType type, usize cmdbufs)
+    -> VkSvExpect<VulkanCommandHandler>;
+
+private:
+  VkInstance _vk;
+  VkDebugUtilsMessengerEXT _messenger;
+  VmaAllocator _vmalloc;
+  Device _device;
+  VkSurfaceKHR _surface;
+  RefView<ISurfaceProvider> _surface_provider;
+  Swapchain _swapchain;
+};
+
 class RenderContext {
 public:
   struct LayoutInfo {
