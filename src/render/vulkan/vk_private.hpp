@@ -47,6 +47,8 @@ struct VulkanDevice {
 struct VulkanFrameData {
   VkCommandPool cmdpool;
   VkCommandBuffer cmdbuf;
+  VkSemaphore swapchain_sem, render_sem;
+  VkFence render_fen;
 };
 
 constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
@@ -60,6 +62,7 @@ struct VulkanContextImpl {
   VulkanSwapchain swapchain;
 
   VulkanFrameData frames[MAX_FRAMES_IN_FLIGHT];
+  u32 curr_frame;
 };
 
 #if 0

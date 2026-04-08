@@ -95,7 +95,10 @@ fn destroy() -> void {
   destroy_glfw();
 }
 
-fn start_frame() -> void {}
+fn start_frame() -> void {
+  ka_assert(g_ctx.has_value());
+  g_ctx->vk.draw();
+}
 
 fn end_frame() -> void {}
 

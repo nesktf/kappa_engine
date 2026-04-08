@@ -86,8 +86,10 @@ public:
                    Span<const char*> surface_extensions, SurfaceProviderFn surface_provider)
     -> VkSvExpect<VulkanContext>;
 
-private:
+public:
   fn rebuild_swapchain(VkExtent2D surface_extent) -> VkSvExpect<void>;
+
+  fn draw() -> void;
 
 #if 0
   fn create_command_handler(VulkanCommandType type, usize cmdbufs)

@@ -486,7 +486,7 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
   create_info.imageArrayLayers = 1; // Layers for each image, 1 if not using stereoscopic 3D
 
   // Sets the operations for the swapchain, in this case we only render directly
-  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   // create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // For postprocessing
 
   const u32 queue_indices[] = {ctx.device.graphics_queue, ctx.device.present_queue};
@@ -652,6 +652,11 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
     if (ctx->device.device != VK_NULL_HANDLE) {
       vkDeviceWaitIdle(ctx->device.device);
       for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (ctx->frames[i].swapchain_sem) {
+          vkDestroyFence(ctx->device.device, ctx->frames[i].render_fen, vkalloc);
+          vkDestroySemaphore(ctx->device.device, ctx->frames[i].render_sem, vkalloc);
+          vkDestroySemaphore(ctx->device.device, ctx->frames[i].swapchain_sem, vkalloc);
+        }
         if (ctx->frames[i].cmdpool) {
           vkDestroyCommandPool(ctx->device.device, ctx->frames[i].cmdpool, vkalloc);
         }
@@ -705,6 +710,31 @@ fn init_commands(VulkanContextImpl& ctx) {
   }
 }
 
+fn init_sync(VulkanContextImpl& ctx) {
+  // create syncronization structures
+  // one fence to control when the gpu has finished rendering the frame,
+  // and 2 semaphores to syncronize rendering with swapchain
+  // we want the fence to start signalled so we can wait on it on the first frame
+  VkFenceCreateInfo fence_create_info{};
+  fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fence_create_info.pNext = nullptr;
+  fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+  VkSemaphoreCreateInfo semaphore_create_info{};
+  semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  semaphore_create_info.pNext = nullptr;
+  semaphore_create_info.flags = 0;
+
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    VK_ASSERT(
+      vkCreateFence(ctx.device.device, &fence_create_info, vkalloc, &ctx.frames[i].render_fen));
+    VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
+                                &ctx.frames[i].swapchain_sem));
+    VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
+                                &ctx.frames[i].render_sem));
+  }
+}
+
 } // namespace
 
 fn VulkanContext::Deleter::operator()(VulkanContextImpl* ctx) noexcept -> void {
@@ -748,6 +778,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     .and_then([&]() { return create_swapchain(*ctx, surface_extent); })
     .transform([&]() -> VulkanContext {
       init_commands(*ctx);
+      init_sync(*ctx);
       ctxerr.disengage();
       return {*ctx};
     });
@@ -755,6 +786,173 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
 
 fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkSvExpect<void> {
   return create_swapchain(*_impl, surface_extent);
+}
+
+namespace {
+
+fn image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRange {
+  VkImageSubresourceRange sub_image{};
+  sub_image.aspectMask = mask;
+  sub_image.baseMipLevel = 0;
+  sub_image.levelCount = VK_REMAINING_MIP_LEVELS;
+  sub_image.baseArrayLayer = 0;
+  sub_image.layerCount = VK_REMAINING_ARRAY_LAYERS;
+  return sub_image;
+};
+
+fn transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
+                    VkImageLayout new_layout) {
+
+  VkImageMemoryBarrier2 barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+  barrier.pNext = nullptr;
+
+  barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+  barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+  barrier.oldLayout = curr_layout;
+  barrier.newLayout = new_layout;
+
+  VkImageAspectFlags aspect_mask = (new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+                                   ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                   : VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange = image_subresource_range(aspect_mask);
+  barrier.image = img;
+
+  VkDependencyInfo dep_info{};
+  dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dep_info.pNext = nullptr;
+
+  dep_info.imageMemoryBarrierCount = 1;
+  dep_info.pImageMemoryBarriers = &barrier;
+
+  vkCmdPipelineBarrier2(cmd, &dep_info);
+}
+
+fn make_semaphore_submit_info(VkPipelineStageFlags2 mask, VkSemaphore sem)
+  -> VkSemaphoreSubmitInfo {
+  VkSemaphoreSubmitInfo submit{};
+  submit.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+  submit.pNext = nullptr;
+  submit.semaphore = sem;
+  submit.stageMask = mask;
+  submit.deviceIndex = 0;
+  submit.value = 1;
+  return submit;
+}
+
+fn make_command_buffer_submit_info(VkCommandBuffer cmdbuf) -> VkCommandBufferSubmitInfo {
+  VkCommandBufferSubmitInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+  info.pNext = nullptr;
+  info.commandBuffer = cmdbuf;
+  info.deviceMask = 0;
+  return info;
+}
+
+fn make_submit_info(VkCommandBufferSubmitInfo* cmd_info, VkSemaphoreSubmitInfo* signal_sem_info,
+                    VkSemaphoreSubmitInfo* wait_sem_info) -> VkSubmitInfo2 {
+  VkSubmitInfo2 info{};
+  info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+  info.pNext = nullptr;
+
+  info.waitSemaphoreInfoCount = wait_sem_info == nullptr ? 0 : 1;
+  info.pWaitSemaphoreInfos = wait_sem_info;
+
+  info.signalSemaphoreInfoCount = signal_sem_info == nullptr ? 0 : 1;
+  info.pSignalSemaphoreInfos = signal_sem_info;
+
+  info.commandBufferInfoCount = 1;
+  info.pCommandBufferInfos = cmd_info;
+
+  return info;
+}
+
+} // namespace
+
+fn VulkanContext::draw() -> void {
+  auto& frame = _impl->frames[_impl->curr_frame % MAX_FRAMES_IN_FLIGHT];
+
+  VkQueue queue{};
+  vkGetDeviceQueue(_impl->device.device, _impl->device.graphics_queue, 0, &queue);
+  ka_assert(queue != VK_NULL_HANDLE);
+
+  // Wait for fences
+  VK_ASSERT(vkWaitForFences(_impl->device.device, 1, &frame.render_fen, true, 1000000000));
+  VK_ASSERT(vkResetFences(_impl->device.device, 1, &frame.render_fen));
+
+  // Acquire swapchain image
+  u32 swapchain_image_idx;
+  VK_ASSERT(vkAcquireNextImageKHR(_impl->device.device, _impl->swapchain.swapchain, 1000000000,
+                                  frame.swapchain_sem, nullptr, &swapchain_image_idx));
+
+  // Initialize command buffer
+  VK_ASSERT(vkResetCommandBuffer(frame.cmdbuf, 0));
+  VkCommandBufferBeginInfo cmd_begin_info{};
+  cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  cmd_begin_info.pNext = nullptr;
+  cmd_begin_info.pInheritanceInfo = nullptr;
+  cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  VK_ASSERT(vkBeginCommandBuffer(frame.cmdbuf, &cmd_begin_info));
+
+  // make the swapchain image into writeable mode before rendering
+  transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+  // make a clear-color from frame number. This will flash with a 120 frame period.
+  float flash = std::abs(std::sin(_impl->curr_frame / 120.f));
+  VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
+  VkImageSubresourceRange clear_range = image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+
+  // clear image
+  vkCmdClearColorImage(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                       VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
+
+  // make the swapchain image into presentable mode
+  transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                   VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+  // finalize the command buffer (we can no longer add commands, but it can now be executed)
+  VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
+
+  // prepare the submission to the queue.
+  // we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is
+  // ready we will signal the _renderSemaphore, to signal that rendering has finished
+  VkCommandBufferSubmitInfo cmdinfo = make_command_buffer_submit_info(frame.cmdbuf);
+
+  VkSemaphoreSubmitInfo wait_info = make_semaphore_submit_info(
+    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.swapchain_sem);
+
+  VkSemaphoreSubmitInfo signal_info =
+    make_semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.render_sem);
+
+  VkSubmitInfo2 submit = make_submit_info(&cmdinfo, &signal_info, &wait_info);
+
+  // submit command buffer to the queue and execute it.
+  //  _renderFence will now block until the graphic commands finish execution
+  VK_ASSERT(vkQueueSubmit2(queue, 1, &submit, frame.render_fen));
+
+  // prepare present
+  //  this will put the image we just rendered to into the visible window.
+  //  we want to wait on the _renderSemaphore for that,
+  //  as its necessary that drawing commands have finished before the image is displayed to the
+  //  user
+  VkPresentInfoKHR presentInfo = {};
+  presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+  presentInfo.pNext = nullptr;
+  presentInfo.pSwapchains = &_impl->swapchain.swapchain;
+  presentInfo.swapchainCount = 1;
+
+  presentInfo.pWaitSemaphores = &frame.render_sem;
+  presentInfo.waitSemaphoreCount = 1;
+
+  presentInfo.pImageIndices = &swapchain_image_idx;
+
+  VK_ASSERT(vkQueuePresentKHR(queue, &presentInfo));
+
+  ++_impl->curr_frame;
 }
 
 fn vk_error_string(VkResult res) noexcept -> const char* {
