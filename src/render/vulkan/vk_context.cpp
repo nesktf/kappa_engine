@@ -650,6 +650,12 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
 fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
   return [=]() {
     if (ctx->device.device != VK_NULL_HANDLE) {
+      vkDeviceWaitIdle(ctx->device.device);
+      for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        if (ctx->frames[i].cmdpool) {
+          vkDestroyCommandPool(ctx->device.device, ctx->frames[i].cmdpool, vkalloc);
+        }
+      }
       if (ctx->swapchain.swapchain != VK_NULL_HANDLE) {
         for (usize i = 0; i < ctx->swapchain.images.size(); ++i) {
           vkDestroyImageView(ctx->device.device, ctx->swapchain.image_views[i], vkalloc);
@@ -672,6 +678,32 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
     std::allocator<VulkanContextImpl>().deallocate(ctx, 1);
   };
 };
+
+fn init_commands(VulkanContextImpl& ctx) {
+  // create a command pool for commands submitted to the graphics queue.
+  // we also want the pool to allow for resetting of individual command buffers
+  VkCommandPoolCreateInfo cmdpool_info{};
+  cmdpool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmdpool_info.pNext = nullptr;
+  cmdpool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  cmdpool_info.queueFamilyIndex = ctx.device.graphics_queue;
+
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+
+    VK_ASSERT(
+      vkCreateCommandPool(ctx.device.device, &cmdpool_info, nullptr, &ctx.frames[i].cmdpool));
+
+    // allocate the default command buffer that we will use for rendering
+    VkCommandBufferAllocateInfo cmd_alloc_info{};
+    cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmd_alloc_info.pNext = nullptr;
+    cmd_alloc_info.commandPool = ctx.frames[i].cmdpool;
+    cmd_alloc_info.commandBufferCount = 1;
+    cmd_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    VK_ASSERT(vkAllocateCommandBuffers(ctx.device.device, &cmd_alloc_info, &ctx.frames[i].cmdbuf));
+  }
+}
 
 } // namespace
 
@@ -715,6 +747,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     .and_then([&]() { return select_device(*ctx); })
     .and_then([&]() { return create_swapchain(*ctx, surface_extent); })
     .transform([&]() -> VulkanContext {
+      init_commands(*ctx);
       ctxerr.disengage();
       return {*ctx};
     });

@@ -44,6 +44,13 @@ struct VulkanDevice {
   Vec<VkPresentModeKHR> surface_present_modes;
 };
 
+struct VulkanFrameData {
+  VkCommandPool cmdpool;
+  VkCommandBuffer cmdbuf;
+};
+
+constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
+
 struct VulkanContextImpl {
   VkInstance vk;
   VkDebugUtilsMessengerEXT messenger;
@@ -51,6 +58,8 @@ struct VulkanContextImpl {
   VulkanDevice device;
   VkSurfaceKHR surface;
   VulkanSwapchain swapchain;
+
+  VulkanFrameData frames[MAX_FRAMES_IN_FLIGHT];
 };
 
 #if 0
