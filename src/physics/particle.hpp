@@ -1,83 +1,89 @@
 #pragma once
 
 #include "../core.hpp"
-#include <functional>
+#include "../math/vector3.hpp"
+#include "../util/function.hpp"
+#include "../util/optional.hpp"
+#include "../util/ptr.hpp"
+
 #include <queue>
 #include <vector>
 
 namespace kappa::physics {
 
-class particle_entity {
+using real = f32;
+
+class ParticleEntity {
 public:
-  particle_entity(const vec3& pos, real mass) noexcept;
-  particle_entity(const vec3& pos, real mass, const vec3& vel, real damping) noexcept;
-  particle_entity(const vec3& pos, real mass, const vec3& vel, real damping,
-                  const vec3& acc) noexcept;
+  ParticleEntity(const Vec3f32& pos, real mass) noexcept;
+  ParticleEntity(const Vec3f32& pos, real mass, const Vec3f32& vel, real damping) noexcept;
+  ParticleEntity(const Vec3f32& pos, real mass, const Vec3f32& vel, real damping,
+                 const Vec3f32& acc) noexcept;
 
 public:
-  particle_entity& integrate(real dt);
+  ParticleEntity& integrate(real dt);
 
 public:
-  vec3 pos() const;
-  particle_entity& set_pos(const vec3& pos_);
+  Vec3f32 pos() const;
+  ParticleEntity& set_pos(const Vec3f32& pos_);
 
   real mass() const;
   real inv_mass() const;
 
-  particle_entity& set_mass(real mass_);
-  particle_entity& set_inv_mass(real inv_mass_);
+  ParticleEntity& set_mass(real mass_);
+  ParticleEntity& set_inv_mass(real inv_mass_);
 
-  vec3 vel() const;
-  particle_entity& set_vel(const vec3& vel_);
+  Vec3f32 vel() const;
+  ParticleEntity& set_vel(const Vec3f32& vel_);
 
   real damping() const;
-  particle_entity& set_damping(real damping_);
+  ParticleEntity& set_damping(real damping_);
 
-  vec3 acc() const;
-  particle_entity& set_acc(vec3 acc_);
+  Vec3f32 acc() const;
+  ParticleEntity& set_acc(Vec3f32 acc_);
 
-  vec3 forces() const;
-  particle_entity& add_force(const vec3& force);
-  particle_entity& clear_forces();
+  Vec3f32 forces() const;
+  ParticleEntity& add_force(const Vec3f32& force);
+  ParticleEntity& clear_forces();
 
 public:
   bool has_finite_mass() const;
 
 private:
-  vec3 _pos;
+  Vec3f32 _pos;
   real _inv_mass;
-  vec3 _vel;
+  Vec3f32 _vel;
   real _damping;
-  vec3 _acc;
-  vec3 _forces;
+  Vec3f32 _acc;
+  Vec3f32 _forces;
 };
 
 namespace meta {
 
 template<typename F>
-concept particle_force_generator = requires(F generator, particle_entity& particle, real dt) {
-  { std::invoke(generator, particle, dt) } -> std::same_as<void>;
+concept particle_force_generator = requires(F generator, ParticleEntity& particle, real dt) {
+  { generator(particle, dt) } -> std::same_as<void>;
 };
 
 } // namespace meta
 
-class particle_force_registry {
+class ParticelForceRegistry {
 private:
-  using generator_func = ntf::function_view<void(particle_entity&, real)>;
+  using GeneratorFunc = FnRef<void(ParticleEntity&, real)>;
 
   struct force_entry {
     u64 particle;
     u32 tag;
-    generator_func generator;
+    GeneratorFunc generator;
   };
 
 public:
-  particle_force_registry();
+  ParticelForceRegistry();
 
 public:
   template<meta::particle_force_generator F>
   u32 add_force(u64 particle, u32 tag, F& generator) {
-    generator_func generator_func{generator};
+    GeneratorFunc generator_func{generator};
     return _add_force(particle, tag, generator);
   }
 
@@ -86,48 +92,47 @@ public:
   void clear_forces();
 
   template<typename F>
-  requires(std::is_invocable_r_v<particle_entity&, F, u64, u32>)
+  requires(std::is_invocable_r_v<ParticleEntity&, F, u64, u32>)
   void update_forces(real dt, F&& func) {
     for (auto& elem : _registry) {
       if (!elem.has_value()) {
         continue;
       }
       auto& [particle_handle, tag, generator] = *elem;
-      particle_entity& particle = std::invoke(func, particle_handle, tag);
-      NTF_ASSERT(!generator.is_empty());
+      ParticleEntity& particle = std::invoke(func, particle_handle, tag);
       std::invoke(generator, particle, dt);
     }
   }
 
 private:
-  u32 _add_force(u64 particle, u32 tag, generator_func generator);
+  u32 _add_force(u64 particle, u32 tag, GeneratorFunc generator);
 
 private:
-  std::vector<ntf::nullable<force_entry>> _registry;
+  std::vector<Nullable<force_entry>> _registry;
   std::queue<u32> _free;
 };
 
-static constexpr vec3 DEFAULT_GRAVITY{0.f, -9.81f, 0.f};
+static constexpr Vec3f32 DEFAULT_GRAVITY{0.f, -9.81f, 0.f};
 
 class particle_gravity {
 public:
-  particle_gravity(vec3 gravity = DEFAULT_GRAVITY) noexcept;
+  particle_gravity(Vec3f32 gravity = DEFAULT_GRAVITY) noexcept;
 
 public:
-  void operator()(particle_entity& particle, real dt) noexcept;
+  void operator()(ParticleEntity& particle, real dt) noexcept;
 
 private:
-  vec3 _gravity;
+  Vec3f32 _gravity;
 };
 
 static_assert(meta::particle_force_generator<particle_gravity>);
 
-class particle_drag {
+class ParticleDrag {
 public:
-  particle_drag(real k1, real k2) noexcept;
+  ParticleDrag(real k1, real k2) noexcept;
 
 public:
-  void operator()(particle_entity& particle, real dt) noexcept;
+  void operator()(ParticleEntity& particle, real dt) noexcept;
 
 private:
   // Velocity drag coefficient
@@ -136,70 +141,70 @@ private:
   real _k2;
 };
 
-static_assert(meta::particle_force_generator<particle_drag>);
+static_assert(meta::particle_force_generator<ParticleDrag>);
 
-class particle_spring {
+class ParticleSpring {
 public:
-  particle_spring(particle_entity& other, real spring_const, real rest_len) noexcept;
+  ParticleSpring(ParticleEntity& other, real spring_const, real rest_len) noexcept;
 
 public:
-  void operator()(particle_entity& particle, real dt);
+  void operator()(ParticleEntity& particle, real dt);
 
 private:
-  ntf::weak_ptr<particle_entity> _other;
+  RefView<ParticleEntity> _other;
   real _spring_const;
   real _rest_len;
 };
 
-static_assert(meta::particle_force_generator<particle_spring>);
+static_assert(meta::particle_force_generator<ParticleSpring>);
 
-class particle_spring_anchor {
+class ParticleSringAnchor {
 public:
-  particle_spring_anchor(const vec3& anchor, real spring_const, real rest_len) noexcept;
+  ParticleSringAnchor(const Vec3f32& anchor, real spring_const, real rest_len) noexcept;
 
 public:
-  void operator()(particle_entity& particle, real dt);
+  void operator()(ParticleEntity& particle, real dt);
 
-  void set_anchor(const vec3& anchor);
+  void set_anchor(const Vec3f32& anchor);
 
 private:
-  vec3 _anchor;
+  Vec3f32 _anchor;
   real _spring_const;
   real _rest_len;
 };
 
-static_assert(meta::particle_force_generator<particle_spring_anchor>);
+static_assert(meta::particle_force_generator<ParticleSringAnchor>);
 
-class particle_bungee {
+class ParticleBungee {
 public:
-  particle_bungee(particle_entity& other, real spring_const, real rest_len) noexcept;
+  ParticleBungee(ParticleEntity& other, real spring_const, real rest_len) noexcept;
 
 public:
-  void operator()(particle_entity& particle, real dt);
+  void operator()(ParticleEntity& particle, real dt);
 
 private:
-  ntf::weak_ptr<particle_entity> _other;
+  RefView<ParticleEntity> _other;
   real _spring_const;
   real _rest_len;
 };
 
-static_assert(meta::particle_force_generator<particle_bungee>);
+static_assert(meta::particle_force_generator<ParticleBungee>);
 
-class particle_bungee_anchor {
+class ParticleBungeeAnchor {
 public:
-  particle_bungee_anchor(const vec3& anchor, real spring_const, real rest_len) noexcept;
+  ParticleBungeeAnchor(const Vec3f32& anchor, real spring_const, real rest_len) noexcept;
 
 public:
-  void operator()(particle_entity& particle, real dt);
+  void operator()(ParticleEntity& particle, real dt);
 
-  void set_anchor(const vec3& anchor);
+  void set_anchor(const Vec3f32& anchor);
 
 private:
-  vec3 _anchor;
+  Vec3f32 _anchor;
   real _spring_const;
   real _rest_len;
 };
 
-static_assert(meta::particle_force_generator<particle_bungee_anchor>);
+static_assert(meta::particle_force_generator<ParticleBungeeAnchor>);
 
 } // namespace kappa::physics
