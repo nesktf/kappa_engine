@@ -91,52 +91,8 @@ public:
 
   fn draw() -> void;
 
-#if 0
-  fn create_command_handler(VulkanCommandType type, usize cmdbufs)
-    -> VkSvExpect<VulkanCommandHandler>;
-#endif
-
 private:
   std::unique_ptr<VulkanContextImpl, Deleter> _impl;
 };
-
-#if 0
-constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
-enum class VulkanCommandType {
-  transfer = 0,
-  graphics,
-};
-
-class VulkanCommandHandler {
-private:
-  struct create_t {};
-
-  friend VulkanContextImpl;
-
-public:
-  VulkanCommandHandler(create_t, VulkanContextImpl& ctx, VulkanCommandType type,
-                       VkCommandPool cmdpool, UniqueArray<VkCommandBuffer>&& cmdbufs) :
-      _ctx(ctx), _cmdpool(cmdpool), _cmdbufs(std::move(cmdbufs)), _type(type) {
-    ka_assert(_cmdpool != VK_NULL_HANDLE);
-    ka_assert(!_cmdbufs.empty());
-  }
-
-  ~VulkanCommandHandler() noexcept;
-
-  VulkanCommandHandler(VulkanCommandHandler&& other) noexcept;
-  VulkanCommandHandler(const VulkanCommandHandler&) = delete;
-
-  VulkanCommandHandler& operator=(VulkanCommandHandler&& other) noexcept;
-  VulkanCommandHandler& operator=(const VulkanCommandHandler&) = delete;
-
-private:
-  RefView<VulkanContextImpl> _ctx;
-  VkCommandPool _cmdpool;
-  UniqueArray<VkCommandBuffer> _cmdbufs;
-  VulkanCommandType _type;
-  VkSemaphore _semaphore;
-  VkFence _fence;
-};
-#endif
 
 } // namespace kappa::render

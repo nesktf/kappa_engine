@@ -1,4 +1,5 @@
 #include "./vk_context.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define VMA_IMPLEMENTATION
 #include "./vk_private.hpp"
@@ -534,6 +535,7 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
     }
     vkDestroySwapchainKHR(ctx.device.device, old_swapchain, vkalloc);
   }
+  ctx.swapchain.extent = swapchain_extent;
 
   vkGetSwapchainImagesKHR(ctx.device.device, ctx.swapchain.swapchain, &image_count,
                           ctx.swapchain.images.data());
@@ -653,6 +655,14 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
   return [=]() {
     if (ctx->device.device != VK_NULL_HANDLE) {
       vkDeviceWaitIdle(ctx->device.device);
+      if (ctx->vmalloc != VK_NULL_HANDLE) {
+        if (ctx->draw_image.image != VK_NULL_HANDLE) {
+          vkDestroyImageView(ctx->device.device, ctx->draw_image.view, vkalloc);
+          vmaDestroyImage(ctx->vmalloc, ctx->draw_image.image, ctx->draw_image.alloc);
+        }
+        vmaDestroyAllocator(ctx->vmalloc);
+      }
+
       for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (ctx->frames[i].swapchain_sem) {
           vkDestroyFence(ctx->device.device, ctx->frames[i].render_fen, vkalloc);
@@ -660,6 +670,7 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
           vkDestroySemaphore(ctx->device.device, ctx->frames[i].swapchain_sem, vkalloc);
         }
         if (ctx->frames[i].cmdpool) {
+          ctx->frames[i].delqueue.flush();
           vkDestroyCommandPool(ctx->device.device, ctx->frames[i].cmdpool, vkalloc);
         }
       }
@@ -712,7 +723,7 @@ fn init_commands(VulkanContextImpl& ctx) {
   }
 }
 
-fn init_sync(VulkanContextImpl& ctx) {
+fn init_sync(VulkanContextImpl& ctx) -> void {
   // create syncronization structures
   // one fence to control when the gpu has finished rendering the frame,
   // and 2 semaphores to syncronize rendering with swapchain
@@ -735,6 +746,115 @@ fn init_sync(VulkanContextImpl& ctx) {
     VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
                                 &ctx.frames[i].render_sem));
   }
+}
+
+fn image_create_info(VkFormat format, VkImageUsageFlags usage, VkExtent3D extent)
+  -> VkImageCreateInfo {
+  VkImageCreateInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  info.pNext = nullptr;
+
+  info.imageType = VK_IMAGE_TYPE_2D;
+
+  info.format = format;
+  info.extent = extent;
+
+  info.mipLevels = 1;
+  info.arrayLayers = 1;
+
+  // for MSAA. we will not be using it by default, so default it to 1 sample per pixel.
+  info.samples = VK_SAMPLE_COUNT_1_BIT;
+
+  // optimal tiling, which means the image is stored on the best gpu format
+  info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  info.usage = usage;
+
+  return info;
+}
+
+fn imageview_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask)
+  -> VkImageViewCreateInfo {
+  // build a image-view for the depth image to use for rendering
+  VkImageViewCreateInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  info.pNext = nullptr;
+
+  info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  info.image = image;
+  info.format = format;
+  info.subresourceRange.baseMipLevel = 0;
+  info.subresourceRange.levelCount = 1;
+  info.subresourceRange.baseArrayLayer = 0;
+  info.subresourceRange.layerCount = 1;
+  info.subresourceRange.aspectMask = aspect_mask;
+
+  return info;
+}
+
+fn init_draw_image(VulkanContextImpl& ctx) -> void {
+  const VkExtent3D draw_extent{
+    .width = ctx.swapchain.extent.width, .height = ctx.swapchain.extent.height, .depth = 1};
+  // 32bit float
+  ctx.draw_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  ctx.draw_image.extent = draw_extent;
+
+  VkImageUsageFlags draw_usage{};
+  draw_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  draw_usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  draw_usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+  draw_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  VkImageCreateInfo rimg_info = image_create_info(ctx.draw_image.format, draw_usage, draw_extent);
+
+  // Allocate the image data
+  VmaAllocationCreateInfo rimg_allocinfo{};
+  rimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  rimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  VK_ASSERT(vmaCreateImage(ctx.vmalloc, &rimg_info, &rimg_allocinfo, &ctx.draw_image.image,
+                           &ctx.draw_image.alloc, nullptr));
+
+  // Build image view
+  VkImageViewCreateInfo rview_info =
+    imageview_create_info(ctx.draw_image.format, ctx.draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+  VK_ASSERT(vkCreateImageView(ctx.device.device, &rview_info, vkalloc, &ctx.draw_image.view));
+}
+
+fn copy_image_to_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
+                       VkExtent2D dst_ext) -> void {
+  // Prepare the region
+  VkImageBlit2 blit_region{};
+  blit_region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
+  blit_region.pNext = nullptr;
+
+  blit_region.srcOffsets[1].x = src_ext.width;
+  blit_region.srcOffsets[1].y = src_ext.height;
+  blit_region.srcOffsets[1].z = 1;
+
+  blit_region.dstOffsets[1].x = dst_ext.width;
+  blit_region.dstOffsets[1].y = dst_ext.height;
+  blit_region.dstOffsets[1].z = 1;
+
+  blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  blit_region.srcSubresource.baseArrayLayer = 0;
+  blit_region.srcSubresource.layerCount = 1;
+  blit_region.srcSubresource.mipLevel = 0;
+
+  blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  blit_region.dstSubresource.baseArrayLayer = 0;
+  blit_region.dstSubresource.layerCount = 1;
+  blit_region.dstSubresource.mipLevel = 0;
+
+  // Blit the thing
+  VkBlitImageInfo2 blit_info{};
+  blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+  blit_info.pNext = nullptr;
+  blit_info.dstImage = dst;
+  blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  blit_info.srcImage = src;
+  blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  blit_info.filter = VK_FILTER_LINEAR;
+  blit_info.pRegions = &blit_region;
+  blit_info.regionCount = 1;
+  vkCmdBlitImage2(cmdbuf, &blit_info);
 }
 
 } // namespace
@@ -781,6 +901,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     .transform([&]() -> VulkanContext {
       init_commands(*ctx);
       init_sync(*ctx);
+      init_draw_image(*ctx);
       ctxerr.disengage();
       return {*ctx};
     });
@@ -872,6 +993,17 @@ fn make_submit_info(VkCommandBufferSubmitInfo* cmd_info, VkSemaphoreSubmitInfo* 
   return info;
 }
 
+fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
+  // make a clear-color from frame number. This will flash with a 120 frame period.
+  f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
+  VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
+  VkImageSubresourceRange clear_range = image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+
+  // clear image
+  vkCmdClearColorImage(cmdbuf, ctx.draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
+                       &clear_range);
+}
+
 } // namespace
 
 fn VulkanContext::draw() -> void {
@@ -887,6 +1019,7 @@ fn VulkanContext::draw() -> void {
   // Wait for fences
   VK_ASSERT(vkWaitForFences(_impl->device.device, 1, &frame.render_fen, true, 1000000000));
   VK_ASSERT(vkResetFences(_impl->device.device, 1, &frame.render_fen));
+  frame.delqueue.flush();
 
   // Acquire swapchain image
   u32 swapchain_image_idx;
@@ -904,22 +1037,31 @@ fn VulkanContext::draw() -> void {
   cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   VK_ASSERT(vkBeginCommandBuffer(frame.cmdbuf, &cmd_begin_info));
 
-  // make the swapchain image into writeable mode before rendering
+  // transition our main draw image into general layout so we can write into it
+  // we will overwrite it all so we dont care about what was the older layout
+  transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                   VK_IMAGE_LAYOUT_GENERAL);
+
+  // clear the thing
+  draw_background(*_impl, frame.cmdbuf);
+
+  // transition the draw image and the swapchain image into their correct transfer layouts
+  transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
   transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-  // make a clear-color from frame number. This will flash with a 120 frame period.
-  float flash = std::abs(std::sin(_impl->curr_frame / 120.f));
-  VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
-  VkImageSubresourceRange clear_range = image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-
-  // clear image
-  vkCmdClearColorImage(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                       VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1, &clear_range);
+  VkExtent2D draw_extent;
+  draw_extent.width = _impl->draw_image.extent.width;
+  draw_extent.height = _impl->draw_image.extent.width;
+  // execute a copy from the draw image into the swapchain
+  copy_image_to_image(frame.cmdbuf, _impl->draw_image.image,
+                      _impl->swapchain.images[swapchain_image_idx], draw_extent,
+                      _impl->swapchain.extent);
 
   // make the swapchain image into presentable mode
   transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                   VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   // finalize the command buffer (we can no longer add commands, but it can now be executed)
   VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
