@@ -4,6 +4,8 @@
 #define VMA_IMPLEMENTATION
 #include "./vk_private.hpp"
 
+#include "./vk_util.hpp"
+
 #include <unordered_set>
 
 namespace kappa::render {
@@ -540,114 +542,13 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
   vkGetSwapchainImagesKHR(ctx.device.device, ctx.swapchain.swapchain, &image_count,
                           ctx.swapchain.images.data());
   for (u32 i = 0; i < ctx.swapchain.images.size(); ++i) {
-    VkImageViewCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    create_info.image = ctx.swapchain.images[i];
-
-    create_info.viewType = VK_IMAGE_VIEW_TYPE_2D; // Treat the image as a 2D texture
-    create_info.format = image_format;
-
-    // Map the color channels to something, VK_COMPONENT_SWIZZLE_IDENTITY by default
-    create_info.components = VkComponentMapping{
-      .r = VK_COMPONENT_SWIZZLE_IDENTITY,
-      .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-      .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-      .a = VK_COMPONENT_SWIZZLE_IDENTITY,
-    };
-
-    // Only one layer per image
-    create_info.subresourceRange = VkImageSubresourceRange{
-      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-      .baseMipLevel = 0,
-      .levelCount = 1,
-      .baseArrayLayer = 0,
-      .layerCount = 1,
-    };
-
+    const auto create_info =
+      vkmk_imageview_info(image_format, ctx.swapchain.images[i], VK_IMAGE_ASPECT_COLOR_BIT);
     VK_ASSERT(
       vkCreateImageView(ctx.device.device, &create_info, vkalloc, &ctx.swapchain.image_views[i]));
   }
   VK_LOG(debug, "Creating swapchain: {}x{}", swapchain_extent.width, swapchain_extent.height);
 
-  // Framebufer creation, old
-#if 0
-  // Specify all the framebuffer attachments that will be used while rendering
-
-  // A single color buffer attachment, represented by one of the images from the swap chain
-  VkAttachmentDescription color_attachment{};
-  color_attachment.format = image_format; // Same as the swapchain image format
-  color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-
-  // What will happen with the data in the attachment before and after rendering
-  color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // Clear values at the start
-  color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; // Store rendered contents in memory
-
-  // No stencil buffer for now
-  color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-  // Layout for the framebuffer image (?) before and after the render pass
-  color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-  // Things for subpasses, each one references one or more of the previous attachments
-  VkAttachmentReference color_attachment_ref{};
-  color_attachment_ref.attachment = 0;
-  color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-  // Only one subpass for the fragment shader out_color
-  VkSubpassDescription subpass{};
-  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; // It's a graphics subpass
-  subpass.colorAttachmentCount = 1;
-
-  // This maps to the location index in the shader:
-  // layout(location = 0) out vec4 out_color;
-  subpass.pColorAttachments = &color_attachment_ref;
-
-  VkSubpassDependency dep{};
-  dep.srcSubpass = VK_SUBPASS_EXTERNAL;
-  dep.dstSubpass = 0;
-  dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dep.srcAccessMask = 0;
-  dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-  VkRenderPassCreateInfo render_pass_info{};
-  render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  render_pass_info.attachmentCount = 1;
-  render_pass_info.pAttachments = &color_attachment;
-  render_pass_info.subpassCount = 1;
-  render_pass_info.pSubpasses = &subpass;
-  render_pass_info.dependencyCount = 1;
-  render_pass_info.pDependencies = &dep;
-
-  VkRenderPass renderpass;
-  res = vkCreateRenderPass(device, &render_pass_info, vkalloc, &renderpass);
-  if (res != VK_SUCCESS) {
-    for (auto& view : swapchain_image_views) {
-      vkDestroyImageView(device, view, vkalloc);
-    }
-    vkDestroySwapchainKHR(device, swapchain, vkalloc);
-    return {ntf::unexpect, "Failed to create render pass", res};
-  }
-
-  std::vector<VkFramebuffer> framebuffers;
-  framebuffers.resize(swapchain_image_views.size());
-  for (u32 i = 0; i < swapchain_image_views.size(); ++i) {
-    VkImageView attachments[] = {swapchain_image_views[i]};
-
-    VkFramebufferCreateInfo framebuffer{};
-    framebuffer.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebuffer.renderPass = renderpass;
-    framebuffer.attachmentCount = 1;
-    framebuffer.pAttachments = attachments;
-    framebuffer.width = swapchain_extent.width;
-    framebuffer.height = swapchain_extent.height;
-    framebuffer.layers = 1; // Layers in the image arrays
-
-    VK_ASSERT(vkCreateFramebuffer(device, &framebuffer, vkalloc, &framebuffers[i]));
-  }
-#endif
   return {};
 }
 
@@ -700,25 +601,14 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
 fn init_commands(VulkanContextImpl& ctx) {
   // create a command pool for commands submitted to the graphics queue.
   // we also want the pool to allow for resetting of individual command buffers
-  VkCommandPoolCreateInfo cmdpool_info{};
-  cmdpool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdpool_info.pNext = nullptr;
-  cmdpool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  cmdpool_info.queueFamilyIndex = ctx.device.graphics_queue;
-
+  const auto cmdpool_info =
+    vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, ctx.device.graphics_queue);
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-
     VK_ASSERT(
       vkCreateCommandPool(ctx.device.device, &cmdpool_info, nullptr, &ctx.frames[i].cmdpool));
-
     // allocate the default command buffer that we will use for rendering
-    VkCommandBufferAllocateInfo cmd_alloc_info{};
-    cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cmd_alloc_info.pNext = nullptr;
-    cmd_alloc_info.commandPool = ctx.frames[i].cmdpool;
-    cmd_alloc_info.commandBufferCount = 1;
-    cmd_alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
+    const auto cmd_alloc_info =
+      vkmk_cmdbuf_alloc_info(ctx.frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     VK_ASSERT(vkAllocateCommandBuffers(ctx.device.device, &cmd_alloc_info, &ctx.frames[i].cmdbuf));
   }
 }
@@ -728,16 +618,8 @@ fn init_sync(VulkanContextImpl& ctx) -> void {
   // one fence to control when the gpu has finished rendering the frame,
   // and 2 semaphores to syncronize rendering with swapchain
   // we want the fence to start signalled so we can wait on it on the first frame
-  VkFenceCreateInfo fence_create_info{};
-  fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_create_info.pNext = nullptr;
-  fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-  VkSemaphoreCreateInfo semaphore_create_info{};
-  semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  semaphore_create_info.pNext = nullptr;
-  semaphore_create_info.flags = 0;
-
+  const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
+  const auto semaphore_create_info = vkmk_semaphore_info(0);
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
     VK_ASSERT(
       vkCreateFence(ctx.device.device, &fence_create_info, vkalloc, &ctx.frames[i].render_fen));
@@ -746,49 +628,6 @@ fn init_sync(VulkanContextImpl& ctx) -> void {
     VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
                                 &ctx.frames[i].render_sem));
   }
-}
-
-fn image_create_info(VkFormat format, VkImageUsageFlags usage, VkExtent3D extent)
-  -> VkImageCreateInfo {
-  VkImageCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  info.pNext = nullptr;
-
-  info.imageType = VK_IMAGE_TYPE_2D;
-
-  info.format = format;
-  info.extent = extent;
-
-  info.mipLevels = 1;
-  info.arrayLayers = 1;
-
-  // for MSAA. we will not be using it by default, so default it to 1 sample per pixel.
-  info.samples = VK_SAMPLE_COUNT_1_BIT;
-
-  // optimal tiling, which means the image is stored on the best gpu format
-  info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  info.usage = usage;
-
-  return info;
-}
-
-fn imageview_create_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask)
-  -> VkImageViewCreateInfo {
-  // build a image-view for the depth image to use for rendering
-  VkImageViewCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  info.pNext = nullptr;
-
-  info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  info.image = image;
-  info.format = format;
-  info.subresourceRange.baseMipLevel = 0;
-  info.subresourceRange.levelCount = 1;
-  info.subresourceRange.baseArrayLayer = 0;
-  info.subresourceRange.layerCount = 1;
-  info.subresourceRange.aspectMask = aspect_mask;
-
-  return info;
 }
 
 fn init_draw_image(VulkanContextImpl& ctx) -> void {
@@ -803,7 +642,7 @@ fn init_draw_image(VulkanContextImpl& ctx) -> void {
   draw_usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   draw_usage |= VK_IMAGE_USAGE_STORAGE_BIT;
   draw_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-  VkImageCreateInfo rimg_info = image_create_info(ctx.draw_image.format, draw_usage, draw_extent);
+  const auto rimg_info = vkmk_image_info(ctx.draw_image.format, draw_usage, draw_extent);
 
   // Allocate the image data
   VmaAllocationCreateInfo rimg_allocinfo{};
@@ -813,48 +652,9 @@ fn init_draw_image(VulkanContextImpl& ctx) -> void {
                            &ctx.draw_image.alloc, nullptr));
 
   // Build image view
-  VkImageViewCreateInfo rview_info =
-    imageview_create_info(ctx.draw_image.format, ctx.draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+  const auto rview_info =
+    vkmk_imageview_info(ctx.draw_image.format, ctx.draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
   VK_ASSERT(vkCreateImageView(ctx.device.device, &rview_info, vkalloc, &ctx.draw_image.view));
-}
-
-fn copy_image_to_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
-                       VkExtent2D dst_ext) -> void {
-  // Prepare the region
-  VkImageBlit2 blit_region{};
-  blit_region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-  blit_region.pNext = nullptr;
-
-  blit_region.srcOffsets[1].x = src_ext.width;
-  blit_region.srcOffsets[1].y = src_ext.height;
-  blit_region.srcOffsets[1].z = 1;
-
-  blit_region.dstOffsets[1].x = dst_ext.width;
-  blit_region.dstOffsets[1].y = dst_ext.height;
-  blit_region.dstOffsets[1].z = 1;
-
-  blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  blit_region.srcSubresource.baseArrayLayer = 0;
-  blit_region.srcSubresource.layerCount = 1;
-  blit_region.srcSubresource.mipLevel = 0;
-
-  blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  blit_region.dstSubresource.baseArrayLayer = 0;
-  blit_region.dstSubresource.layerCount = 1;
-  blit_region.dstSubresource.mipLevel = 0;
-
-  // Blit the thing
-  VkBlitImageInfo2 blit_info{};
-  blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-  blit_info.pNext = nullptr;
-  blit_info.dstImage = dst;
-  blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  blit_info.srcImage = src;
-  blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-  blit_info.filter = VK_FILTER_LINEAR;
-  blit_info.pRegions = &blit_region;
-  blit_info.regionCount = 1;
-  vkCmdBlitImage2(cmdbuf, &blit_info);
 }
 
 } // namespace
@@ -913,91 +713,11 @@ fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkSvExpect<voi
 
 namespace {
 
-fn image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRange {
-  VkImageSubresourceRange sub_image{};
-  sub_image.aspectMask = mask;
-  sub_image.baseMipLevel = 0;
-  sub_image.levelCount = VK_REMAINING_MIP_LEVELS;
-  sub_image.baseArrayLayer = 0;
-  sub_image.layerCount = VK_REMAINING_ARRAY_LAYERS;
-  return sub_image;
-};
-
-fn transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
-                    VkImageLayout new_layout) {
-
-  VkImageMemoryBarrier2 barrier{};
-  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-  barrier.pNext = nullptr;
-
-  barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-  barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-  barrier.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
-
-  barrier.oldLayout = curr_layout;
-  barrier.newLayout = new_layout;
-
-  VkImageAspectFlags aspect_mask = (new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
-                                   ? VK_IMAGE_ASPECT_DEPTH_BIT
-                                   : VK_IMAGE_ASPECT_COLOR_BIT;
-  barrier.subresourceRange = image_subresource_range(aspect_mask);
-  barrier.image = img;
-
-  VkDependencyInfo dep_info{};
-  dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-  dep_info.pNext = nullptr;
-
-  dep_info.imageMemoryBarrierCount = 1;
-  dep_info.pImageMemoryBarriers = &barrier;
-
-  vkCmdPipelineBarrier2(cmd, &dep_info);
-}
-
-fn make_semaphore_submit_info(VkPipelineStageFlags2 mask, VkSemaphore sem)
-  -> VkSemaphoreSubmitInfo {
-  VkSemaphoreSubmitInfo submit{};
-  submit.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-  submit.pNext = nullptr;
-  submit.semaphore = sem;
-  submit.stageMask = mask;
-  submit.deviceIndex = 0;
-  submit.value = 1;
-  return submit;
-}
-
-fn make_command_buffer_submit_info(VkCommandBuffer cmdbuf) -> VkCommandBufferSubmitInfo {
-  VkCommandBufferSubmitInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-  info.pNext = nullptr;
-  info.commandBuffer = cmdbuf;
-  info.deviceMask = 0;
-  return info;
-}
-
-fn make_submit_info(VkCommandBufferSubmitInfo* cmd_info, VkSemaphoreSubmitInfo* signal_sem_info,
-                    VkSemaphoreSubmitInfo* wait_sem_info) -> VkSubmitInfo2 {
-  VkSubmitInfo2 info{};
-  info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-  info.pNext = nullptr;
-
-  info.waitSemaphoreInfoCount = wait_sem_info == nullptr ? 0 : 1;
-  info.pWaitSemaphoreInfos = wait_sem_info;
-
-  info.signalSemaphoreInfoCount = signal_sem_info == nullptr ? 0 : 1;
-  info.pSignalSemaphoreInfos = signal_sem_info;
-
-  info.commandBufferInfoCount = 1;
-  info.pCommandBufferInfos = cmd_info;
-
-  return info;
-}
-
 fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
   // make a clear-color from frame number. This will flash with a 120 frame period.
   f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
   VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
-  VkImageSubresourceRange clear_range = image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+  const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 
   // clear image
   vkCmdClearColorImage(cmdbuf, ctx.draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
@@ -1030,38 +750,34 @@ fn VulkanContext::draw() -> void {
 
   // Initialize command buffer
   VK_ASSERT(vkResetCommandBuffer(frame.cmdbuf, 0));
-  VkCommandBufferBeginInfo cmd_begin_info{};
-  cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  cmd_begin_info.pNext = nullptr;
-  cmd_begin_info.pInheritanceInfo = nullptr;
-  cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
   VK_ASSERT(vkBeginCommandBuffer(frame.cmdbuf, &cmd_begin_info));
 
   // transition our main draw image into general layout so we can write into it
   // we will overwrite it all so we dont care about what was the older layout
-  transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                   VK_IMAGE_LAYOUT_GENERAL);
+  vk_transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                      VK_IMAGE_LAYOUT_GENERAL);
 
   // clear the thing
   draw_background(*_impl, frame.cmdbuf);
 
   // transition the draw image and the swapchain image into their correct transfer layouts
-  transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
-                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vk_transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  vk_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
   VkExtent2D draw_extent;
   draw_extent.width = _impl->draw_image.extent.width;
   draw_extent.height = _impl->draw_image.extent.width;
   // execute a copy from the draw image into the swapchain
-  copy_image_to_image(frame.cmdbuf, _impl->draw_image.image,
-                      _impl->swapchain.images[swapchain_image_idx], draw_extent,
-                      _impl->swapchain.extent);
+  vk_transfer_image(frame.cmdbuf, _impl->draw_image.image,
+                    _impl->swapchain.images[swapchain_image_idx], draw_extent,
+                    _impl->swapchain.extent);
 
   // make the swapchain image into presentable mode
-  transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  vk_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   // finalize the command buffer (we can no longer add commands, but it can now be executed)
   VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
@@ -1069,15 +785,12 @@ fn VulkanContext::draw() -> void {
   // prepare the submission to the queue.
   // we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is
   // ready we will signal the _renderSemaphore, to signal that rendering has finished
-  VkCommandBufferSubmitInfo cmdinfo = make_command_buffer_submit_info(frame.cmdbuf);
-
-  VkSemaphoreSubmitInfo wait_info = make_semaphore_submit_info(
+  const auto cmdinfo = vkmk_command_buffer_submit_info(frame.cmdbuf);
+  const auto wait_info = vkmk_semaphore_submit_info(
     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.swapchain_sem);
-
-  VkSemaphoreSubmitInfo signal_info =
-    make_semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.render_sem);
-
-  VkSubmitInfo2 submit = make_submit_info(&cmdinfo, &signal_info, &wait_info);
+  const auto signal_info =
+    vkmk_semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.render_sem);
+  const auto submit = vkmk_submit_info(cmdinfo, &signal_info, &wait_info);
 
   // submit command buffer to the queue and execute it.
   //  _renderFence will now block until the graphic commands finish execution
@@ -1104,40 +817,5 @@ fn VulkanContext::draw() -> void {
 
   ++_impl->curr_frame;
 }
-
-fn vk_error_string(VkResult res) noexcept -> const char* {
-#define VKSTR(code) \
-  case code:        \
-    return #code;
-
-  switch (res) {
-    VKSTR(VK_NOT_READY);
-    VKSTR(VK_TIMEOUT);
-    VKSTR(VK_EVENT_SET);
-    VKSTR(VK_EVENT_RESET);
-    VKSTR(VK_INCOMPLETE);
-    VKSTR(VK_ERROR_OUT_OF_HOST_MEMORY);
-    VKSTR(VK_ERROR_OUT_OF_DEVICE_MEMORY);
-    VKSTR(VK_ERROR_INITIALIZATION_FAILED);
-    VKSTR(VK_ERROR_DEVICE_LOST);
-    VKSTR(VK_ERROR_MEMORY_MAP_FAILED);
-    VKSTR(VK_ERROR_LAYER_NOT_PRESENT);
-    VKSTR(VK_ERROR_EXTENSION_NOT_PRESENT);
-    VKSTR(VK_ERROR_FEATURE_NOT_PRESENT);
-    VKSTR(VK_ERROR_INCOMPATIBLE_DRIVER);
-    VKSTR(VK_ERROR_TOO_MANY_OBJECTS);
-    VKSTR(VK_ERROR_FORMAT_NOT_SUPPORTED);
-    VKSTR(VK_ERROR_SURFACE_LOST_KHR);
-    VKSTR(VK_ERROR_NATIVE_WINDOW_IN_USE_KHR);
-    VKSTR(VK_SUBOPTIMAL_KHR);
-    VKSTR(VK_ERROR_OUT_OF_DATE_KHR);
-    VKSTR(VK_ERROR_INCOMPATIBLE_DISPLAY_KHR);
-    VKSTR(VK_ERROR_VALIDATION_FAILED_EXT);
-    VKSTR(VK_ERROR_INVALID_SHADER_NV);
-    default:
-      return "UNKNOWN_ERROR";
-  }
-#undef VKSTR
-};
 
 } // namespace kappa::render
