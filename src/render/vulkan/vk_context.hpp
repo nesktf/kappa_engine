@@ -1,65 +1,12 @@
 #pragma once
 
-#include "../../util/expected.hpp"
+#include "../../util/array.hpp"
 #include "../../util/function.hpp"
 #include "../../util/ptr.hpp"
 
-#include <vulkan/vulkan_core.h>
+#include "./vk_error.hpp"
 
 namespace kappa::render {
-
-fn vk_error_string(VkResult result) noexcept -> const char*;
-
-class VkError : public std::exception {
-public:
-  VkError(VkResult err) : _err(err) {}
-
-public:
-  fn what() const noexcept -> const char* override { return vk_error_string(_err); }
-
-  fn code() const noexcept -> VkResult { return _err; }
-
-private:
-  VkResult _err;
-};
-
-class VkStrError : public std::exception {
-public:
-  VkStrError(std::string msg, VkResult err) : _msg(std::move(msg)), _err(err) {}
-
-public:
-  fn what() const noexcept -> const char* override { return _msg.c_str(); }
-
-  fn code() const noexcept -> VkResult { return _err; }
-
-  fn code_msg() const noexcept -> std::string_view { return vk_error_string(_err); }
-
-private:
-  std::string _msg;
-  VkResult _err;
-};
-
-class VkSvError : public std::exception {
-public:
-  VkSvError(const char* msg, VkResult err) noexcept : _msg(msg), _err(err) {}
-
-public:
-  fn what() const noexcept -> const char* override { return _msg; }
-
-  fn code() const noexcept -> VkResult { return _err; }
-
-  fn code_msg() const noexcept -> std::string_view { return vk_error_string(_err); }
-
-private:
-  const char* _msg;
-  VkResult _err;
-};
-
-template<typename T>
-using VkSExpect = Expected<T, VkSvError>;
-
-template<typename T>
-using VkSvExpect = Expected<T, VkSvError>;
 
 struct VulkanInfo {
   const char* app_name;
@@ -67,6 +14,15 @@ struct VulkanInfo {
 };
 
 struct VulkanContextImpl;
+
+struct VulkanDescriptorLayoutBuilder {
+  Vec<VkDescriptorSetLayoutBinding> bindings;
+
+  fn add_binding(u32 binding, VkDescriptorType type) -> void;
+  fn clear() -> void;
+  fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
+           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
+};
 
 class VulkanContext {
 public:

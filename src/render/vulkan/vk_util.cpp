@@ -1,5 +1,5 @@
 #include "./vk_util.hpp"
-#include <vulkan/vulkan_core.h>
+#include "./vk_private.hpp"
 
 namespace kappa::render {
 
@@ -38,8 +38,92 @@ fn vk_error_string(VkResult res) noexcept -> const char* {
 #undef VKSTR
 };
 
-fn vk_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
-                     VkExtent2D dst_ext) -> void {
+namespace {
+
+void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
+                                   const VkAllocationCallbacks* pAllocator) {
+  auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+    instance, "vkDestroyDebugUtilsMessengerEXT");
+  if (func) {
+    func(instance, debugMessenger, pAllocator);
+  }
+}
+
+fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
+#define STR(_type)                   \
+  case VulkanDelQueue::TYPE_##_type: \
+    return #_type
+  switch (type) {
+    STR(IMAGE);
+    STR(IMAGE_VIEW);
+    STR(SURFACE);
+    STR(CMDPOOL);
+    STR(FENCE);
+    STR(SEMAPHORE);
+    STR(VMALLOC);
+    STR(MESSENGER);
+    STR(DEVICE);
+    STR(INSTANCE);
+  }
+  KA_UNREACHABLE();
+#undef STR
+}
+
+} // namespace
+
+fn VulkanDelQueue::flush() -> void {
+  static constexpr VkAllocationCallbacks* vkalloc = nullptr;
+  for (auto it = _queue.rbegin(); it != _queue.rend(); ++it) {
+    const auto [handle, parent, other_parent, type] = *it;
+    VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
+    switch (type) {
+      case TYPE_IMAGE: {
+        vmaDestroyImage((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
+        // vkDestroyImage((VkDevice)parent, (VkImage)handle, vkalloc);
+      } break;
+      case TYPE_IMAGE_VIEW: {
+        vkDestroyImageView((VkDevice)parent, (VkImageView)handle, vkalloc);
+      } break;
+      case TYPE_SURFACE: {
+        vkDestroySurfaceKHR((VkInstance)parent, (VkSurfaceKHR)handle, vkalloc);
+      } break;
+      case TYPE_CMDPOOL: {
+        vkDestroyCommandPool((VkDevice)parent, (VkCommandPool)handle, vkalloc);
+      } break;
+      case TYPE_FENCE: {
+        vkDestroyFence((VkDevice)parent, (VkFence)handle, vkalloc);
+      } break;
+      case TYPE_SEMAPHORE: {
+        vkDestroySemaphore((VkDevice)parent, (VkSemaphore)handle, vkalloc);
+      } break;
+      case TYPE_VMALLOC: {
+        vmaDestroyAllocator((VmaAllocator)handle);
+      } break;
+      case TYPE_MESSENGER: {
+        DestroyDebugUtilsMessengerEXT((VkInstance)parent, (VkDebugUtilsMessengerEXT)handle,
+                                      vkalloc);
+      } break;
+      case TYPE_DEVICE: {
+        vkDestroyDevice((VkDevice)handle, vkalloc);
+      } break;
+      case TYPE_INSTANCE: {
+        vkDestroyInstance((VkInstance)handle, vkalloc);
+      } break;
+    }
+  }
+  _queue.clear();
+}
+
+fn VulkanDelQueue::enqueue_handle(VulkanHandle handle, VulkanHandle parent, HandleType type,
+                                  VulkanHandle other_parent) -> void {
+  if (handle == VK_NULL_HANDLE) {
+    return;
+  }
+  _queue.emplace_back(handle, parent, other_parent, type);
+}
+
+fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
+                        VkExtent2D dst_ext) -> void {
   // Prepare the region
   VkImageBlit2 blit_region{};
   blit_region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
@@ -77,8 +161,8 @@ fn vk_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2
   vkCmdBlitImage2(cmdbuf, &blit_info);
 }
 
-fn vk_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
-                       VkImageLayout new_layout) -> void {
+fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
+                          VkImageLayout new_layout) -> void {
   VkImageMemoryBarrier2 barrier{};
   barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
   barrier.pNext = nullptr;

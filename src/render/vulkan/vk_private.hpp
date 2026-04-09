@@ -3,6 +3,9 @@
 #include "../../util/array.hpp"
 #include "../../util/function.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/ptr.hpp"
+
+#include "./vk_util.hpp"
 
 #define VK_LOG(_level, _msg, ...) \
   ::kappa::log_##_level("[VULKAN] " _msg __VA_OPT__(, ) __VA_ARGS__)
@@ -52,29 +55,21 @@ struct VulkanImage {
   VkFormat format;
 };
 
-struct DeletionQueue {
-  using DeleteFn = TrivFn<void(), 4 * sizeof(void*), 8>;
-  Vec<DeleteFn> deletors;
-
-  fn push_fn(DeleteFn&& func) -> void { deletors.push_back(std::move(func)); }
-
-  fn flush() -> void {
-    for (auto it = deletors.rbegin(); it != deletors.rend(); ++it) {
-      (*it)();
-    }
-    deletors.clear();
-  }
-};
-
 struct VulkanFrameData {
   VkCommandPool cmdpool;
   VkCommandBuffer cmdbuf;
   VkSemaphore swapchain_sem, render_sem;
   VkFence render_fen;
-  DeletionQueue delqueue;
 };
 
 constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
+
+struct DrawThing {
+  VulkanImage image;
+  VkExtent2D extent;
+  VkDescriptorSet image_desc;
+  VkDescriptorSetLayout image_desc_layout;
+};
 
 struct VulkanContextImpl {
   VkInstance vk;
@@ -83,12 +78,13 @@ struct VulkanContextImpl {
   VulkanDevice device;
   VkSurfaceKHR surface;
   VulkanSwapchain swapchain;
+  VulkanDelQueue delqueue;
 
   VulkanFrameData frames[MAX_FRAMES_IN_FLIGHT];
   u32 curr_frame;
 
-  VulkanImage draw_image;
-  VkExtent2D draw_extent;
+  VkDescriptorPool desc_alloc;
+  DrawThing draw;
 };
 
 } // namespace kappa::render

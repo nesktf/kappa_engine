@@ -1,16 +1,94 @@
 #pragma once
 
 #include "../../core.hpp"
+#include "../../util/array.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
-fn vk_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
-                     VkExtent2D dst_ext) -> void;
+class VulkanDelQueue {
+public:
+  using VulkanHandle = void*;
 
-fn vk_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
-                       VkImageLayout new_layout) -> void;
+  enum HandleType {
+    TYPE_IMAGE,
+    TYPE_IMAGE_VIEW,
+    TYPE_SURFACE,
+    TYPE_CMDPOOL,
+    TYPE_FENCE,
+    TYPE_SEMAPHORE,
+    TYPE_VMALLOC,
+    TYPE_MESSENGER,
+    TYPE_DEVICE,
+    TYPE_INSTANCE,
+  };
+
+  struct DelData {
+    VulkanHandle handle;
+    VulkanHandle parent;
+    VulkanHandle other_parent;
+    HandleType type;
+  };
+
+public:
+  VulkanDelQueue() = default;
+
+public:
+  fn enqueue_handle(VulkanHandle handle, VulkanHandle parent, HandleType type,
+                    VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
+  fn flush() -> void;
+
+  fn enqueue(VkImage image, VmaAllocation allocation, VmaAllocator alloc) -> void {
+    enqueue_handle((VulkanHandle)image, (VulkanHandle)allocation, TYPE_IMAGE, (VulkanHandle)alloc);
+  }
+
+  fn enqueue(VkImageView image_view, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)image_view, (VulkanHandle)device, TYPE_IMAGE_VIEW);
+  }
+
+  fn enqueue(VkSurfaceKHR surface, VkInstance instance) -> void {
+    enqueue_handle((VulkanHandle)surface, (VulkanHandle)instance, TYPE_SURFACE);
+  }
+
+  fn enqueue(VkCommandPool pool, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)pool, (VulkanHandle)device, TYPE_CMDPOOL);
+  }
+
+  fn enqueue(VkFence fence, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)fence, (VulkanHandle)device, TYPE_FENCE);
+  }
+
+  fn enqueue(VkSemaphore semaphore, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)semaphore, (VulkanHandle)device, TYPE_SEMAPHORE);
+  }
+
+  fn enqueue(VmaAllocator alloc, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)alloc, (VulkanHandle)device, TYPE_VMALLOC);
+  }
+
+  fn enqueue(VkDebugUtilsMessengerEXT messenger, VkInstance instance) -> void {
+    enqueue_handle((VulkanHandle)messenger, (VulkanHandle)instance, TYPE_MESSENGER);
+  }
+
+  fn enqueue(VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)device, VK_NULL_HANDLE, TYPE_DEVICE);
+  }
+
+  fn enqueue(VkInstance instance) -> void {
+    enqueue_handle((VulkanHandle)instance, VK_NULL_HANDLE, TYPE_INSTANCE);
+  }
+
+private:
+  Vec<DelData> _queue;
+};
+
+fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
+                        VkExtent2D dst_ext) -> void;
+
+fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
+                          VkImageLayout new_layout) -> void;
 
 fn vkmk_semaphore_info(VkSemaphoreCreateFlags flags) -> VkSemaphoreCreateInfo;
 

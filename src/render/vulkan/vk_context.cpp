@@ -4,8 +4,6 @@
 #define VMA_IMPLEMENTATION
 #include "./vk_private.hpp"
 
-#include "./vk_util.hpp"
-
 #include <unordered_set>
 
 namespace kappa::render {
@@ -33,16 +31,6 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
     return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
   } else {
     return VK_ERROR_EXTENSION_NOT_PRESENT;
-  }
-}
-
-// Do the same with vkDestroyDebugUtilsMessengerEXT
-void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
-                                   const VkAllocationCallbacks* pAllocator) {
-  auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-    instance, "vkDestroyDebugUtilsMessengerEXT");
-  if (func) {
-    func(instance, debugMessenger, pAllocator);
   }
 }
 
@@ -195,14 +183,15 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   if (auto ret = vkCreateInstance(&create_info, vkalloc, &ctx.vk); ret != VK_SUCCESS) {
     return {unexpect, "Failed to create vulkan instance", ret};
   }
+  ctx.delqueue.enqueue(ctx.vk);
 
 #ifndef NDEBUG
   // Create the debug messenger
   if (auto ret = CreateDebugUtilsMessengerEXT(ctx.vk, &messenger_info, vkalloc, &ctx.messenger);
       ret != VK_SUCCESS) {
-    vkDestroyInstance(ctx.vk, nullptr);
     return {unexpect, "Failed to create debug messenger", ret};
   }
+  ctx.delqueue.enqueue(ctx.messenger, ctx.vk);
 #endif
 
   VK_LOG(debug, "Vulkan instance initialized");
@@ -390,6 +379,7 @@ fn select_device(VulkanContextImpl& ctx) -> VkSvExpect<void> {
       ret != VK_SUCCESS) {
     return {unexpect, "Failed to initialize vulkan device", ret};
   }
+  ctx.delqueue.enqueue(ctx.device.device);
 
   // Fill device struct
   ctx.device.transfer_queue = transfer.value();
@@ -408,11 +398,9 @@ fn select_device(VulkanContextImpl& ctx) -> VkSvExpect<void> {
                    VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
   if (auto ret = vmaCreateAllocator(&vma_info, &ctx.vmalloc); ret != VK_SUCCESS) {
-    if (ctx.device.device) {
-      vkDestroyDevice(ctx.device.device, vkalloc);
-    }
     return {unexpect, "Failed to initialize vulkan allocator", ret};
   }
+  ctx.delqueue.enqueue(ctx.vmalloc, ctx.device.device);
 
   return {};
 }
@@ -554,45 +542,22 @@ fn create_swapchain(VulkanContextImpl& ctx, VkExtent2D surface_extent) -> VkSvEx
 
 fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
   return [=]() {
-    if (ctx->device.device != VK_NULL_HANDLE) {
+    if (ctx->device.device) {
       vkDeviceWaitIdle(ctx->device.device);
-      if (ctx->vmalloc != VK_NULL_HANDLE) {
-        if (ctx->draw_image.image != VK_NULL_HANDLE) {
-          vkDestroyImageView(ctx->device.device, ctx->draw_image.view, vkalloc);
-          vmaDestroyImage(ctx->vmalloc, ctx->draw_image.image, ctx->draw_image.alloc);
-        }
-        vmaDestroyAllocator(ctx->vmalloc);
-      }
-
-      for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (ctx->frames[i].swapchain_sem) {
-          vkDestroyFence(ctx->device.device, ctx->frames[i].render_fen, vkalloc);
-          vkDestroySemaphore(ctx->device.device, ctx->frames[i].render_sem, vkalloc);
-          vkDestroySemaphore(ctx->device.device, ctx->frames[i].swapchain_sem, vkalloc);
-        }
-        if (ctx->frames[i].cmdpool) {
-          ctx->frames[i].delqueue.flush();
-          vkDestroyCommandPool(ctx->device.device, ctx->frames[i].cmdpool, vkalloc);
-        }
-      }
-      if (ctx->swapchain.swapchain != VK_NULL_HANDLE) {
-        for (usize i = 0; i < ctx->swapchain.images.size(); ++i) {
-          vkDestroyImageView(ctx->device.device, ctx->swapchain.image_views[i], vkalloc);
-          // vkDestroyImage(ctx->device.device, ctx->swapchain.images[i], vkalloc);
+      /*
+for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+ctx->frames[i].delqueue.flush();
+}
+      */
+      if (ctx->swapchain.swapchain) {
+        // We have to handle the swapchain destruction manually
+        for (auto view : ctx->swapchain.image_views) {
+          vkDestroyImageView(ctx->device.device, view, vkalloc);
         }
         vkDestroySwapchainKHR(ctx->device.device, ctx->swapchain.swapchain, vkalloc);
       }
-      vkDestroyDevice(ctx->device.device, vkalloc);
     }
-    if (ctx->surface != VK_NULL_HANDLE) {
-      vkDestroySurfaceKHR(ctx->vk, ctx->surface, vkalloc);
-    }
-    if (ctx->messenger != VK_NULL_HANDLE) {
-      DestroyDebugUtilsMessengerEXT(ctx->vk, ctx->messenger, vkalloc);
-    }
-    if (ctx->vk != VK_NULL_HANDLE) {
-      vkDestroyInstance(ctx->vk, vkalloc);
-    }
+    ctx->delqueue.flush();
     std::destroy_at(ctx);
     std::allocator<VulkanContextImpl>().deallocate(ctx, 1);
   };
@@ -606,6 +571,8 @@ fn init_commands(VulkanContextImpl& ctx) {
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
     VK_ASSERT(
       vkCreateCommandPool(ctx.device.device, &cmdpool_info, nullptr, &ctx.frames[i].cmdpool));
+    ctx.delqueue.enqueue(ctx.frames[i].cmdpool, ctx.device.device);
+
     // allocate the default command buffer that we will use for rendering
     const auto cmd_alloc_info =
       vkmk_cmdbuf_alloc_info(ctx.frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -623,10 +590,15 @@ fn init_sync(VulkanContextImpl& ctx) -> void {
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
     VK_ASSERT(
       vkCreateFence(ctx.device.device, &fence_create_info, vkalloc, &ctx.frames[i].render_fen));
+    ctx.delqueue.enqueue(ctx.frames[i].render_fen, ctx.device.device);
+
     VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
                                 &ctx.frames[i].swapchain_sem));
+    ctx.delqueue.enqueue(ctx.frames[i].swapchain_sem, ctx.device.device);
+
     VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
                                 &ctx.frames[i].render_sem));
+    ctx.delqueue.enqueue(ctx.frames[i].render_sem, ctx.device.device);
   }
 }
 
@@ -634,27 +606,29 @@ fn init_draw_image(VulkanContextImpl& ctx) -> void {
   const VkExtent3D draw_extent{
     .width = ctx.swapchain.extent.width, .height = ctx.swapchain.extent.height, .depth = 1};
   // 32bit float
-  ctx.draw_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  ctx.draw_image.extent = draw_extent;
+  ctx.draw.image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  ctx.draw.image.extent = draw_extent;
 
   VkImageUsageFlags draw_usage{};
   draw_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
   draw_usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   draw_usage |= VK_IMAGE_USAGE_STORAGE_BIT;
   draw_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-  const auto rimg_info = vkmk_image_info(ctx.draw_image.format, draw_usage, draw_extent);
+  const auto rimg_info = vkmk_image_info(ctx.draw.image.format, draw_usage, draw_extent);
 
   // Allocate the image data
   VmaAllocationCreateInfo rimg_allocinfo{};
   rimg_allocinfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
   rimg_allocinfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  VK_ASSERT(vmaCreateImage(ctx.vmalloc, &rimg_info, &rimg_allocinfo, &ctx.draw_image.image,
-                           &ctx.draw_image.alloc, nullptr));
+  VK_ASSERT(vmaCreateImage(ctx.vmalloc, &rimg_info, &rimg_allocinfo, &ctx.draw.image.image,
+                           &ctx.draw.image.alloc, nullptr));
+  ctx.delqueue.enqueue(ctx.draw.image.image, ctx.draw.image.alloc, ctx.vmalloc);
 
   // Build image view
   const auto rview_info =
-    vkmk_imageview_info(ctx.draw_image.format, ctx.draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-  VK_ASSERT(vkCreateImageView(ctx.device.device, &rview_info, vkalloc, &ctx.draw_image.view));
+    vkmk_imageview_info(ctx.draw.image.format, ctx.draw.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+  VK_ASSERT(vkCreateImageView(ctx.device.device, &rview_info, vkalloc, &ctx.draw.image.view));
+  ctx.delqueue.enqueue(ctx.draw.image.view, ctx.device.device);
 }
 
 } // namespace
@@ -694,6 +668,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
         return {unexpect, "Failed to create surface",
                 res == VK_SUCCESS ? VK_ERROR_INITIALIZATION_FAILED : res};
       }
+      ctx->delqueue.enqueue(ctx->surface, ctx->vk);
       return {};
     })
     .and_then([&]() { return select_device(*ctx); })
@@ -720,7 +695,7 @@ fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
   const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 
   // clear image
-  vkCmdClearColorImage(cmdbuf, ctx.draw_image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
+  vkCmdClearColorImage(cmdbuf, ctx.draw.image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
                        &clear_range);
 }
 
@@ -739,7 +714,7 @@ fn VulkanContext::draw() -> void {
   // Wait for fences
   VK_ASSERT(vkWaitForFences(_impl->device.device, 1, &frame.render_fen, true, 1000000000));
   VK_ASSERT(vkResetFences(_impl->device.device, 1, &frame.render_fen));
-  frame.delqueue.flush();
+  // frame.delqueue.flush();
 
   // Acquire swapchain image
   u32 swapchain_image_idx;
@@ -755,29 +730,29 @@ fn VulkanContext::draw() -> void {
 
   // transition our main draw image into general layout so we can write into it
   // we will overwrite it all so we dont care about what was the older layout
-  vk_transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                      VK_IMAGE_LAYOUT_GENERAL);
+  vkcmd_transition_image(frame.cmdbuf, _impl->draw.image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                         VK_IMAGE_LAYOUT_GENERAL);
 
   // clear the thing
   draw_background(*_impl, frame.cmdbuf);
 
   // transition the draw image and the swapchain image into their correct transfer layouts
-  vk_transition_image(frame.cmdbuf, _impl->draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
-                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  vk_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vkcmd_transition_image(frame.cmdbuf, _impl->draw.image.image, VK_IMAGE_LAYOUT_GENERAL,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  vkcmd_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
   VkExtent2D draw_extent;
-  draw_extent.width = _impl->draw_image.extent.width;
-  draw_extent.height = _impl->draw_image.extent.width;
+  draw_extent.width = _impl->draw.image.extent.width;
+  draw_extent.height = _impl->draw.image.extent.width;
   // execute a copy from the draw image into the swapchain
-  vk_transfer_image(frame.cmdbuf, _impl->draw_image.image,
-                    _impl->swapchain.images[swapchain_image_idx], draw_extent,
-                    _impl->swapchain.extent);
+  vkcmd_transfer_image(frame.cmdbuf, _impl->draw.image.image,
+                       _impl->swapchain.images[swapchain_image_idx], draw_extent,
+                       _impl->swapchain.extent);
 
   // make the swapchain image into presentable mode
-  vk_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
-                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  vkcmd_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   // finalize the command buffer (we can no longer add commands, but it can now be executed)
   VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
