@@ -136,16 +136,4 @@ struct Extent3D {
   u32 width, height, depth;
 };
 
-template<typename T>
-struct RectanglePos {
-  T x, y;
-  T width, height;
-};
-
-template<typename T>
-struct CirclePos {
-  T x, y;
-  T radius;
-};
-
 } // namespace kappa

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../../util/array.hpp"
 #include "../../util/function.hpp"
 #include "../../util/ptr.hpp"
 
@@ -14,15 +13,6 @@ struct VulkanInfo {
 };
 
 struct VulkanContextImpl;
-
-struct VulkanDescriptorLayoutBuilder {
-  Vec<VkDescriptorSetLayoutBinding> bindings;
-
-  fn add_binding(u32 binding, VkDescriptorType type) -> void;
-  fn clear() -> void;
-  fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
-           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
-};
 
 class VulkanContext {
 public:

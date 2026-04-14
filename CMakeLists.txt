@@ -29,6 +29,10 @@ add_subdirectory("lib/VulkanMemoryAllocator")
 #list(APPEND LIB_INCLUDE GPUOpen::VulkanMemoryAllocator)
 list(APPEND LIB_LINK GPUOpen::VulkanMemoryAllocator)
 
+# ranmath
+add_subdirectory("lib/ranmath")
+list(APPEND LIB_LINK ranmath::ranmath)
+
 # glfw
 pkg_search_module(GLFW REQUIRED glfw3)
 list(APPEND LIB_INCLUDE ${GLFW_INCLUDE_DIRS})

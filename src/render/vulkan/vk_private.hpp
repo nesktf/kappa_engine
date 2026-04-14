@@ -4,6 +4,7 @@
 #include "../../util/function.hpp"
 #include "../../util/logger.hpp"
 #include "../../util/ptr.hpp"
+#include "./vk_error.hpp"
 
 #include "./vk_util.hpp"
 
