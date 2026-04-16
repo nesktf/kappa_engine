@@ -4,6 +4,10 @@
 #define VMA_IMPLEMENTATION
 #include "./vk_private.hpp"
 
+#include "./vk_pipeline.hpp"
+
+#include "../../util/filesystem.hpp"
+
 #include <unordered_set>
 
 namespace kappa::render {
@@ -17,8 +21,6 @@ constexpr auto base_device_extensions = std::to_array<const char*>({
 constexpr auto validation_layers = std::to_array<const char*>({
   "VK_LAYER_KHRONOS_validation",
 });
-
-constexpr VkAllocationCallbacks* vkalloc = nullptr;
 
 // Load vkCreateDebugUtilsMessengerEXT, since is an extension and is not loaded by default
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
@@ -631,6 +633,67 @@ fn init_draw_image(VulkanContextImpl& ctx) -> void {
   ctx.delqueue.enqueue(ctx.draw.image.view, ctx.device.device);
 }
 
+fn init_descriptors(VulkanContextImpl& ctx) -> void {
+  const auto sizes = std::to_array<VulkanDescPoolRatio>({
+    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
+  });
+  ctx.draw.desc_pool = vkpool_create(ctx.device.device, 10, sizes).value();
+  ctx.delqueue.enqueue(ctx.draw.desc_pool, ctx.device.device);
+  {
+    VulkanDescriptorLayoutBuilder builder;
+    builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    ctx.draw.image_desc_layout = builder.build(ctx.device.device, VK_SHADER_STAGE_COMPUTE_BIT);
+    ctx.delqueue.enqueue(ctx.draw.image_desc_layout, ctx.device.device);
+  }
+  ctx.draw.image_desc =
+    vkpool_allocate(ctx.draw.desc_pool, ctx.device.device, ctx.draw.image_desc_layout).value();
+
+  VkDescriptorImageInfo img_info{};
+  img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  img_info.imageView = ctx.draw.image.view;
+
+  VkWriteDescriptorSet draw_image_write{};
+  draw_image_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  draw_image_write.pNext = nullptr;
+
+  draw_image_write.dstBinding = 0;
+  draw_image_write.dstSet = ctx.draw.image_desc;
+  draw_image_write.descriptorCount = 1;
+  draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  draw_image_write.pImageInfo = &img_info;
+
+  vkUpdateDescriptorSets(ctx.device.device, 1, &draw_image_write, 0, nullptr);
+}
+
+fn init_pipelines(VulkanContextImpl& ctx) -> void {
+  VkPipelineLayoutCreateInfo compute_layout{};
+  compute_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  compute_layout.pNext = nullptr;
+  compute_layout.pSetLayouts = &ctx.draw.image_desc_layout;
+  compute_layout.setLayoutCount = 1;
+  VK_ASSERT(vkCreatePipelineLayout(ctx.device.device, &compute_layout, vkalloc,
+                                   &ctx.draw.gradient_layout));
+  auto file = load_entire_file("../../../res/shaders/compute_gradient.cs.spv");
+  ka_assert(!file.empty());
+  auto shader = vkshader_create(ctx.device.device, {file.data(), file.size()}).value();
+  VkPipelineShaderStageCreateInfo stage_info{};
+  stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stage_info.pNext = nullptr;
+  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  stage_info.module = shader;
+  stage_info.pName = "main";
+
+  VkComputePipelineCreateInfo compute_info{};
+  compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  compute_info.pNext = nullptr;
+  compute_info.layout = ctx.draw.gradient_layout;
+  compute_info.stage = stage_info;
+  VK_ASSERT(vkCreateComputePipelines(ctx.device.device, VK_NULL_HANDLE, 1, &compute_info, vkalloc,
+                                     &ctx.draw.gradient_pipeline));
+  // ctx.delqueue.enqueue(ctx.draw.gradient_layout, ctx.device.device);
+  // ctx.delqueue.enqueue(ctx.draw.gradient_pipeline, ctx.device.device);
+}
+
 } // namespace
 
 fn VulkanContext::Deleter::operator()(VulkanContextImpl* ctx) noexcept -> void {
@@ -677,6 +740,8 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
       init_commands(*ctx);
       init_sync(*ctx);
       init_draw_image(*ctx);
+      init_descriptors(*ctx);
+      init_pipelines(*ctx);
       ctxerr.disengage();
       return {*ctx};
     });
@@ -694,9 +759,16 @@ fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
   VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
   const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 
+#if 0
   // clear image
   vkCmdClearColorImage(cmdbuf, ctx.draw.image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
                        &clear_range);
+#endif
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw.gradient_pipeline);
+  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw.gradient_layout, 0, 1,
+                          &ctx.draw.image_desc, 0, nullptr);
+  vkCmdDispatch(cmdbuf, std::ceil(ctx.draw.extent.width / 16.f),
+                std::ceil(ctx.draw.extent.height / 16.f), 1);
 }
 
 } // namespace

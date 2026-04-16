@@ -54,6 +54,9 @@ private:
 };
 
 template<typename T>
+using VkExpect = Expected<T, VkError>;
+
+template<typename T>
 using VkSExpect = Expected<T, VkSvError>;
 
 template<typename T>

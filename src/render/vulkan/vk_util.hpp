@@ -23,6 +23,8 @@ public:
     TYPE_MESSENGER,
     TYPE_DEVICE,
     TYPE_INSTANCE,
+    TYPE_DESCPOOL,
+    TYPE_DESCLAYOUT,
   };
 
   struct DelData {
@@ -78,6 +80,14 @@ public:
 
   fn enqueue(VkInstance instance) -> void {
     enqueue_handle((VulkanHandle)instance, VK_NULL_HANDLE, TYPE_INSTANCE);
+  }
+
+  fn enqueue(VkDescriptorPool pool, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)device, (VulkanHandle)pool, TYPE_DESCPOOL);
+  }
+
+  fn enqueue(VkDescriptorSetLayout layout, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)device, (VulkanHandle)layout, TYPE_DESCLAYOUT);
   }
 
 private:

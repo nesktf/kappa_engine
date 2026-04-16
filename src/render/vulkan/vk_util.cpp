@@ -109,6 +109,12 @@ fn VulkanDelQueue::flush() -> void {
       case TYPE_INSTANCE: {
         vkDestroyInstance((VkInstance)handle, vkalloc);
       } break;
+      case TYPE_DESCPOOL: {
+        vkDestroyDescriptorPool((VkDevice)parent, (VkDescriptorPool)handle, vkalloc);
+      } break;
+      case TYPE_DESCLAYOUT: {
+        vkDestroyDescriptorSetLayout((VkDevice)parent, (VkDescriptorSetLayout)handle, vkalloc);
+      } break;
     }
   }
   _queue.clear();

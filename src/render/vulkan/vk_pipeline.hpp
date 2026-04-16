@@ -1,8 +1,9 @@
 #pragma once
 
 #include "../../util/array.hpp"
+#include "../../util/ptr.hpp"
 
-#include <vulkan/vulkan_core.h>
+#include "./vk_error.hpp"
 
 namespace kappa::render {
 
@@ -19,5 +20,18 @@ public:
 private:
   Vec<VkDescriptorSetLayoutBinding> _bindings;
 };
+
+struct VulkanDescPoolRatio {
+  VkDescriptorType type;
+  f32 ratio;
+};
+
+fn vkpool_create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
+  -> VkExpect<VkDescriptorPool>;
+fn vkpool_allocate(VkDescriptorPool pool, VkDevice device, VkDescriptorSetLayout layout)
+  -> VkExpect<VkDescriptorSet>;
+fn vkpool_clear_descriptors(VkDescriptorPool pool, VkDevice device) -> void;
+
+fn vkshader_create(VkDevice device, Span<const u8> source) -> VkExpect<VkShaderModule>;
 
 } // namespace kappa::render

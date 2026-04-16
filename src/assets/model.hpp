@@ -2,10 +2,7 @@
 
 #include "./ass_common.hpp"
 
-#include "../math/matrix4x4.hpp"
-#include "../math/vector2.hpp"
-#include "../math/vector3.hpp"
-#include "../math/vector4.hpp"
+#include <ranmath/ran.hpp>
 
 #include "../util/optional.hpp"
 #include "../util/ptr.hpp"
@@ -116,7 +113,7 @@ public:
     u32 face_count;
     u32 blend_start;
     u32 blend_count;
-    Vec3f32 bbox_min, bbox_max;
+    ran::Vec3f32 bbox_min, bbox_max;
     u32 material_index;
     MeshPrimitive primitive;
   };
@@ -218,22 +215,22 @@ public:
 
   MeshData& mesh_at(usize idx) const;
   Span<MeshData> meshes() const;
-  Span<Vec3f32> mesh_positions() const;
-  Span<Vec3f32> mesh_positions(ArrayRange range) const;
-  Span<Vec3f32> mesh_normals() const;
-  Span<Vec3f32> mesh_normals(ArrayRange range) const;
-  Span<Vec2f32> mesh_uvs(usize idx) const;
-  Span<Vec2f32> mesh_uvs(usize idx, ArrayRange range) const;
-  Span<Vec4f32> mesh_colors(usize idx) const;
-  Span<Vec4f32> mesh_colors(usize idx, ArrayRange range) const;
-  Span<Vec3f32> mesh_tangents() const;
-  Span<Vec3f32> mesh_tangents(ArrayRange range) const;
-  Span<Vec3f32> mesh_bitangents() const;
-  Span<Vec3f32> mesh_bitangents(ArrayRange range) const;
-  Span<Vec4s32> mesh_bone_indices() const;
-  Span<Vec4s32> mesh_bone_indices(ArrayRange range) const;
-  Span<Vec4f32> mesh_bone_weights() const;
-  Span<Vec4f32> mesh_bone_weights(ArrayRange range) const;
+  Span<ran::Vec3f32> mesh_positions() const;
+  Span<ran::Vec3f32> mesh_positions(ArrayRange range) const;
+  Span<ran::Vec3f32> mesh_normals() const;
+  Span<ran::Vec3f32> mesh_normals(ArrayRange range) const;
+  Span<ran::Vec2f32> mesh_uvs(usize idx) const;
+  Span<ran::Vec2f32> mesh_uvs(usize idx, ArrayRange range) const;
+  Span<ran::Vec4f32> mesh_colors(usize idx) const;
+  Span<ran::Vec4f32> mesh_colors(usize idx, ArrayRange range) const;
+  Span<ran::Vec3f32> mesh_tangents() const;
+  Span<ran::Vec3f32> mesh_tangents(ArrayRange range) const;
+  Span<ran::Vec3f32> mesh_bitangents() const;
+  Span<ran::Vec3f32> mesh_bitangents(ArrayRange range) const;
+  Span<ran::Vec4s32> mesh_bone_indices() const;
+  Span<ran::Vec4s32> mesh_bone_indices(ArrayRange range) const;
+  Span<ran::Vec4f32> mesh_bone_weights() const;
+  Span<ran::Vec4f32> mesh_bone_weights(ArrayRange range) const;
   Span<u32> mesh_indices() const;
   Span<u32> mesh_indices(ArrayRange range) const;
   usize mesh_count() const;
@@ -248,18 +245,18 @@ public:
 
   BlendShapeData& blend_shape_at(usize idx) const;
   Span<BlendShapeData> blend_shapes() const;
-  Span<Vec3f32> blend_positions() const;
-  Span<Vec3f32> blend_positions(ArrayRange range) const;
-  Span<Vec3f32> blend_normals() const;
-  Span<Vec3f32> blend_normals(ArrayRange range) const;
-  Span<Vec2f32> blend_uvs(usize idx) const;
-  Span<Vec2f32> blend_uvs(usize idx, ArrayRange range) const;
-  Span<Vec4f32> blend_colors(usize idx) const;
-  Span<Vec4f32> blend_colors(usize idx, ArrayRange range) const;
-  Span<Vec3f32> blend_tangents() const;
-  Span<Vec3f32> blend_tangents(ArrayRange range) const;
-  Span<Vec3f32> blend_bitangents() const;
-  Span<Vec3f32> blend_bitangents(ArrayRange range) const;
+  Span<ran::Vec3f32> blend_positions() const;
+  Span<ran::Vec3f32> blend_positions(ArrayRange range) const;
+  Span<ran::Vec3f32> blend_normals() const;
+  Span<ran::Vec3f32> blend_normals(ArrayRange range) const;
+  Span<ran::Vec2f32> blend_uvs(usize idx) const;
+  Span<ran::Vec2f32> blend_uvs(usize idx, ArrayRange range) const;
+  Span<ran::Vec4f32> blend_colors(usize idx) const;
+  Span<ran::Vec4f32> blend_colors(usize idx, ArrayRange range) const;
+  Span<ran::Vec3f32> blend_tangents() const;
+  Span<ran::Vec3f32> blend_tangents(ArrayRange range) const;
+  Span<ran::Vec3f32> blend_bitangents() const;
+  Span<ran::Vec3f32> blend_bitangents(ArrayRange range) const;
   usize blend_shape_count() const;
 
   bool has_blend_shapes() const { return (blend_shape_count() > 0); }
@@ -267,10 +264,10 @@ public:
   BoneData& bone_at(usize idx) const;
   Span<BoneData> bones() const;
   Span<BoneData> bones(ArrayRange range) const;
-  Span<Mat4f32> bone_locals() const;
-  Span<Mat4f32> bone_locals(ArrayRange range) const;
-  Span<Mat4f32> bone_inverse_models() const;
-  Span<Mat4f32> bone_inverse_models(ArrayRange range) const;
+  Span<ran::Mat4f32> bone_locals() const;
+  Span<ran::Mat4f32> bone_locals(ArrayRange range) const;
+  Span<ran::Mat4f32> bone_inverse_models() const;
+  Span<ran::Mat4f32> bone_inverse_models(ArrayRange range) const;
   usize bone_count() const;
 
   bool has_bones() const { return (bone_count() > 0); }
@@ -301,7 +298,7 @@ public:
 
   MaterialData* find_material(std::string_view material_name) const {
     return find_material_idx(material_name)
-      .transform([this](usize idx) -> MaterialData* { return &material_at(idx); })
+      .transform([this](usize idx) -> ran::MaterialData* { return &material_at(idx); })
       .value_or(nullptr);
   }
 

@@ -30,6 +30,8 @@
 
 namespace kappa::render {
 
+constexpr VkAllocationCallbacks* vkalloc = nullptr;
+
 struct VulkanSwapchain {
   VkSwapchainKHR swapchain;
   VkFormat format;
@@ -68,8 +70,11 @@ constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
 struct DrawThing {
   VulkanImage image;
   VkExtent2D extent;
+  VkDescriptorPool desc_pool;
   VkDescriptorSet image_desc;
   VkDescriptorSetLayout image_desc_layout;
+  VkPipeline gradient_pipeline;
+  VkPipelineLayout gradient_layout;
 };
 
 struct VulkanContextImpl {
