@@ -4,12 +4,12 @@
 
 namespace kappa::assets {
 
-struct image_data {
+struct ImageData {
 public:
-  struct image_internal;
+  struct ImageInternal;
 
 public:
-  image_data(image_internal& data) noexcept;
+  ImageData(ImageInternal& data) noexcept;
 
   void destroy() noexcept;
 
@@ -21,32 +21,32 @@ public:
   ImageFormat format() const;
 
 private:
-  image_internal* _data;
+  ImageInternal* _data;
 };
 
-class image_loader {
+class ImageLoader {
 public:
-  struct loader_internal;
+  struct LoaderInternal;
 
-  enum load_flags : u32 {
+  enum LoadFlags : u32 {
     FLAGS_NONE = 0x0000,
     FLAG_FLIP_Y = 0x0001,
   };
 
 public:
-  image_loader(std::string_view texture_path, std::string_view texture_name,
-               bits32 flags = FLAGS_NONE);
+  ImageLoader(std::string_view texture_path, std::string_view texture_name,
+              bits32 flags = FLAGS_NONE);
 
 public:
   // Should be only called ONCE, preferably in a threadpool
   // The internal data is destroyed at the end of the function
-  AssExpect<image_data> load();
+  AssExpect<ImageData> load();
 
 public:
-  AssExpect<image_data> operator()() { return load(); }
+  AssExpect<ImageData> operator()() { return load(); }
 
 private:
-  loader_internal* _impl;
+  LoaderInternal* _impl;
 };
 
 } // namespace kappa::assets

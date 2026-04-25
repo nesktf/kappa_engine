@@ -64,6 +64,8 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     STR(MESSENGER);
     STR(DEVICE);
     STR(INSTANCE);
+    STR(DESCPOOL);
+    STR(DESCLAYOUT);
   }
   KA_UNREACHABLE();
 #undef STR

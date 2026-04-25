@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../core.hpp"
-#include "../math/vector3.hpp"
+
+#include <ranmath/ran.hpp>
+
 #include "../util/function.hpp"
 #include "../util/optional.hpp"
 #include "../util/ptr.hpp"
@@ -15,17 +17,18 @@ using real = f32;
 
 class ParticleEntity {
 public:
-  ParticleEntity(const Vec3f32& pos, real mass) noexcept;
-  ParticleEntity(const Vec3f32& pos, real mass, const Vec3f32& vel, real damping) noexcept;
-  ParticleEntity(const Vec3f32& pos, real mass, const Vec3f32& vel, real damping,
-                 const Vec3f32& acc) noexcept;
+  ParticleEntity(const ran::Vec3f32& pos, real mass) noexcept;
+  ParticleEntity(const ran::Vec3f32& pos, real mass, const ran::Vec3f32& vel,
+                 real damping) noexcept;
+  ParticleEntity(const ran::Vec3f32& pos, real mass, const ran::Vec3f32& vel, real damping,
+                 const ran::Vec3f32& acc) noexcept;
 
 public:
   ParticleEntity& integrate(real dt);
 
 public:
-  Vec3f32 pos() const;
-  ParticleEntity& set_pos(const Vec3f32& pos_);
+  ran::Vec3f32 pos() const;
+  ParticleEntity& set_pos(const ran::Vec3f32& pos_);
 
   real mass() const;
   real inv_mass() const;
@@ -33,29 +36,29 @@ public:
   ParticleEntity& set_mass(real mass_);
   ParticleEntity& set_inv_mass(real inv_mass_);
 
-  Vec3f32 vel() const;
-  ParticleEntity& set_vel(const Vec3f32& vel_);
+  ran::Vec3f32 vel() const;
+  ParticleEntity& set_vel(const ran::Vec3f32& vel_);
 
   real damping() const;
   ParticleEntity& set_damping(real damping_);
 
-  Vec3f32 acc() const;
-  ParticleEntity& set_acc(Vec3f32 acc_);
+  ran::Vec3f32 acc() const;
+  ParticleEntity& set_acc(ran::Vec3f32 acc_);
 
-  Vec3f32 forces() const;
-  ParticleEntity& add_force(const Vec3f32& force);
+  ran::Vec3f32 forces() const;
+  ParticleEntity& add_force(const ran::Vec3f32& force);
   ParticleEntity& clear_forces();
 
 public:
   bool has_finite_mass() const;
 
 private:
-  Vec3f32 _pos;
+  ran::Vec3f32 _pos;
   real _inv_mass;
-  Vec3f32 _vel;
+  ran::Vec3f32 _vel;
   real _damping;
-  Vec3f32 _acc;
-  Vec3f32 _forces;
+  ran::Vec3f32 _acc;
+  ran::Vec3f32 _forces;
 };
 
 namespace meta {
@@ -112,17 +115,17 @@ private:
   std::queue<u32> _free;
 };
 
-static constexpr Vec3f32 DEFAULT_GRAVITY{0.f, -9.81f, 0.f};
+static constexpr ran::Vec3f32 DEFAULT_GRAVITY{0.f, -9.81f, 0.f};
 
 class particle_gravity {
 public:
-  particle_gravity(Vec3f32 gravity = DEFAULT_GRAVITY) noexcept;
+  particle_gravity(ran::Vec3f32 gravity = DEFAULT_GRAVITY) noexcept;
 
 public:
   void operator()(ParticleEntity& particle, real dt) noexcept;
 
 private:
-  Vec3f32 _gravity;
+  ran::Vec3f32 _gravity;
 };
 
 static_assert(meta::particle_force_generator<particle_gravity>);
@@ -151,7 +154,7 @@ public:
   void operator()(ParticleEntity& particle, real dt);
 
 private:
-  RefView<ParticleEntity> _other;
+  Ref<ParticleEntity> _other;
   real _spring_const;
   real _rest_len;
 };
@@ -160,15 +163,15 @@ static_assert(meta::particle_force_generator<ParticleSpring>);
 
 class ParticleSringAnchor {
 public:
-  ParticleSringAnchor(const Vec3f32& anchor, real spring_const, real rest_len) noexcept;
+  ParticleSringAnchor(const ran::Vec3f32& anchor, real spring_const, real rest_len) noexcept;
 
 public:
   void operator()(ParticleEntity& particle, real dt);
 
-  void set_anchor(const Vec3f32& anchor);
+  void set_anchor(const ran::Vec3f32& anchor);
 
 private:
-  Vec3f32 _anchor;
+  ran::Vec3f32 _anchor;
   real _spring_const;
   real _rest_len;
 };
@@ -183,7 +186,7 @@ public:
   void operator()(ParticleEntity& particle, real dt);
 
 private:
-  RefView<ParticleEntity> _other;
+  Ref<ParticleEntity> _other;
   real _spring_const;
   real _rest_len;
 };
@@ -192,15 +195,15 @@ static_assert(meta::particle_force_generator<ParticleBungee>);
 
 class ParticleBungeeAnchor {
 public:
-  ParticleBungeeAnchor(const Vec3f32& anchor, real spring_const, real rest_len) noexcept;
+  ParticleBungeeAnchor(const ran::Vec3f32& anchor, real spring_const, real rest_len) noexcept;
 
 public:
   void operator()(ParticleEntity& particle, real dt);
 
-  void set_anchor(const Vec3f32& anchor);
+  void set_anchor(const ran::Vec3f32& anchor);
 
 private:
-  Vec3f32 _anchor;
+  ran::Vec3f32 _anchor;
   real _spring_const;
   real _rest_len;
 };

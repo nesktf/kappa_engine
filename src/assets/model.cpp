@@ -24,8 +24,7 @@ void alloc_init(model_allocator& al, T** ptr, usize sz) {
 } // namespace
 
 Model3DLoader::Model3DLoader(std::string_view model_path, std::string_view model_name,
-                             PtrView<const LoadOpts> opts) :
-    _impl(new Model3DLoader::LoaderInternal()) {
+                             const LoadOpts* opts) : _impl(new Model3DLoader::LoaderInternal()) {
   _impl->importer.SetPropertyBool(AI_CONFIG_IMPORT_REMOVE_EMPTY_BONES, true);
   _impl->importer.SetPropertyInteger(AI_CONFIG_PP_SBBC_MAX_BONES, 4);
   _impl->model_path.copy_from(model_path.data(), model_path.size());
@@ -75,12 +74,12 @@ Model3DData::ModelInternal::ModelInternal(const BufferName& name_, const BufferP
 
 namespace {
 
-Mat4f32 asscast(const aiMatrix4x4& mat) {
+ran::Mat4f32 asscast(const aiMatrix4x4& mat) {
   // Assimp is row major. The a,b,c,d is the row and the 1,2,3,4 is the column.
-  return math::transpose(std::bit_cast<Mat4f32>(mat)); // Just transpose it lol
+  return ran::transpose(std::bit_cast<ran::Mat4f32>(mat)); // Just transpose it lol
 }
 
-using bone_inv_map = std::unordered_map<std::string_view, Mat4f32>;
+using bone_inv_map = std::unordered_map<std::string_view, ran::Mat4f32>;
 
 auto initialize_data(const BufferName& name, const BufferPath& path, const aiScene& scene,
                      bone_inv_map& bone_invs, BuffStr<256>& err)
@@ -215,8 +214,8 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
 
     const bool have_bones = !bone_invs.empty();
     if (have_bones && data.mesh_bone_count) {
-      data.mesh_bone_indices = al.alloc<Vec4s32>(data.mesh_bone_count);
-      data.mesh_bone_weights = al.alloc<Vec4f32>(data.mesh_bone_count);
+      data.mesh_bone_indices = al.alloc<ran::Vec4s32>(data.mesh_bone_count);
+      data.mesh_bone_weights = al.alloc<ran::Vec4f32>(data.mesh_bone_count);
       // Set all parents to NULL (-1)
       std::memset(data.mesh_bone_indices, 0xFF,
                   sizeof(data.mesh_bone_indices[0]) * data.mesh_bone_count);
@@ -272,21 +271,21 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
   if (data.bone_count) {
     data.bones = al.alloc<Model3DData::BoneData>(data.bone_count);
     zeroinit(data.bones, data.bone_count);
-    data.bone_inv_models = al.alloc<Mat4f32>(data.bone_count);
-    data.bone_locals = al.alloc<Mat4f32>(data.bone_count);
+    data.bone_inv_models = al.alloc<ran::Mat4f32>(data.bone_count);
+    data.bone_locals = al.alloc<ran::Mat4f32>(data.bone_count);
     data.bone_registry.reserve(data.bone_count); // We fill the registry at parse_bones()
   }
 
   return ptr;
 }
 
-bool is_identity(const Mat4f32& mat) {
-  static constexpr Mat4f32 id(1.f);
+bool is_identity(const ran::Mat4f32& mat) {
+  static constexpr ran::Mat4f32 id(1.f);
   for (usize i = 0; i < 4; ++i) {
     const auto col_a = mat.column_at(i);
     const auto col_b = id.column_at(i);
     for (usize j = 0; j < 4; ++j) {
-      if (std::abs(col_a[j] - col_b[j]) > math::epsilon<f32>) {
+      if (std::abs(col_a[j] - col_b[j]) > ran::epsilon<f32>) {
         return false;
       }
     }
@@ -316,7 +315,7 @@ void parse_bone_nodes(const bone_inv_map& bone_invs, s32 parent, s32& bone_count
   }
 }
 
-Mat4f32 node_model(const aiNode* node) {
+ran::Mat4f32 node_model(const aiNode* node) {
   if (node->mParent == nullptr) {
     return asscast(node->mTransformation);
   }
@@ -356,11 +355,11 @@ void parse_rigs(Model3DData::ModelInternal& data, const aiScene& scene,
   }
 }
 
-Vec3f32 asscast(const aiVector3D& vec) {
+ran::Vec3f32 asscast(const aiVector3D& vec) {
   return {vec.x, vec.y, vec.z};
 }
 
-Vec4f32 asscast(const aiColor4D& col) {
+ran::Vec4f32 asscast(const aiColor4D& col) {
   return {col.r, col.g, col.b, col.a};
 }
 
@@ -892,90 +891,90 @@ Span<Model3DData::MeshData> Model3DData::meshes() const {
   return datarange(_data->meshes, _data->mesh_count);
 }
 
-Span<Vec3f32> Model3DData::mesh_positions() const {
+Span<ran::Vec3f32> Model3DData::mesh_positions() const {
   CHECK_DATA;
   return datarange(_data->mesh_positions, _data->mesh_position_count);
 }
 
-Span<Vec3f32> Model3DData::mesh_positions(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::mesh_positions(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->mesh_positions, _data->mesh_position_count, range);
 }
 
-Span<Vec3f32> Model3DData::mesh_normals() const {
+Span<ran::Vec3f32> Model3DData::mesh_normals() const {
   CHECK_DATA;
   return datarange(_data->mesh_normals, _data->mesh_normal_count);
 }
 
-Span<Vec3f32> Model3DData::mesh_normals(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::mesh_normals(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->mesh_normals, _data->mesh_normal_count, range);
 }
 
-Span<Vec2f32> Model3DData::mesh_uvs(usize idx) const {
+Span<ran::Vec2f32> Model3DData::mesh_uvs(usize idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->mesh_uvs[idx], _data->mesh_uv_count[idx]);
 }
 
-Span<Vec2f32> Model3DData::mesh_uvs(usize idx, ArrayRange range) const {
+Span<ran::Vec2f32> Model3DData::mesh_uvs(usize idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->mesh_uvs[idx], _data->mesh_uv_count[idx], range);
 }
 
-Span<Vec4f32> Model3DData::mesh_colors(usize idx) const {
+Span<ran::Vec4f32> Model3DData::mesh_colors(usize idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   return datarange(_data->mesh_colors[idx], _data->mesh_color_count[idx]);
 }
 
-Span<Vec4f32> Model3DData::mesh_colors(usize idx, ArrayRange range) const {
+Span<ran::Vec4f32> Model3DData::mesh_colors(usize idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   assert(range.start != (u32)-1 && range.count);
   return datarange(_data->mesh_colors[idx], _data->mesh_color_count[idx], range);
 }
 
-Span<Vec3f32> Model3DData::mesh_tangents() const {
+Span<ran::Vec3f32> Model3DData::mesh_tangents() const {
   CHECK_DATA;
   return datarange(_data->mesh_tangents, _data->mesh_tangent_count);
 }
 
-Span<Vec3f32> Model3DData::mesh_tangents(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::mesh_tangents(ArrayRange range) const {
   CHECK_DATA;
   assert(range.start != (u32)-1 && range.count);
   return datarange(_data->mesh_tangents, _data->mesh_tangent_count, range);
 }
 
-Span<Vec3f32> Model3DData::mesh_bitangents() const {
+Span<ran::Vec3f32> Model3DData::mesh_bitangents() const {
   CHECK_DATA;
   return datarange(_data->mesh_bitangents, _data->mesh_tangent_count);
 }
 
-Span<Vec3f32> Model3DData::mesh_bitangents(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::mesh_bitangents(ArrayRange range) const {
   CHECK_DATA;
   assert(range.start != (u32)-1 && range.count);
   return datarange(_data->mesh_bitangents, _data->mesh_tangent_count, range);
 }
 
-Span<Vec4s32> Model3DData::mesh_bone_indices() const {
+Span<ran::Vec4s32> Model3DData::mesh_bone_indices() const {
   CHECK_DATA;
   return datarange(_data->mesh_bone_indices, _data->mesh_bone_count);
 }
 
-Span<Vec4s32> Model3DData::mesh_bone_indices(ArrayRange range) const {
+Span<ran::Vec4s32> Model3DData::mesh_bone_indices(ArrayRange range) const {
   CHECK_DATA;
   assert(range.start != (u32)-1 && range.count);
   return datarange(_data->mesh_bone_indices, _data->mesh_bone_count, range);
 }
 
-Span<Vec4f32> Model3DData::mesh_bone_weights() const {
+Span<ran::Vec4f32> Model3DData::mesh_bone_weights() const {
   CHECK_DATA;
   return datarange(_data->mesh_bone_weights, _data->mesh_bone_count);
 }
 
-Span<Vec4f32> Model3DData::mesh_bone_weights(ArrayRange range) const {
+Span<ran::Vec4f32> Model3DData::mesh_bone_weights(ArrayRange range) const {
   CHECK_DATA;
   assert(range.start != (u32)-1 && range.count);
   return datarange(_data->mesh_bone_weights, _data->mesh_bone_count, range);
@@ -1008,66 +1007,66 @@ Span<Model3DData::BlendShapeData> Model3DData::blend_shapes() const {
   return datarange(_data->blend_shapes, _data->blend_shape_count);
 }
 
-Span<Vec3f32> Model3DData::blend_positions() const {
+Span<ran::Vec3f32> Model3DData::blend_positions() const {
   CHECK_DATA;
   return datarange(_data->blend_positions, _data->blend_position_count);
 }
 
-Span<Vec3f32> Model3DData::blend_positions(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::blend_positions(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->blend_positions, _data->blend_position_count, range);
 }
 
-Span<Vec3f32> Model3DData::blend_normals() const {
+Span<ran::Vec3f32> Model3DData::blend_normals() const {
   CHECK_DATA;
   return datarange(_data->blend_normals, _data->blend_normal_count);
 }
 
-Span<Vec3f32> Model3DData::blend_normals(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::blend_normals(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->blend_normals, _data->blend_normal_count, range);
 }
 
-Span<Vec2f32> Model3DData::blend_uvs(usize idx) const {
+Span<ran::Vec2f32> Model3DData::blend_uvs(usize idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->blend_uvs[idx], _data->blend_uv_count[idx]);
 }
 
-Span<Vec2f32> Model3DData::blend_uvs(usize idx, ArrayRange range) const {
+Span<ran::Vec2f32> Model3DData::blend_uvs(usize idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->blend_uvs[idx], _data->blend_uv_count[idx], range);
 }
 
-Span<Vec4f32> Model3DData::blend_colors(usize idx) const {
+Span<ran::Vec4f32> Model3DData::blend_colors(usize idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   return datarange(_data->blend_colors[idx], _data->blend_color_count[idx]);
 }
 
-Span<Vec4f32> Model3DData::blend_colors(usize idx, ArrayRange range) const {
+Span<ran::Vec4f32> Model3DData::blend_colors(usize idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   return datarange(_data->blend_colors[idx], _data->blend_color_count[idx], range);
 }
 
-Span<Vec3f32> Model3DData::blend_tangents() const {
+Span<ran::Vec3f32> Model3DData::blend_tangents() const {
   CHECK_DATA;
   return datarange(_data->blend_tangents, _data->blend_tangent_count);
 }
 
-Span<Vec3f32> Model3DData::blend_tangents(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::blend_tangents(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->blend_tangents, _data->blend_tangent_count, range);
 }
 
-Span<Vec3f32> Model3DData::blend_bitangents() const {
+Span<ran::Vec3f32> Model3DData::blend_bitangents() const {
   CHECK_DATA;
   return datarange(_data->blend_bitangents, _data->blend_tangent_count);
 }
 
-Span<Vec3f32> Model3DData::blend_bitangents(ArrayRange range) const {
+Span<ran::Vec3f32> Model3DData::blend_bitangents(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->blend_bitangents, _data->blend_tangent_count, range);
 }
@@ -1093,22 +1092,22 @@ Span<Model3DData::BoneData> Model3DData::bones(ArrayRange range) const {
   return datarange(_data->bones, _data->bone_count, range);
 }
 
-Span<Mat4f32> Model3DData::bone_locals() const {
+Span<ran::Mat4f32> Model3DData::bone_locals() const {
   CHECK_DATA;
   return datarange(_data->bone_locals, _data->bone_count);
 }
 
-Span<Mat4f32> Model3DData::bone_locals(ArrayRange range) const {
+Span<ran::Mat4f32> Model3DData::bone_locals(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->bone_locals, _data->bone_count, range);
 }
 
-Span<Mat4f32> Model3DData::bone_inverse_models() const {
+Span<ran::Mat4f32> Model3DData::bone_inverse_models() const {
   CHECK_DATA;
   return datarange(_data->bone_inv_models, _data->bone_count);
 }
 
-Span<Mat4f32> Model3DData::bone_inverse_models(ArrayRange range) const {
+Span<ran::Mat4f32> Model3DData::bone_inverse_models(ArrayRange range) const {
   CHECK_DATA;
   return datarange(_data->bone_inv_models, _data->bone_count, range);
 }

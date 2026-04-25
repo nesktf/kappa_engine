@@ -37,8 +37,8 @@ inline TextureType parse_tex_type_from_name(std::string_view name) {
   return TextureType::albedo;
 };
 
-struct image_data::image_internal {
-  image_internal(chima::context&& chima_, chima::image image_) :
+struct ImageData::ImageInternal {
+  ImageInternal(chima::context&& chima_, chima::image image_) :
       chima(std::move(chima_)), image(image_), image_destroyer(chima, image) {}
 
   chima::context chima;
@@ -49,7 +49,7 @@ struct image_data::image_internal {
   ImageFormat format;
 };
 
-struct image_loader::loader_internal {
+struct ImageLoader::LoaderInternal {
   BufferName texture_name;
   BufferPath texture_path;
   bits32 chima_flags;
@@ -85,35 +85,35 @@ struct Model3DData::ModelInternal {
 
   MeshData* meshes;
   size_t mesh_count;
-  Vec3f32* mesh_positions;
+  ran::Vec3f32* mesh_positions;
   size_t mesh_position_count;
-  Vec3f32* mesh_normals;
+  ran::Vec3f32* mesh_normals;
   size_t mesh_normal_count;
-  Vec2f32* mesh_uvs[MAX_MESH_UVS];
+  ran::Vec2f32* mesh_uvs[MAX_MESH_UVS];
   size_t mesh_uv_count[MAX_MESH_UVS];
-  Vec4f32* mesh_colors[MAX_MESH_COLORS];
+  ran::Vec4f32* mesh_colors[MAX_MESH_COLORS];
   size_t mesh_color_count[MAX_MESH_COLORS];
-  Vec3f32* mesh_tangents;
-  Vec3f32* mesh_bitangents;
+  ran::Vec3f32* mesh_tangents;
+  ran::Vec3f32* mesh_bitangents;
   size_t mesh_tangent_count;
-  Vec4s32* mesh_bone_indices;
-  Vec4f32* mesh_bone_weights;
+  ran::Vec4s32* mesh_bone_indices;
+  ran::Vec4f32* mesh_bone_weights;
   size_t mesh_bone_count;
   u32* mesh_indices;
   size_t mesh_index_count;
 
   BlendShapeData* blend_shapes;
   size_t blend_shape_count;
-  Vec3f32* blend_positions;
+  ran::Vec3f32* blend_positions;
   size_t blend_position_count;
-  Vec3f32* blend_normals;
+  ran::Vec3f32* blend_normals;
   size_t blend_normal_count;
-  Vec2f32* blend_uvs[MAX_MESH_UVS];
+  ran::Vec2f32* blend_uvs[MAX_MESH_UVS];
   size_t blend_uv_count[MAX_MESH_UVS];
-  Vec4f32* blend_colors[MAX_MESH_COLORS];
+  ran::Vec4f32* blend_colors[MAX_MESH_COLORS];
   size_t blend_color_count[MAX_MESH_COLORS];
-  Vec3f32* blend_tangents;
-  Vec3f32* blend_bitangents;
+  ran::Vec3f32* blend_tangents;
+  ran::Vec3f32* blend_bitangents;
   size_t blend_tangent_count;
 
 #if 0
@@ -121,17 +121,17 @@ struct Model3DData::ModelInternal {
   size_t animation_count;
   bone_keyframes* anim_bone_keyframes;
   size_t anim_bone_keyframe_count;
-  keyframe_data<Vec3f32>* anim_bone_positions;
+  keyframe_data<ran::Vec3f32>* anim_bone_positions;
   size_t anim_bone_position_count;
-  keyframe_data<Vec3f32>* anim_bone_scales;
+  keyframe_data<ran::Vec3f32>* anim_bone_scales;
   size_t anim_bone_scale_count;
   keyframe_data<qf32>* anim_bone_rotations;
   size_t anim_bone_rotation_count;
 #endif
 
   BoneData* bones;
-  Mat4f32* bone_locals;
-  Mat4f32* bone_inv_models;
+  ran::Mat4f32* bone_locals;
+  ran::Mat4f32* bone_inv_models;
   size_t bone_count;
 
   TextureData* textures;

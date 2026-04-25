@@ -12,7 +12,7 @@ namespace kappa {
 
 template<typename T>
 requires(!std::is_void_v<T> && !std::is_reference_v<T>)
-class PtrView {
+class Ref {
 public:
   using element_type = T;
   using value_type = std::remove_cvref_t<T>;
@@ -23,132 +23,30 @@ public:
   using const_reference = const T&;
 
 public:
-  constexpr PtrView() noexcept = default;
-
-  constexpr PtrView(std::nullptr_t) noexcept : _ptr{nullptr} {}
-
-  constexpr PtrView(pointer ptr) noexcept : _ptr{ptr} {}
+  constexpr Ref(reference obj) noexcept : _ptr(std::addressof(obj)) {}
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*>)
-  constexpr PtrView(U& obj) noexcept : _ptr{std::addressof(obj)} {}
+  constexpr Ref(U& obj) noexcept : _ptr(std::addressof(obj)) {}
 
-  template<typename U>
-  requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
-  constexpr PtrView(U* ptr) noexcept : _ptr(ptr) {}
-
-  template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
-  constexpr PtrView(const PtrView<U>& other) noexcept : _ptr{other.data()} {}
-
-  constexpr PtrView(const PtrView&) noexcept = default;
-  constexpr PtrView(PtrView&&) noexcept = default;
-
-  constexpr ~PtrView() noexcept = default;
-
-public:
-  constexpr reference get() const {
-    ka_assert(_ptr, "Invalid pointer");
-    return *_ptr;
-  }
-
-  constexpr pointer ptr() const noexcept { return _ptr; }
-
-  constexpr pointer data() const noexcept { return _ptr; }
-
-public:
-  [[nodiscard]] constexpr bool empty() const { return _ptr == nullptr; }
-
-  constexpr explicit operator bool() const { return !empty(); }
-
-  constexpr pointer operator->() const {
-    ka_assert(_ptr, "Invalid pointer");
-    return _ptr;
-  }
-
-  constexpr reference operator*() const {
-    ka_assert(_ptr, "Invalid pointer");
-    return *_ptr;
-  }
-
-  constexpr PtrView& operator=(std::nullptr_t) noexcept {
-    _ptr = nullptr;
-    return *this;
-  }
-
-  constexpr PtrView& operator=(pointer ptr) noexcept {
-    _ptr = ptr;
-    return *this;
+  constexpr explicit Ref(pointer ptr) : _ptr(ptr) {
+    KA_THROW_IF(!_ptr, std::runtime_error("Assigning nullptr to Ref"));
   }
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
-  constexpr PtrView& operator=(U* ptr) {
-    _ptr = ptr;
-    return *this;
+  constexpr Ref(U* ptr) : _ptr(ptr) {
+    KA_THROW_IF(!_ptr, std::runtime_error("Assigning nullptr to Ref"));
   }
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*>)
-  constexpr PtrView& operator=(U& obj) noexcept {
-    _ptr = std::addressof(obj);
-    return *this;
-  }
+  constexpr Ref(const Ref<U>& other) noexcept : _ptr{other.data()} {}
 
-  template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
-  constexpr PtrView& operator=(const PtrView<U>& other) noexcept {
-    _ptr = other.data();
-    return *this;
-  }
+  constexpr Ref(const Ref&) noexcept = default;
+  constexpr Ref(Ref&&) noexcept = default;
 
-  constexpr PtrView& operator=(const PtrView&) noexcept = default;
-  constexpr PtrView& operator=(PtrView&&) noexcept = default;
-
-public:
-  operator reference() const { return get(); }
-
-private:
-  T* _ptr;
-};
-
-template<typename T>
-requires(!std::is_void_v<T> && !std::is_reference_v<T>)
-class RefView {
-public:
-  using element_type = T;
-  using value_type = std::remove_cvref_t<T>;
-
-  using pointer = T*;
-  using const_pointer = const T*;
-  using reference = T&;
-  using const_reference = const T&;
-
-public:
-  constexpr RefView(reference obj) noexcept : _ptr(std::addressof(obj)) {}
-
-  template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
-  constexpr RefView(U& obj) noexcept : _ptr(std::addressof(obj)) {}
-
-  constexpr explicit RefView(pointer ptr) : _ptr(ptr) {
-    KA_THROW_IF(!_ptr, std::runtime_error("Assigning nullptr to RefView"));
-  }
-
-  template<typename U>
-  requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
-  constexpr RefView(U* ptr) : _ptr(ptr) {
-    KA_THROW_IF(!_ptr, std::runtime_error("Assigning nullptr to RefView"));
-  }
-
-  template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
-  constexpr RefView(const RefView<U>& other) noexcept : _ptr{other.data()} {}
-
-  constexpr RefView(const RefView&) noexcept = default;
-  constexpr RefView(RefView&&) noexcept = default;
-
-  constexpr ~RefView() noexcept = default;
+  constexpr ~Ref() noexcept = default;
 
 public:
   constexpr reference get() const noexcept { return *_ptr; }
@@ -162,36 +60,36 @@ public:
 
   constexpr reference operator*() const noexcept { return *_ptr; }
 
-  constexpr RefView& operator=(pointer ptr) {
-    KA_THROW_IF(!ptr, std::runtime_error("Assigning nullptr to RefView"));
+  constexpr Ref& operator=(pointer ptr) {
+    KA_THROW_IF(!ptr, std::runtime_error("Assigning nullptr to Ref"));
     _ptr = ptr;
     return *this;
   }
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
-  constexpr RefView& operator=(U* ptr) {
-    KA_THROW_IF(!ptr, std::runtime_error("Assigning nullptr to RefView"));
+  constexpr Ref& operator=(U* ptr) {
+    KA_THROW_IF(!ptr, std::runtime_error("Assigning nullptr to Ref"));
     _ptr = ptr;
     return *this;
   }
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*>)
-  constexpr RefView& operator=(U& obj) noexcept {
+  constexpr Ref& operator=(U& obj) noexcept {
     _ptr = std::addressof(obj);
     return *this;
   }
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*>)
-  constexpr RefView& operator=(const RefView<U>& other) noexcept {
+  constexpr Ref& operator=(const Ref<U>& other) noexcept {
     _ptr = other.ptr();
     return *this;
   }
 
-  constexpr RefView& operator=(const RefView&) noexcept = default;
-  constexpr RefView& operator=(RefView&&) noexcept = default;
+  constexpr Ref& operator=(const Ref&) noexcept = default;
+  constexpr Ref& operator=(Ref&&) noexcept = default;
 
 public:
   operator reference() const noexcept { return get(); }

@@ -2,18 +2,18 @@
 
 namespace kappa::physics {
 
-ParticleEntity::ParticleEntity(const Vec3f32& pos, real mass) noexcept :
+ParticleEntity::ParticleEntity(const ran::Vec3f32& pos, real mass) noexcept :
     _pos{pos}, _inv_mass{1.f / mass}, _vel{}, _damping{1.f}, _acc{}, _forces{} {}
 
-ParticleEntity::ParticleEntity(const Vec3f32& pos, real mass, const Vec3f32& vel,
+ParticleEntity::ParticleEntity(const ran::Vec3f32& pos, real mass, const ran::Vec3f32& vel,
                                real damping) noexcept :
     _pos{pos}, _inv_mass{1.f / mass}, _vel{vel}, _damping{damping}, _acc{}, _forces{} {}
 
-ParticleEntity::ParticleEntity(const Vec3f32& pos, real mass, const Vec3f32& vel, real damping,
-                               const Vec3f32& acc) noexcept :
+ParticleEntity::ParticleEntity(const ran::Vec3f32& pos, real mass, const ran::Vec3f32& vel,
+                               real damping, const ran::Vec3f32& acc) noexcept :
     _pos{pos}, _inv_mass{1.f / mass}, _vel{vel}, _damping{damping}, _acc{acc}, _forces{} {}
 
-Vec3f32 ParticleEntity::pos() const {
+ran::Vec3f32 ParticleEntity::pos() const {
   return _pos;
 }
 
@@ -25,7 +25,7 @@ real ParticleEntity::inv_mass() const {
   return _inv_mass;
 }
 
-Vec3f32 ParticleEntity::vel() const {
+ran::Vec3f32 ParticleEntity::vel() const {
   return _vel;
 }
 
@@ -33,15 +33,15 @@ real ParticleEntity::damping() const {
   return _damping;
 }
 
-Vec3f32 ParticleEntity::acc() const {
+ran::Vec3f32 ParticleEntity::acc() const {
   return _acc;
 }
 
-Vec3f32 ParticleEntity::forces() const {
+ran::Vec3f32 ParticleEntity::forces() const {
   return _forces;
 }
 
-ParticleEntity& ParticleEntity::set_pos(const Vec3f32& pos_) {
+ParticleEntity& ParticleEntity::set_pos(const ran::Vec3f32& pos_) {
   _pos = pos_;
   return *this;
 }
@@ -56,17 +56,17 @@ ParticleEntity& ParticleEntity::set_inv_mass(real inv_mass_) {
   return *this;
 }
 
-ParticleEntity& ParticleEntity::set_vel(const Vec3f32& vel_) {
+ParticleEntity& ParticleEntity::set_vel(const ran::Vec3f32& vel_) {
   _vel = vel_;
   return *this;
 }
 
-ParticleEntity& ParticleEntity::set_acc(Vec3f32 acc_) {
+ParticleEntity& ParticleEntity::set_acc(ran::Vec3f32 acc_) {
   _acc = acc_;
   return *this;
 }
 
-ParticleEntity& ParticleEntity::add_force(const Vec3f32& force) {
+ParticleEntity& ParticleEntity::add_force(const ran::Vec3f32& force) {
   _forces += force;
   return *this;
 }
@@ -90,7 +90,7 @@ ParticleEntity& ParticleEntity::integrate(real dt) {
 
   _pos += _vel * dt;
 
-  const Vec3f32 acc = _acc + (_inv_mass * _forces);
+  const ran::Vec3f32 acc = _acc + (_inv_mass * _forces);
   _vel += acc * dt;
   _vel *= std::pow(_damping, dt);
 
@@ -136,7 +136,7 @@ void ParticelForceRegistry::clear_forces() {
   }
 }
 
-particle_gravity::particle_gravity(Vec3f32 gravity) noexcept : _gravity{gravity} {}
+particle_gravity::particle_gravity(ran::Vec3f32 gravity) noexcept : _gravity{gravity} {}
 
 void particle_gravity::operator()(ParticleEntity& particle, real dt) noexcept {
   KA_UNUSED(dt);
@@ -153,13 +153,13 @@ ParticleDrag::ParticleDrag(real k1, real k2) noexcept : _k1{k1}, _k2{k2} {}
 
 void ParticleDrag::operator()(ParticleEntity& particle, real dt) noexcept {
   KA_UNUSED(dt);
-  const Vec3f32 vel = particle.vel();
-  const real vel_mag = math::length(vel);
-  if (math::fequal(vel_mag, 0.f)) {
+  const ran::Vec3f32 vel = particle.vel();
+  const real vel_mag = ran::length(vel);
+  if (ran::fequal(vel_mag, 0.f)) {
     return;
   }
   const real drag_coeff = _k1 * vel_mag + _k2 * vel_mag * vel_mag;
-  const Vec3f32 force = -drag_coeff * vel / vel_mag; // Normalize before applying
+  const ran::Vec3f32 force = -drag_coeff * vel / vel_mag; // Normalize before applying
   particle.add_force(force);
 }
 
@@ -168,33 +168,34 @@ ParticleSpring::ParticleSpring(ParticleEntity& other, real spring_const, real re
 
 void ParticleSpring::operator()(ParticleEntity& particle, real dt) {
   KA_UNUSED(dt);
-  const Vec3f32 spring_vec = particle.pos() - _other->pos();
-  const real spring_vec_len = math::length(spring_vec);
-  if (math::fequal(spring_vec_len, 0.f)) {
+  const ran::Vec3f32 spring_vec = particle.pos() - _other->pos();
+  const real spring_vec_len = ran::length(spring_vec);
+  if (ran::fequal(spring_vec_len, 0.f)) {
     return;
   }
   const real spring_mag = std::abs(spring_vec_len - _rest_len) * _spring_const;
-  const Vec3f32 force = -spring_mag * spring_vec / spring_vec_len; // Normalize before applying
+  const ran::Vec3f32 force =
+    -spring_mag * spring_vec / spring_vec_len; // Normalize before applying
   particle.add_force(force);
 }
 
-ParticleSringAnchor::ParticleSringAnchor(const Vec3f32& anchor, real spring_const,
+ParticleSringAnchor::ParticleSringAnchor(const ran::Vec3f32& anchor, real spring_const,
                                          real rest_len) noexcept :
     _anchor{anchor}, _spring_const{spring_const}, _rest_len{rest_len} {}
 
 void ParticleSringAnchor::operator()(ParticleEntity& particle, real dt) {
   KA_UNUSED(dt);
-  const Vec3f32 spring_vec = particle.pos() - _anchor;
-  const real spring_vec_len = math::length(spring_vec);
-  if (math::fequal(spring_vec_len, 0.f)) {
+  const ran::Vec3f32 spring_vec = particle.pos() - _anchor;
+  const real spring_vec_len = ran::length(spring_vec);
+  if (ran::fequal(spring_vec_len, 0.f)) {
     return;
   }
   const real spring_mag = (_rest_len - spring_vec_len) * _spring_const;
-  const Vec3f32 force = spring_mag * spring_vec / spring_vec_len; // Normalize before applying
+  const ran::Vec3f32 force = spring_mag * spring_vec / spring_vec_len; // Normalize before applying
   particle.add_force(force);
 }
 
-void ParticleSringAnchor::set_anchor(const Vec3f32& anchor) {
+void ParticleSringAnchor::set_anchor(const ran::Vec3f32& anchor) {
   _anchor = anchor;
 }
 
@@ -203,33 +204,33 @@ ParticleBungee::ParticleBungee(ParticleEntity& other, real spring_const, real re
 
 void ParticleBungee::operator()(ParticleEntity& particle, real dt) {
   KA_UNUSED(dt);
-  const Vec3f32 spring_vec = particle.pos() - _other->pos();
-  const real spring_vec_len = math::length(spring_vec);
+  const ran::Vec3f32 spring_vec = particle.pos() - _other->pos();
+  const real spring_vec_len = ran::length(spring_vec);
   if (spring_vec_len <= _rest_len) {
     return;
   }
   const real spring_mag = (_rest_len - spring_vec_len) * _spring_const;
-  const Vec3f32 force = spring_mag * spring_vec / spring_vec_len; // Normalize before applying
+  const ran::Vec3f32 force = spring_mag * spring_vec / spring_vec_len; // Normalize before applying
   particle.add_force(force);
 }
 
-ParticleBungeeAnchor::ParticleBungeeAnchor(const Vec3f32& anchor, real spring_const,
+ParticleBungeeAnchor::ParticleBungeeAnchor(const ran::Vec3f32& anchor, real spring_const,
                                            real rest_len) noexcept :
     _anchor{anchor}, _spring_const{spring_const}, _rest_len{rest_len} {}
 
 void ParticleBungeeAnchor::operator()(ParticleEntity& particle, real dt) {
   KA_UNUSED(dt);
-  const Vec3f32 spring_vec = particle.pos() - _anchor;
-  const real spring_vec_len = math::length(spring_vec);
+  const ran::Vec3f32 spring_vec = particle.pos() - _anchor;
+  const real spring_vec_len = ran::length(spring_vec);
   if (spring_vec_len <= _rest_len) {
     return;
   }
   const real spring_mag = (_rest_len - spring_vec_len) * _spring_const;
-  const Vec3f32 force = spring_mag * spring_vec / spring_vec_len; // Normalize before applying
+  const ran::Vec3f32 force = spring_mag * spring_vec / spring_vec_len; // Normalize before applying
   particle.add_force(force);
 }
 
-void ParticleBungeeAnchor::set_anchor(const Vec3f32& anchor) {
+void ParticleBungeeAnchor::set_anchor(const ran::Vec3f32& anchor) {
   _anchor = anchor;
 }
 

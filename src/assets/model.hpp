@@ -298,7 +298,7 @@ public:
 
   MaterialData* find_material(std::string_view material_name) const {
     return find_material_idx(material_name)
-      .transform([this](usize idx) -> ran::MaterialData* { return &material_at(idx); })
+      .transform([this](usize idx) -> MaterialData* { return &material_at(idx); })
       .value_or(nullptr);
   }
 
@@ -336,7 +336,7 @@ public:
 
 public:
   Model3DLoader(std::string_view model_path, std::string_view model_name,
-                PtrView<const LoadOpts> opts = nullptr);
+                const LoadOpts* opts = nullptr);
 
 public:
   // Should be only called ONCE, preferably in a threadpool

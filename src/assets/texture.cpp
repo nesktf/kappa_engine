@@ -8,14 +8,14 @@
 
 namespace kappa::assets {
 
-image_loader::image_loader(std::string_view texture_path, std::string_view texture_name,
-                           bits32 flags) : _impl(new image_loader::loader_internal()) {
+ImageLoader::ImageLoader(std::string_view texture_path, std::string_view texture_name,
+                         bits32 flags) : _impl(new ImageLoader::LoaderInternal()) {
   _impl->texture_path.copy_from(texture_path.data(), texture_path.size());
   _impl->texture_name.copy_from(texture_name.data(), texture_name.size());
   _impl->chima_flags = flags;
 }
 
-AssExpect<image_data> image_loader::load() {
+AssExpect<ImageData> ImageLoader::load() {
   ka_assert(_impl, "texture_loader use after free");
   const DeferFn defer = [this]() {
     delete _impl;
@@ -43,7 +43,7 @@ AssExpect<image_data> image_loader::load() {
   }
 
   try {
-    auto* ptr = new image_data::image_internal(*std::move(chima), *image);
+    auto* ptr = new ImageData::ImageInternal(*std::move(chima), *image);
     std::memcpy(ptr->name.data, _impl->texture_name.data, sizeof(ptr->name.data));
     ptr->name.len = _impl->texture_name.len;
     std::memcpy(ptr->path.data, _impl->texture_path.data, sizeof(ptr->path.data));
@@ -60,9 +60,9 @@ AssExpect<image_data> image_loader::load() {
   }
 }
 
-image_data::image_data(image_internal& data) noexcept : _data(&data) {}
+ImageData::ImageData(ImageInternal& data) noexcept : _data(&data) {}
 
-void image_data::destroy() noexcept {
+void ImageData::destroy() noexcept {
   if (!_data) {
     return;
   }
@@ -70,27 +70,27 @@ void image_data::destroy() noexcept {
   _data = nullptr;
 }
 
-BufferName& image_data::name() const {
+BufferName& ImageData::name() const {
   ka_assert(_data, "texture_data use after free");
   return _data->name;
 }
 
-BufferPath& image_data::path() const {
+BufferPath& ImageData::path() const {
   ka_assert(_data, "texture_data use after free");
   return _data->path;
 }
 
-void* image_data::data() const {
+void* ImageData::data() const {
   ka_assert(_data, "texture_data use after free");
   return _data->image.data();
 }
 
-Extent2D image_data::extent() const {
+Extent2D ImageData::extent() const {
   ka_assert(_data, "texture_data use after free");
   return {_data->image.get().extent.width, _data->image.get().extent.height};
 }
 
-ImageFormat image_data::format() const {
+ImageFormat ImageData::format() const {
   ka_assert(_data, "texture_data use after free");
   return _data->format;
 }
