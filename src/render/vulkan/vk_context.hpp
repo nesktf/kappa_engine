@@ -1,44 +1,46 @@
 #pragma once
 
-#include "../../util/function.hpp"
-#include "../../util/ptr.hpp"
+#include "./vk_private.hpp"
 
-#include "./vk_error.hpp"
+#include "./vk_buffer.hpp"
+#include "./vk_device.hpp"
+#include "./vk_swapchain.hpp"
+#include "./vk_util.hpp"
 
 namespace kappa::render {
 
-struct VulkanInfo {
-  const char* app_name;
-  u32 app_ver;
-};
-
-struct VulkanContextImpl;
-
-class VulkanContext {
-public:
-  using SurfaceProviderFn =
-    TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*), 2 * sizeof(void*),
-           8>;
-
-  struct Deleter {
-    void operator()(VulkanContextImpl* impl) noexcept;
+struct VulkanContextImpl {
+  struct FrameData {
+    VkCommandPool cmdpool;
+    VkCommandBuffer cmdbuf;
+    VkSemaphore swapchain_sem, render_sem;
+    VkFence render_fen;
   };
 
-public:
-  VulkanContext(VulkanContextImpl& impl) noexcept : _impl(&impl) {}
+  // temp
+  struct DrawThing {
+    VulkanImage image;
+    VkExtent2D extent;
+    VkDescriptorPool desc_pool;
+    VkDescriptorSet image_desc;
+    VkDescriptorSetLayout image_desc_layout;
+    VkPipeline gradient_pipeline;
+    VkPipelineLayout gradient_layout;
+  };
 
-public:
-  static fn create(const VulkanInfo& app_info, VkExtent2D surface_extent,
-                   Span<const char*> surface_extensions, SurfaceProviderFn surface_provider)
-    -> VkSvExpect<VulkanContext>;
+  VkInstance vk;
+  VkDebugUtilsMessengerEXT messenger;
+  VmaAllocator vmalloc;
+  VulkanDevice device;
+  VkSurfaceKHR surface;
+  VulkanSwapchain swapchain;
+  VulkanDelQueue delqueue;
 
-public:
-  fn rebuild_swapchain(VkExtent2D surface_extent) -> VkSvExpect<void>;
+  FrameData frames[MAX_FRAMES_IN_FLIGHT];
+  u32 curr_frame;
 
-  fn draw() -> void;
-
-private:
-  std::unique_ptr<VulkanContextImpl, Deleter> _impl;
+  VkDescriptorPool desc_alloc;
+  DrawThing draw;
 };
 
 } // namespace kappa::render

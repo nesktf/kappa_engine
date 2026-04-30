@@ -1,6 +1,6 @@
 #include "./instance.hpp"
 #include "../util/logger.hpp"
-#include "./vulkan/vk_context.hpp"
+#include "./vulkan/vk.hpp"
 
 #include <GLFW/glfw3.h>
 

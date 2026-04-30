@@ -1,0 +1,140 @@
+#include "./vk_swapchain.hpp"
+#include "./vk_util.hpp"
+
+#include <algorithm>
+
+namespace kappa::render {
+
+fn vk_create_swapchain(const VulkanSwapchainArgs& args, VkSwapchainKHR old_swapchain)
+  -> VkExpect<VulkanSwapchain> {
+  ka_assert(args.device != VK_NULL_HANDLE);
+  ka_assert(args.physical_device != VK_NULL_HANDLE);
+  ka_assert(args.surface != VK_NULL_HANDLE);
+  ka_assert(!args.surface_present_modes.empty());
+  ka_assert(!args.surface_formats.empty());
+
+  // How are the images in the swapchain presented?
+  const fn find_present_mode = [&]() -> VkPresentModeKHR {
+    // VK_PRESENT_MODE_IMMEDIATE_KHR -> Images submited are transferred to the screen immediately
+    // VK_PRESENT_MODE_FIFO_KHR -> The swap chain is a FIFO queue of images (double buffering)
+    // VK_PRESENT_MODE_FIFO_RELAXED_KHR -> Doesn't wait for next vblank if the queue was empty
+    // VK_PRESENT_MODE_MAILBOX_KHR -> Triple buffering
+
+    for (const auto& mode : args.surface_present_modes) {
+      if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+        return mode;
+      }
+    }
+
+    return VK_PRESENT_MODE_FIFO_KHR; // Only one guaranteed to be available
+  };
+
+  VkSurfaceCapabilitiesKHR capabilities{};
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(args.physical_device, args.surface, &capabilities);
+
+  // What is the format of the swapchain images?
+  const auto swapchain_format = [&]() -> VkSurfaceFormatKHR {
+    // Try to get a swap surface with B8G8R8A8 pixel format or just use the first one
+    // if there is not one available
+    for (const auto& format : args.surface_formats) {
+      if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+          format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        return format;
+      }
+    }
+    return args.surface_formats[0];
+  }();
+  const auto image_format = swapchain_format.format;
+
+  // Resolution of the swapchain images (in pixels), usually the resolution of the window
+  const auto swapchain_extent = [&]() -> VkExtent2D {
+    if (capabilities.currentExtent.width != std::numeric_limits<u32>::max()) {
+      return capabilities.currentExtent;
+    }
+
+    VkExtent2D actual_extent = args.surface_extent;
+    actual_extent.height = std::clamp(actual_extent.width, capabilities.minImageExtent.width,
+                                      capabilities.maxImageExtent.width);
+    actual_extent.width = std::clamp(actual_extent.height, capabilities.minImageExtent.height,
+                                     capabilities.maxImageExtent.height);
+    return actual_extent;
+  }();
+
+  // Images that will be stored in the swap chain
+  // Add one to avoid waiting for the driver to complete operatons
+  u32 image_count = capabilities.minImageCount + 1;
+  if (capabilities.maxImageCount > 0 && image_count > capabilities.maxImageCount) {
+    // Clamp
+    image_count = capabilities.maxImageCount;
+  }
+
+  VkSwapchainCreateInfoKHR create_info{};
+  create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+  create_info.surface = args.surface;
+  create_info.imageFormat = image_format;
+  create_info.minImageCount = image_count;
+  create_info.imageColorSpace = swapchain_format.colorSpace;
+  create_info.imageExtent = swapchain_extent;
+  create_info.imageArrayLayers = 1; // Layers for each image, 1 if not using stereoscopic 3D
+
+  // Sets the operations for the swapchain, in this case we only render directly
+  create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  // create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT; // For postprocessing
+
+  const u32 queue_indices[] = {args.graphics_queue, args.present_queue};
+  // imageSharingMode only refers to ownership transfer needs
+  if (args.graphics_queue != args.present_queue) {
+    create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT; // Shared across queue families
+    create_info.queueFamilyIndexCount = 2;
+    create_info.pQueueFamilyIndices = queue_indices;
+  } else {
+    create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // Owned by a single queue family
+    // create_info.queueFamilyIndexCount = 0;
+    // create_info.pQueueFamilyIndices = nullptr;
+  }
+
+  // I hate inverted framebuffers
+  create_info.preTransform = capabilities.currentTransform;
+
+  // For blending with other windows
+  create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+
+  create_info.presentMode = find_present_mode();
+  create_info.clipped = VK_TRUE;
+
+  // Used when the swap chain has to be reconstructed
+  create_info.oldSwapchain = old_swapchain;
+
+  VulkanSwapchain swapchain;
+  if (auto res = vkCreateSwapchainKHR(args.device, &create_info, vkalloc, &swapchain.swapchain);
+      res != VK_SUCCESS) {
+    return {unexpect, res};
+  }
+
+  vkGetSwapchainImagesKHR(args.device, swapchain.swapchain, &image_count, nullptr);
+  ka_assert(image_count > 0);
+  swapchain.images = make_array<VkImage>(uninitialized, image_count);
+  swapchain.image_views = make_array<VkImageView>(uninitialized, image_count);
+  swapchain.extent = swapchain_extent;
+
+  vkGetSwapchainImagesKHR(args.device, swapchain.swapchain, &image_count, swapchain.images.data());
+  for (u32 i = 0; i < swapchain.images.size(); ++i) {
+    const auto create_info =
+      vkmk_imageview_info(image_format, swapchain.images[i], VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_ASSERT(vkCreateImageView(args.device, &create_info, vkalloc, &swapchain.image_views[i]));
+  }
+  VK_LOG(debug, "Creating swapchain: {}x{}", swapchain_extent.width, swapchain_extent.height);
+
+  return {in_place, std::move(swapchain)};
+}
+
+fn vk_destroy_swapchain(VkDevice device, VulkanSwapchain& swapchain) -> void {
+  for (usize i = 0; i < swapchain.images.size(); ++i) {
+    vkDestroyImageView(device, swapchain.image_views[i], vkalloc);
+  }
+  vkDestroySwapchainKHR(device, swapchain.swapchain, vkalloc);
+  swapchain.images.reset();
+  swapchain.image_views.reset();
+}
+
+} // namespace kappa::render

@@ -1,10 +1,8 @@
 #pragma once
 
-#include "../../core.hpp"
-#include "../../util/array.hpp"
+#include "./vk_private.hpp"
 
-#include <vk_mem_alloc.h>
-#include <vulkan/vulkan_core.h>
+#include "../../util/array.hpp"
 
 namespace kappa::render {
 

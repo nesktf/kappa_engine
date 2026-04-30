@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../../util/expected.hpp"
+#include "../../util/function.hpp"
+#include "../../util/ptr.hpp"
 
 #include <vulkan/vulkan_core.h>
 
@@ -61,5 +63,39 @@ using VkSExpect = Expected<T, VkSvError>;
 
 template<typename T>
 using VkSvExpect = Expected<T, VkSvError>;
+
+struct VulkanInfo {
+  const char* app_name;
+  u32 app_ver;
+};
+
+struct VulkanContextImpl;
+
+class VulkanContext {
+public:
+  using SurfaceProviderFn =
+    TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*), 2 * sizeof(void*),
+           8>;
+
+  struct Deleter {
+    void operator()(VulkanContextImpl* impl) noexcept;
+  };
+
+public:
+  VulkanContext(VulkanContextImpl& impl) noexcept : _impl(&impl) {}
+
+public:
+  static fn create(const VulkanInfo& app_info, VkExtent2D surface_extent,
+                   Span<const char*> surface_extensions, SurfaceProviderFn surface_provider)
+    -> VkSvExpect<VulkanContext>;
+
+public:
+  fn rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void>;
+
+  fn draw() -> void;
+
+private:
+  std::unique_ptr<VulkanContextImpl, Deleter> _impl;
+};
 
 } // namespace kappa::render

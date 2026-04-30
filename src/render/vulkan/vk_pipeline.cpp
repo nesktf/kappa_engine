@@ -1,5 +1,4 @@
 #include "./vk_pipeline.hpp"
-#include "./vk_private.hpp"
 #include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
@@ -62,6 +61,7 @@ fn vkpool_create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> 
 fn vkpool_allocate(VkDescriptorPool pool, VkDevice device, VkDescriptorSetLayout layout)
   -> VkExpect<VkDescriptorSet> {
   VkDescriptorSetAllocateInfo alloc_info{};
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   alloc_info.pNext = nullptr;
   alloc_info.descriptorPool = pool;
   alloc_info.descriptorSetCount = 1;
