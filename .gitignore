@@ -1,5 +1,6 @@
 build/*
 .cache/*
-res/*
+res/models/*
+res/shaders/*.spv
 .project.toml.bak
 imgui.ini
