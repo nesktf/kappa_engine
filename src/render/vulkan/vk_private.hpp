@@ -24,6 +24,8 @@
 
 namespace kappa::render {
 
+class VulkanDelQueue;
+
 constexpr auto validation_layers = std::to_array<const char*>({
   "VK_LAYER_KHRONOS_validation",
 });

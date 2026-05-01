@@ -12,7 +12,9 @@ public:
 
 public:
   fn add_binding(u32 binding, VkDescriptorType type) -> void;
+
   fn clear() -> void;
+
   fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
            VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
 
@@ -25,12 +27,29 @@ struct VulkanDescPoolRatio {
   f32 ratio;
 };
 
-fn vkpool_create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
-  -> VkExpect<VkDescriptorPool>;
-fn vkpool_allocate(VkDescriptorPool pool, VkDevice device, VkDescriptorSetLayout layout)
-  -> VkExpect<VkDescriptorSet>;
-fn vkpool_clear_descriptors(VkDescriptorPool pool, VkDevice device) -> void;
+class VulkanDescPool {
+private:
+  struct create_t {};
 
-fn vkshader_create(VkDevice device, Span<const u8> source) -> VkExpect<VkShaderModule>;
+public:
+  VulkanDescPool(create_t, VkDevice device, VkDescriptorPool pool);
+
+public:
+  static fn create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
+    -> VkExpect<VulkanDescPool>;
+
+public:
+  fn add_to_delqueue(VulkanDelQueue& queue) -> void;
+
+  fn alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
+
+  fn clear() -> void;
+
+private:
+  VkDevice _device;
+  VkDescriptorPool _pool;
+};
+
+fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule>;
 
 } // namespace kappa::render

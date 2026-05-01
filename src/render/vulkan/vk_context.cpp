@@ -3,6 +3,8 @@
 #include "./vk_pipeline.hpp"
 
 #include "../../util/filesystem.hpp"
+#include "vk_private.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -187,20 +189,21 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   return {};
 }
 
-fn init_frame_data(VulkanContextImpl& ctx) -> void {
+fn create_frame_data(VkDevice device, u32 graphics_queue)
+  -> std::array<VulkanContextImpl::FrameData, MAX_FRAMES_IN_FLIGHT> {
+  std::array<VulkanContextImpl::FrameData, MAX_FRAMES_IN_FLIGHT> frames{};
   // create a command pool for commands submitted to the graphics queue.
   // we also want the pool to allow for resetting of individual command buffers
   const auto cmdpool_info =
-    vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, ctx.device.graphics_queue);
+    vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    VK_ASSERT(
-      vkCreateCommandPool(ctx.device.device, &cmdpool_info, nullptr, &ctx.frames[i].cmdpool));
-    ctx.delqueue.enqueue(ctx.frames[i].cmdpool, ctx.device.device);
+    VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, nullptr, &frames[i].cmdpool));
+    // ctx.delqueue.enqueue(ctx.frames[i]->cmdpool, device);
 
     // allocate the default command buffer that we will use for rendering
     const auto cmd_alloc_info =
-      vkmk_cmdbuf_alloc_info(ctx.frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    VK_ASSERT(vkAllocateCommandBuffers(ctx.device.device, &cmd_alloc_info, &ctx.frames[i].cmdbuf));
+      vkmk_cmdbuf_alloc_info(frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &frames[i].cmdbuf));
   }
 
   // create syncronization structures
@@ -210,43 +213,43 @@ fn init_frame_data(VulkanContextImpl& ctx) -> void {
   const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
   const auto semaphore_create_info = vkmk_semaphore_info(0);
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &frames[i].render_fen));
+    // ctx.delqueue.enqueue(frames[i].render_fen, device);
+
     VK_ASSERT(
-      vkCreateFence(ctx.device.device, &fence_create_info, vkalloc, &ctx.frames[i].render_fen));
-    ctx.delqueue.enqueue(ctx.frames[i].render_fen, ctx.device.device);
+      vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &frames[i].swapchain_sem));
+    // ctx.delqueue.enqueue(ctx.frames[i].swapchain_sem, ctx.device.device);
 
-    VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
-                                &ctx.frames[i].swapchain_sem));
-    ctx.delqueue.enqueue(ctx.frames[i].swapchain_sem, ctx.device.device);
-
-    VK_ASSERT(vkCreateSemaphore(ctx.device.device, &semaphore_create_info, vkalloc,
-                                &ctx.frames[i].render_sem));
-    ctx.delqueue.enqueue(ctx.frames[i].render_sem, ctx.device.device);
+    VK_ASSERT(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &frames[i].render_sem));
+    // ctx.delqueue.enqueue(ctx.frames[i].render_sem, ctx.device.device);
   }
+
+  return frames;
 }
 
 fn swapchain_args_from_ctx(VulkanContextImpl& ctx, VkExtent2D surface_extent)
   -> VulkanSwapchainArgs {
-  ka_assert(ctx.device.device != VK_NULL_HANDLE);
+  ka_assert(ctx.device);
   VulkanSwapchainArgs swargs{};
-  swargs.device = ctx.device.device;
-  swargs.physical_device = ctx.device.physical_device;
+  swargs.device = ctx.device->device();
+  swargs.physical_device = ctx.device->physical_device();
   swargs.surface = ctx.surface;
   swargs.surface_extent = surface_extent;
-  swargs.surface_formats = {ctx.device.surface_formats.data(), ctx.device.surface_formats.size()};
-  swargs.surface_present_modes = {ctx.device.surface_present_modes.data(),
-                                  ctx.device.surface_present_modes.size()};
-  swargs.graphics_queue = ctx.device.graphics_queue;
-  swargs.present_queue = ctx.device.present_queue;
+  swargs.surface_formats = ctx.device->surface_formats();
+  swargs.surface_present_modes = ctx.device->surface_present_modes();
+  const auto [graphics, present, _] = ctx.device->queues();
+  swargs.graphics_queue = graphics;
+  swargs.present_queue = present;
   return swargs;
 }
 
 fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
   return [=]() {
-    if (ctx->device.device) {
-      vkDeviceWaitIdle(ctx->device.device);
-      if (ctx->swapchain.swapchain) {
+    if (ctx->device) {
+      ctx->device->wait_idle();
+      if (ctx->swapchain) {
         // We have to handle the swapchain destruction manually
-        vk_destroy_swapchain(ctx->device.device, ctx->swapchain);
+        ctx->swapchain->destroy(ctx->device->device());
       }
     }
     ctx->delqueue.flush();
@@ -255,67 +258,60 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
   };
 }
 
-} // namespace
-
 // temp: test rendering things
-namespace {
-
-fn init_draw_image(VulkanContextImpl& ctx) -> void {
+fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmalloc)
+  -> VulkanContextImpl::DrawThing {
+  // Init draw image
   const VulkanImageArgs imgargs{
-    .device = ctx.device.device,
-    .vma = ctx.vmalloc,
-    .extent = ctx.swapchain.extent,
+    .device = device,
+    .vma = vmalloc,
+    .extent = draw_extent,
     .format = VK_FORMAT_R16G16B16A16_SFLOAT,
   };
   auto image = vk_alloc_image(imgargs).value();
-  ctx.delqueue.enqueue(image.image, image.alloc, ctx.vmalloc);
-  ctx.delqueue.enqueue(image.view, ctx.device.device);
-  ctx.draw.image = std::move(image);
-}
 
-fn init_descriptors(VulkanContextImpl& ctx) -> void {
+  // Init descriptors
   const auto sizes = std::to_array<VulkanDescPoolRatio>({
     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
   });
-  ctx.draw.desc_pool = vkpool_create(ctx.device.device, 10, sizes).value();
-  ctx.delqueue.enqueue(ctx.draw.desc_pool, ctx.device.device);
+  auto desc_pool = VulkanDescPool::create(device, 10, sizes).value();
+  VkDescriptorSetLayout image_desc_layout{};
   {
     VulkanDescriptorLayoutBuilder builder;
     builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-    ctx.draw.image_desc_layout = builder.build(ctx.device.device, VK_SHADER_STAGE_COMPUTE_BIT);
-    ctx.delqueue.enqueue(ctx.draw.image_desc_layout, ctx.device.device);
+    image_desc_layout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT);
   }
-  ctx.draw.image_desc =
-    vkpool_allocate(ctx.draw.desc_pool, ctx.device.device, ctx.draw.image_desc_layout).value();
+  const auto image_desc = desc_pool.alloc_set(image_desc_layout).value();
 
   VkDescriptorImageInfo img_info{};
   img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  img_info.imageView = ctx.draw.image.view;
+  img_info.imageView = image.view;
 
   VkWriteDescriptorSet draw_image_write{};
   draw_image_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   draw_image_write.pNext = nullptr;
 
   draw_image_write.dstBinding = 0;
-  draw_image_write.dstSet = ctx.draw.image_desc;
+  draw_image_write.dstSet = image_desc;
   draw_image_write.descriptorCount = 1;
   draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   draw_image_write.pImageInfo = &img_info;
 
-  vkUpdateDescriptorSets(ctx.device.device, 1, &draw_image_write, 0, nullptr);
-}
+  vkUpdateDescriptorSets(device, 1, &draw_image_write, 0, nullptr);
 
-fn init_pipelines(VulkanContextImpl& ctx) -> void {
+  // Init pipelines
   VkPipelineLayoutCreateInfo compute_layout{};
   compute_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   compute_layout.pNext = nullptr;
-  compute_layout.pSetLayouts = &ctx.draw.image_desc_layout;
+  compute_layout.pSetLayouts = &image_desc_layout;
   compute_layout.setLayoutCount = 1;
-  VK_ASSERT(vkCreatePipelineLayout(ctx.device.device, &compute_layout, vkalloc,
-                                   &ctx.draw.gradient_layout));
-  auto file = load_entire_file("../../../res/shaders/compute_gradient.cs.spv");
+
+  VkPipelineLayout gradient_layout{};
+  VK_ASSERT(vkCreatePipelineLayout(device, &compute_layout, vkalloc, &gradient_layout));
+
+  auto file = load_entire_file(KA_RES_DIR "/shaders/test.comp.spv");
   ka_assert(!file.empty());
-  auto shader = vkshader_create(ctx.device.device, {file.data(), file.size()}).value();
+  auto shader = vk_create_shader(device, {file.data(), file.size()}).value();
   VkPipelineShaderStageCreateInfo stage_info{};
   stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   stage_info.pNext = nullptr;
@@ -326,12 +322,20 @@ fn init_pipelines(VulkanContextImpl& ctx) -> void {
   VkComputePipelineCreateInfo compute_info{};
   compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   compute_info.pNext = nullptr;
-  compute_info.layout = ctx.draw.gradient_layout;
+  compute_info.layout = gradient_layout;
   compute_info.stage = stage_info;
-  VK_ASSERT(vkCreateComputePipelines(ctx.device.device, VK_NULL_HANDLE, 1, &compute_info, vkalloc,
-                                     &ctx.draw.gradient_pipeline));
-  // ctx.delqueue.enqueue(ctx.draw.gradient_layout, ctx.device.device);
-  // ctx.delqueue.enqueue(ctx.draw.gradient_pipeline, ctx.device.device);
+
+  VkPipeline gradient_pipeline{};
+  VK_ASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc,
+                                     &gradient_pipeline));
+
+  return VulkanContextImpl::DrawThing{.image = std::move(image),
+                                      .extent = draw_extent,
+                                      .desc_pool = std::move(desc_pool),
+                                      .image_desc = image_desc,
+                                      .image_desc_layout = image_desc_layout,
+                                      .gradient_pipeline = gradient_pipeline,
+                                      .gradient_layout = gradient_layout};
 }
 
 } // namespace
@@ -377,15 +381,16 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
   const fn select_device = [&](VkSurfaceKHR&& surface) -> VkSvExpect<VulkanDevice> {
     ctx->surface = surface;
     ctx->delqueue.enqueue(surface, ctx->vk);
-    return vk_create_device(ctx->vk, ctx->surface).transform_error([](VkError&& err) -> VkSvError {
-      return {"Failed to find a suitable Vulkan device", err.code()};
-    });
+    return VulkanDevice::create(ctx->vk, ctx->surface)
+      .transform_error([](VkError&& err) -> VkSvError {
+        return {"Failed to find a suitable Vulkan device", err.code()};
+      });
   };
 
   const fn create_buffer_alloc = [&](VulkanDevice&& device) -> VkSvExpect<VmaAllocator> {
-    ctx->device = std::move(device);
-    ctx->delqueue.enqueue(ctx->device.device);
-    return vk_create_vma_alloc(ctx->vk, ctx->device.device, ctx->device.physical_device)
+    ctx->device.emplace(std::move(device));
+    ctx->device->add_to_delqueue(ctx->delqueue);
+    return vk_create_vma_alloc(ctx->vk, ctx->device->device(), ctx->device->physical_device())
       .transform_error([](VkError&& err) -> VkSvError {
         return {"Failed to create buffer allocator", err.code()};
       });
@@ -393,10 +398,32 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
 
   const fn create_swapchain = [&](VmaAllocator&& vmalloc) -> VkSvExpect<VulkanSwapchain> {
     ctx->vmalloc = vmalloc;
-    ctx->delqueue.enqueue(vmalloc, ctx->device.device);
+    ctx->delqueue.enqueue(vmalloc, ctx->device->device());
     const auto swargs = swapchain_args_from_ctx(*ctx, surface_extent);
-    return vk_create_swapchain(swargs).transform_error(
+    return VulkanSwapchain::create(swargs).transform_error(
       [](VkError&& err) -> VkSvError { return {"Failed to create swapchain", err.code()}; });
+  };
+
+  const fn initialize_frame_data = [&](VulkanSwapchain&& swapchain) -> VulkanContext {
+    ctx->swapchain.emplace(std::move(swapchain));
+    const auto device = ctx->device->device();
+    const auto [graphics, _, __] = ctx->device->queues();
+    auto frames = create_frame_data(device, graphics);
+    for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+      ctx->frames[i].emplace(std::move(frames[i]));
+    }
+
+    // temp: test rendering things
+    ctx->draw.emplace(create_draw_thing(device, ctx->swapchain->extent(), ctx->vmalloc));
+    ctx->delqueue.enqueue(ctx->draw->image.image, ctx->draw->image.alloc, ctx->vmalloc);
+    ctx->delqueue.enqueue(ctx->draw->image.view, device);
+    ctx->draw->desc_pool.add_to_delqueue(ctx->delqueue);
+    ctx->delqueue.enqueue(ctx->draw->image_desc_layout, device);
+    ctx->delqueue.enqueue(ctx->draw->gradient_layout, device);
+    ctx->delqueue.enqueue(ctx->draw->gradient_pipeline, device);
+
+    ctxerr.disengage();
+    return {*ctx};
   };
 
   return make_vk_instance(*ctx, app_info, {extensions.data(), extensions.size()})
@@ -404,23 +431,15 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     .and_then(select_device)
     .and_then(create_buffer_alloc)
     .and_then(create_swapchain)
-    .transform([&](VulkanSwapchain&& swapchain) -> VulkanContext {
-      ctx->swapchain = std::move(swapchain);
-      init_frame_data(*ctx);
-      init_draw_image(*ctx);
-      init_descriptors(*ctx);
-      init_pipelines(*ctx);
-      ctxerr.disengage();
-      return {*ctx};
-    });
+    .transform(initialize_frame_data);
 }
 
 fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void> {
   const auto swargs = swapchain_args_from_ctx(*_impl, surface_extent);
-  return vk_create_swapchain(swargs, _impl->swapchain.swapchain)
+  return VulkanSwapchain::create(swargs, _impl->swapchain->swapchain())
     .transform([&](VulkanSwapchain&& swapchain) {
-      vk_destroy_swapchain(_impl->device.device, _impl->swapchain);
-      _impl->swapchain = std::move(swapchain);
+      _impl->swapchain->destroy(_impl->device->device());
+      _impl->swapchain.emplace(std::move(swapchain));
     });
 }
 
@@ -428,44 +447,47 @@ namespace {
 
 fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
   // make a clear-color from frame number. This will flash with a 120 frame period.
-  f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
-  VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
-  const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+  // f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
+  // VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
+  // const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 
 #if 0
   // clear image
   vkCmdClearColorImage(cmdbuf, ctx.draw.image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
                        &clear_range);
 #endif
-  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw.gradient_pipeline);
-  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw.gradient_layout, 0, 1,
-                          &ctx.draw.image_desc, 0, nullptr);
-  vkCmdDispatch(cmdbuf, std::ceil(ctx.draw.extent.width / 16.f),
-                std::ceil(ctx.draw.extent.height / 16.f), 1);
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw->gradient_pipeline);
+  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw->gradient_layout, 0, 1,
+                          &ctx.draw->image_desc, 0, nullptr);
+  vkCmdDispatch(cmdbuf, std::ceil(ctx.draw->extent.width / 16.f),
+                std::ceil(ctx.draw->extent.height / 16.f), 1);
 }
 
 } // namespace
 
 fn VulkanContext::draw() -> void {
-  auto& frame = _impl->frames[_impl->curr_frame % MAX_FRAMES_IN_FLIGHT];
+  auto& frame = *_impl->frames[_impl->curr_frame % MAX_FRAMES_IN_FLIGHT];
+
+  const auto device = _impl->device->device();
+  const auto [graphics_idx, present_idx, _] = _impl->device->queues();
 
   VkQueue graphics_queue{};
-  vkGetDeviceQueue(_impl->device.device, _impl->device.graphics_queue, 0, &graphics_queue);
+  vkGetDeviceQueue(device, graphics_idx, 0, &graphics_queue);
   ka_assert(graphics_queue != VK_NULL_HANDLE);
   VkQueue present_queue{};
-  vkGetDeviceQueue(_impl->device.device, _impl->device.present_queue, 0, &present_queue);
+  vkGetDeviceQueue(device, present_idx, 0, &present_queue);
   ka_assert(present_queue != VK_NULL_HANDLE);
 
   // Wait for fences
-  VK_ASSERT(vkWaitForFences(_impl->device.device, 1, &frame.render_fen, true, 1000000000));
-  VK_ASSERT(vkResetFences(_impl->device.device, 1, &frame.render_fen));
+  VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
+  VK_ASSERT(vkResetFences(device, 1, &frame.render_fen));
   // frame.delqueue.flush();
 
   // Acquire swapchain image
   u32 swapchain_image_idx;
-  VkResult res =
-    vkAcquireNextImageKHR(_impl->device.device, _impl->swapchain.swapchain, 1000000000,
-                          frame.swapchain_sem, nullptr, &swapchain_image_idx);
+  const auto swapchain = _impl->swapchain->swapchain();
+  VkResult res = vkAcquireNextImageKHR(device, swapchain, 1000000000, frame.swapchain_sem, nullptr,
+                                       &swapchain_image_idx);
   ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 
   // Initialize command buffer
@@ -475,28 +497,29 @@ fn VulkanContext::draw() -> void {
 
   // transition our main draw image into general layout so we can write into it
   // we will overwrite it all so we dont care about what was the older layout
-  vkcmd_transition_image(frame.cmdbuf, _impl->draw.image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+  vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                          VK_IMAGE_LAYOUT_GENERAL);
 
   // clear the thing
   draw_background(*_impl, frame.cmdbuf);
 
   // transition the draw image and the swapchain image into their correct transfer layouts
-  vkcmd_transition_image(frame.cmdbuf, _impl->draw.image.image, VK_IMAGE_LAYOUT_GENERAL,
+  const auto swapchain_images = _impl->swapchain->images();
+  const auto swapchain_extent = _impl->swapchain->extent();
+  vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image, VK_IMAGE_LAYOUT_GENERAL,
                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  vkcmd_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+  vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
                          VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
   VkExtent2D draw_extent;
-  draw_extent.width = _impl->draw.image.extent.width;
-  draw_extent.height = _impl->draw.image.extent.width;
+  draw_extent.width = _impl->draw->image.extent.width;
+  draw_extent.height = _impl->draw->image.extent.width;
   // execute a copy from the draw image into the swapchain
-  vkcmd_transfer_image(frame.cmdbuf, _impl->draw.image.image,
-                       _impl->swapchain.images[swapchain_image_idx], draw_extent,
-                       _impl->swapchain.extent);
+  vkcmd_transfer_image(frame.cmdbuf, _impl->draw->image.image,
+                       swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
 
   // make the swapchain image into presentable mode
-  vkcmd_transition_image(frame.cmdbuf, _impl->swapchain.images[swapchain_image_idx],
+  vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
   // finalize the command buffer (we can no longer add commands, but it can now be executed)
@@ -524,7 +547,7 @@ fn VulkanContext::draw() -> void {
   VkPresentInfoKHR presentInfo = {};
   presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
   presentInfo.pNext = nullptr;
-  presentInfo.pSwapchains = &_impl->swapchain.swapchain;
+  presentInfo.pSwapchains = &swapchain;
   presentInfo.swapchainCount = 1;
 
   presentInfo.pWaitSemaphores = &frame.render_sem;

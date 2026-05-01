@@ -5,7 +5,17 @@
 
 namespace kappa::render {
 
-fn vk_create_swapchain(const VulkanSwapchainArgs& args, VkSwapchainKHR old_swapchain)
+VulkanSwapchain::VulkanSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat format,
+                                 VkExtent2D extent, UniqueArray<VkImage>&& images,
+                                 UniqueArray<VkImageView>&& image_views) :
+    _swapchain(swapchain), _format(format), _extent(extent), _images(std::move(images)),
+    _image_views(std::move(image_views)) {
+  ka_assert(_swapchain != VK_NULL_HANDLE);
+  ka_assert(!_images.empty());
+  ka_assert(!_image_views.empty());
+}
+
+fn VulkanSwapchain::create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_swapchain)
   -> VkExpect<VulkanSwapchain> {
   ka_assert(args.device != VK_NULL_HANDLE);
   ka_assert(args.physical_device != VK_NULL_HANDLE);
@@ -105,36 +115,41 @@ fn vk_create_swapchain(const VulkanSwapchainArgs& args, VkSwapchainKHR old_swapc
   // Used when the swap chain has to be reconstructed
   create_info.oldSwapchain = old_swapchain;
 
-  VulkanSwapchain swapchain;
-  if (auto res = vkCreateSwapchainKHR(args.device, &create_info, vkalloc, &swapchain.swapchain);
+  VkSwapchainKHR swapchain;
+  if (auto res = vkCreateSwapchainKHR(args.device, &create_info, vkalloc, &swapchain);
       res != VK_SUCCESS) {
     return {unexpect, res};
   }
 
-  vkGetSwapchainImagesKHR(args.device, swapchain.swapchain, &image_count, nullptr);
+  vkGetSwapchainImagesKHR(args.device, swapchain, &image_count, nullptr);
   ka_assert(image_count > 0);
-  swapchain.images = make_array<VkImage>(uninitialized, image_count);
-  swapchain.image_views = make_array<VkImageView>(uninitialized, image_count);
-  swapchain.extent = swapchain_extent;
+  auto images = make_array<VkImage>(uninitialized, image_count);
+  auto image_views = make_array<VkImageView>(uninitialized, image_count);
 
-  vkGetSwapchainImagesKHR(args.device, swapchain.swapchain, &image_count, swapchain.images.data());
-  for (u32 i = 0; i < swapchain.images.size(); ++i) {
+  vkGetSwapchainImagesKHR(args.device, swapchain, &image_count, images.data());
+  for (usize i = 0; i < images.size(); ++i) {
     const auto create_info =
-      vkmk_imageview_info(image_format, swapchain.images[i], VK_IMAGE_ASPECT_COLOR_BIT);
-    VK_ASSERT(vkCreateImageView(args.device, &create_info, vkalloc, &swapchain.image_views[i]));
+      vkmk_imageview_info(image_format, images[i], VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_ASSERT(vkCreateImageView(args.device, &create_info, vkalloc, &image_views[i]));
   }
   VK_LOG(debug, "Creating swapchain: {}x{}", swapchain_extent.width, swapchain_extent.height);
 
-  return {in_place, std::move(swapchain)};
+  return {in_place,
+          create_t(),
+          swapchain,
+          image_format,
+          swapchain_extent,
+          std::move(images),
+          std::move(image_views)};
 }
 
-fn vk_destroy_swapchain(VkDevice device, VulkanSwapchain& swapchain) -> void {
-  for (usize i = 0; i < swapchain.images.size(); ++i) {
-    vkDestroyImageView(device, swapchain.image_views[i], vkalloc);
+fn VulkanSwapchain::destroy(VkDevice device) -> void {
+  for (usize i = 0; i < _images.size(); ++i) {
+    vkDestroyImageView(device, _image_views[i], vkalloc);
   }
-  vkDestroySwapchainKHR(device, swapchain.swapchain, vkalloc);
-  swapchain.images.reset();
-  swapchain.image_views.reset();
+  vkDestroySwapchainKHR(device, _swapchain, vkalloc);
+  _images.reset();
+  _image_views.reset();
 }
 
 } // namespace kappa::render

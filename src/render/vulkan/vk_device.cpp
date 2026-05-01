@@ -1,4 +1,5 @@
 #include "./vk_device.hpp"
+#include "./vk_util.hpp"
 
 #include <unordered_set>
 
@@ -13,7 +14,22 @@ constexpr auto base_device_extensions = std::to_array<const char*>({
 
 } // namespace
 
-fn vk_create_device(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanDevice> {
+VulkanDevice::VulkanDevice(create_t, VkDevice device, VkPhysicalDevice physical_device,
+                           QueueIndices queues, Vec<VkSurfaceFormatKHR>&& surface_formats,
+                           Vec<VkPresentModeKHR>&& surface_present_modes) :
+    _device(device), _physical_device(physical_device), _queues(queues),
+    _surface_formats(std::move(surface_formats)),
+    _surface_present_modes(std::move(surface_present_modes)) {
+  ka_assert(_device != VK_NULL_HANDLE);
+  ka_assert(_physical_device != VK_NULL_HANDLE);
+  ka_assert(!_surface_formats.empty());
+  ka_assert(!_surface_present_modes.empty());
+}
+
+fn VulkanDevice::create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanDevice> {
+  ka_assert(vk != VK_NULL_HANDLE);
+  ka_assert(surface != VK_NULL_HANDLE);
+
   u32 device_count{};
   VkResult res = vkEnumeratePhysicalDevices(vk, &device_count, nullptr);
   if (device_count == 0) {
@@ -189,21 +205,28 @@ fn vk_create_device(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanDevic
   create_info.enabledLayerCount = 0;
 #endif
 
-  VulkanDevice device;
-  if (auto ret = vkCreateDevice(physical_device, &create_info, vkalloc, &device.device);
+  VkDevice device;
+  if (auto ret = vkCreateDevice(physical_device, &create_info, vkalloc, &device);
       ret != VK_SUCCESS) {
     return {unexpect, ret};
   }
 
   // Fill device struct
-  device.transfer_queue = transfer.value();
-  device.present_queue = present.value();
-  device.graphics_queue = graphics.value();
-  device.surface_formats = std::move(swapchain_formats);
-  device.surface_present_modes = std::move(swapchain_present_modes);
-  device.physical_device = physical_device;
+  return {in_place,
+          create_t(),
+          device,
+          physical_device,
+          QueueIndices(graphics.value(), present.value(), transfer.value()),
+          std::move(swapchain_formats),
+          std::move(swapchain_present_modes)};
+}
 
-  return {in_place, std::move(device)};
+fn VulkanDevice::add_to_delqueue(VulkanDelQueue& queue) -> void {
+  queue.enqueue(_device);
+}
+
+fn VulkanDevice::wait_idle() -> void {
+  vkDeviceWaitIdle(_device);
 }
 
 } // namespace kappa::render

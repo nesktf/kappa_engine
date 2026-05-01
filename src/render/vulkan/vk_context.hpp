@@ -4,12 +4,60 @@
 
 #include "./vk_buffer.hpp"
 #include "./vk_device.hpp"
+#include "./vk_pipeline.hpp"
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
 
 namespace kappa::render {
 
+// Shitty trivial nullable
+template<typename T>
+class PartialInit {
+public:
+  PartialInit() = default;
+
+  ~PartialInit() { reset(); }
+
+public:
+  template<typename... Args>
+  T& emplace(Args&&... args) {
+    reset();
+    auto* ptr = new (reinterpret_cast<T*>(_buffer)) T(std::forward<Args>(args)...);
+    _buffer[sizeof(T)] = 1;
+    return *ptr;
+  }
+
+  void reset() {
+    if (*this) {
+      ::operator delete(reinterpret_cast<T*>(_buffer));
+      _buffer[sizeof(T)] = 0;
+    }
+  }
+
+  const T& get() const {
+    ka_assert(_buffer[sizeof(T)] == 1, "Not initialized");
+    return *reinterpret_cast<const T*>(_buffer);
+  }
+
+  T& get() { return const_cast<T&>(std::as_const(*this).get()); }
+
+public:
+  T& operator*() { return get(); }
+
+  const T& operator*() const { return get(); }
+
+  T* operator->() { return &get(); }
+
+  const T* operator->() const { return &get(); }
+
+  explicit operator bool() const { return _buffer[sizeof(T)] == 1; }
+
+private:
+  alignas(T) u8 _buffer[sizeof(T) + 1];
+};
+
 struct VulkanContextImpl {
+public:
   struct FrameData {
     VkCommandPool cmdpool;
     VkCommandBuffer cmdbuf;
@@ -21,26 +69,37 @@ struct VulkanContextImpl {
   struct DrawThing {
     VulkanImage image;
     VkExtent2D extent;
-    VkDescriptorPool desc_pool;
+    VulkanDescPool desc_pool;
     VkDescriptorSet image_desc;
     VkDescriptorSetLayout image_desc_layout;
     VkPipeline gradient_pipeline;
     VkPipelineLayout gradient_layout;
   };
 
+public:
+  VulkanContextImpl() = default; // Manually initialized
+
+  VulkanContextImpl(VulkanContextImpl&&) = delete;
+  VulkanContextImpl(const VulkanContextImpl&) = delete;
+  VulkanContextImpl& operator=(VulkanContextImpl&&) = delete;
+  VulkanContextImpl& operator=(const VulkanContextImpl&) = delete;
+  ~VulkanContextImpl() = default;
+
+public:
   VkInstance vk;
   VkDebugUtilsMessengerEXT messenger;
   VmaAllocator vmalloc;
-  VulkanDevice device;
   VkSurfaceKHR surface;
-  VulkanSwapchain swapchain;
   VulkanDelQueue delqueue;
 
-  FrameData frames[MAX_FRAMES_IN_FLIGHT];
+  PartialInit<VulkanDevice> device;
+  PartialInit<VulkanSwapchain> swapchain;
+
+  PartialInit<FrameData> frames[MAX_FRAMES_IN_FLIGHT];
   u32 curr_frame;
 
   VkDescriptorPool desc_alloc;
-  DrawThing draw;
+  PartialInit<DrawThing> draw;
 };
 
 } // namespace kappa::render

@@ -23,6 +23,8 @@ public:
     TYPE_INSTANCE,
     TYPE_DESCPOOL,
     TYPE_DESCLAYOUT,
+    TYPE_PIPLAYOUT,
+    TYPE_PIPELINE,
   };
 
   struct DelData {
@@ -86,6 +88,14 @@ public:
 
   fn enqueue(VkDescriptorSetLayout layout, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)device, (VulkanHandle)layout, TYPE_DESCLAYOUT);
+  }
+
+  fn enqueue(VkPipelineLayout layout, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)device, (VulkanHandle)layout, TYPE_PIPLAYOUT);
+  }
+
+  fn enqueue(VkPipeline pipeline, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)device, (VulkanHandle)pipeline, TYPE_PIPELINE);
   }
 
 private:

@@ -66,6 +66,8 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     STR(INSTANCE);
     STR(DESCPOOL);
     STR(DESCLAYOUT);
+    STR(PIPLAYOUT);
+    STR(PIPELINE);
   }
   KA_UNREACHABLE();
 #undef STR
@@ -116,6 +118,12 @@ fn VulkanDelQueue::flush() -> void {
       } break;
       case TYPE_DESCLAYOUT: {
         vkDestroyDescriptorSetLayout((VkDevice)parent, (VkDescriptorSetLayout)handle, vkalloc);
+      } break;
+      case TYPE_PIPLAYOUT: {
+        vkDestroyPipelineLayout((VkDevice)parent, (VkPipelineLayout)handle, vkalloc);
+      } break;
+      case TYPE_PIPELINE: {
+        vkDestroyPipeline((VkDevice)parent, (VkPipeline)handle, vkalloc);
       } break;
     }
   }

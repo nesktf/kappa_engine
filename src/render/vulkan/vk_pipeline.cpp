@@ -1,5 +1,5 @@
 #include "./vk_pipeline.hpp"
-#include <vulkan/vulkan_core.h>
+#include "./vk_util.hpp"
 
 namespace kappa::render {
 
@@ -34,8 +34,14 @@ fn VulkanDescriptorLayoutBuilder::build(VkDevice device, VkShaderStageFlags stag
   return set;
 }
 
-fn vkpool_create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
-  -> VkExpect<VkDescriptorPool> {
+VulkanDescPool::VulkanDescPool(create_t, VkDevice device, VkDescriptorPool pool) :
+    _device(device), _pool(pool) {
+  ka_assert(_device != VK_NULL_HANDLE);
+  ka_assert(_pool != VK_NULL_HANDLE);
+}
+
+fn VulkanDescPool::create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
+  -> VkExpect<VulkanDescPool> {
   Vec<VkDescriptorPoolSize> pool_sizes;
   pool_sizes.reserve(ratios.size());
   for (const auto& [type, ratio] : ratios) {
@@ -55,36 +61,39 @@ fn vkpool_create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> 
   if (auto ret = vkCreateDescriptorPool(device, &pool_info, vkalloc, &pool); ret != VK_SUCCESS) {
     return {unexpect, ret};
   }
-  return {in_place, pool};
+  return {in_place, create_t(), device, pool};
 }
 
-fn vkpool_allocate(VkDescriptorPool pool, VkDevice device, VkDescriptorSetLayout layout)
-  -> VkExpect<VkDescriptorSet> {
+fn VulkanDescPool::add_to_delqueue(VulkanDelQueue& queue) -> void {
+  queue.enqueue(_pool, _device);
+}
+
+fn VulkanDescPool::alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet> {
   VkDescriptorSetAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   alloc_info.pNext = nullptr;
-  alloc_info.descriptorPool = pool;
+  alloc_info.descriptorPool = _pool;
   alloc_info.descriptorSetCount = 1;
   alloc_info.pSetLayouts = &layout;
 
   VkDescriptorSet set;
-  if (auto ret = vkAllocateDescriptorSets(device, &alloc_info, &set); ret != VK_SUCCESS) {
+  if (auto ret = vkAllocateDescriptorSets(_device, &alloc_info, &set); ret != VK_SUCCESS) {
     return {unexpect, ret};
   }
-  return set;
+  return {in_place, set};
 }
 
-fn vkpool_clear_descriptors(VkDescriptorPool pool, VkDevice device) -> void {
-  vkResetDescriptorPool(device, pool, 0);
+fn VulkanDescPool::clear() -> void {
+  vkResetDescriptorPool(_device, _pool, 0);
 }
 
-fn vkshader_create(VkDevice device, Span<const u8> source) -> VkExpect<VkShaderModule> {
+fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule> {
   VkShaderModuleCreateInfo info{};
   info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   info.pNext = nullptr;
 
-  info.codeSize = source.size();
-  info.pCode = reinterpret_cast<const u32*>(source.data());
+  info.codeSize = src.size();
+  info.pCode = reinterpret_cast<const u32*>(src.data());
   VkShaderModule shader;
   if (auto ret = vkCreateShaderModule(device, &info, vkalloc, &shader); ret != VK_SUCCESS) {
     return {unexpect, ret};
