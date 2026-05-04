@@ -29,7 +29,9 @@ public:
 
   void reset() {
     if (*this) {
-      ::operator delete(reinterpret_cast<T*>(_buffer));
+      if constexpr (!std::is_trivially_destructible_v<T>) {
+        reinterpret_cast<T*>(_buffer)->~T();
+      }
       _buffer[sizeof(T)] = 0;
     }
   }

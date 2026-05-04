@@ -83,19 +83,19 @@ public:
   }
 
   fn enqueue(VkDescriptorPool pool, VkDevice device) -> void {
-    enqueue_handle((VulkanHandle)device, (VulkanHandle)pool, TYPE_DESCPOOL);
+    enqueue_handle((VulkanHandle)pool, (VulkanHandle)device, TYPE_DESCPOOL);
   }
 
   fn enqueue(VkDescriptorSetLayout layout, VkDevice device) -> void {
-    enqueue_handle((VulkanHandle)device, (VulkanHandle)layout, TYPE_DESCLAYOUT);
+    enqueue_handle((VulkanHandle)layout, (VulkanHandle)device, TYPE_DESCLAYOUT);
   }
 
   fn enqueue(VkPipelineLayout layout, VkDevice device) -> void {
-    enqueue_handle((VulkanHandle)device, (VulkanHandle)layout, TYPE_PIPLAYOUT);
+    enqueue_handle((VulkanHandle)layout, (VulkanHandle)device, TYPE_PIPLAYOUT);
   }
 
   fn enqueue(VkPipeline pipeline, VkDevice device) -> void {
-    enqueue_handle((VulkanHandle)device, (VulkanHandle)pipeline, TYPE_PIPELINE);
+    enqueue_handle((VulkanHandle)pipeline, (VulkanHandle)device, TYPE_PIPELINE);
   }
 
 private:
