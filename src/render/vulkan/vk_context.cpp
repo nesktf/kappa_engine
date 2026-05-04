@@ -118,9 +118,9 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   Vec<VkExtensionProperties> exts;
   exts.resize(ext_count);
   vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, exts.data());
-  log_verbose("{} vulkan extensions available", ext_count);
+  VK_LOG(debug, "Vulkan extensions available ({}):", ext_count);
   for (const auto& ext : exts) {
-    log_verbose(" - {}", ext.extensionName);
+    VK_LOG(debug, "- {}", ext.extensionName);
   }
 
   bool ext_avail = true;
@@ -352,9 +352,9 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
   Vec<const char*> extensions;
   extensions.reserve(surface_extensions.size() + 1);
   if (!surface_extensions.empty()) {
-    VK_LOG(debug, "Surface Vulkan extensions:");
+    VK_LOG(debug, "Required Vulkan surface extensions ({}):", surface_extensions.size());
     for (const char* ext : surface_extensions) {
-      VK_LOG(debug, "{}", ext);
+      VK_LOG(debug, "- {}", ext);
       extensions.push_back(ext);
     }
   } else {
@@ -518,7 +518,7 @@ fn VulkanContext::draw() -> void {
 
   VkExtent2D draw_extent;
   draw_extent.width = _impl->draw->image.extent.width;
-  draw_extent.height = _impl->draw->image.extent.width;
+  draw_extent.height = _impl->draw->image.extent.height;
   // execute a copy from the draw image into the swapchain
   vkcmd_transfer_image(frame.cmdbuf, _impl->draw->image.image,
                        swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);

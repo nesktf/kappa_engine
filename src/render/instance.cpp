@@ -77,10 +77,8 @@ fn init_vulkan() {
     VulkanContext::create(info, glfw_surface_extent, glfw_exts, &glfw_make_surface).value();
   g_ctx.emplace(std::move(vk));
   glfwSetFramebufferSizeCallback(
-    g_win->handle, +[](GLFWwindow*, int w, int h) {
-      log_debug("{} {}", w, h);
-      g_ctx->vk.rebuild_swapchain(VkExtent2D(w, h));
-    });
+    g_win->handle,
+    +[](GLFWwindow*, int w, int h) { g_ctx->vk.rebuild_swapchain(VkExtent2D(w, h)); });
 }
 
 fn destroy_vulkan() -> void {
