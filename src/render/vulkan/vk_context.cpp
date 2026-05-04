@@ -328,6 +328,7 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   VkPipeline gradient_pipeline{};
   VK_ASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc,
                                      &gradient_pipeline));
+  vkDestroyShaderModule(device, shader, vkalloc);
 
   return VulkanContextImpl::DrawThing{.image = std::move(image),
                                       .extent = draw_extent,
@@ -411,6 +412,10 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     auto frames = create_frame_data(device, graphics);
     for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
       ctx->frames[i].emplace(std::move(frames[i]));
+      ctx->delqueue.enqueue(ctx->frames[i]->cmdpool, ctx->device->device());
+      ctx->delqueue.enqueue(ctx->frames[i]->render_fen, ctx->device->device());
+      ctx->delqueue.enqueue(ctx->frames[i]->render_sem, ctx->device->device());
+      ctx->delqueue.enqueue(ctx->frames[i]->swapchain_sem, ctx->device->device());
     }
 
     // temp: test rendering things
