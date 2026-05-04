@@ -3,14 +3,17 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
 class VulkanDelQueue {
 public:
   using VulkanHandle = void*;
+  using DelFn = TrivFn<void(), 3 * sizeof(VulkanHandle), 8>;
 
   enum HandleType {
+    TYPE_DELETER,
     TYPE_IMAGE,
     TYPE_IMAGE_VIEW,
     TYPE_SURFACE,
@@ -27,10 +30,23 @@ public:
     TYPE_PIPELINE,
   };
 
-  struct DelData {
+  struct HandleSet {
     VulkanHandle handle;
     VulkanHandle parent;
     VulkanHandle other_parent;
+  };
+
+  struct DelData {
+    DelData(HandleType type, VulkanHandle handle, VulkanHandle parent, VulkanHandle other_parent) :
+        handles(handle, parent, other_parent), type(type) {}
+
+    DelData(DelFn&& deleter_) : deleter(std::move(deleter_)), type(TYPE_DELETER) {}
+
+    union {
+      HandleSet handles;
+      DelFn deleter;
+    };
+
     HandleType type;
   };
 
@@ -38,6 +54,7 @@ public:
   VulkanDelQueue() = default;
 
 public:
+  fn enqueue_deleter(DelFn func) -> void;
   fn enqueue_handle(VulkanHandle handle, VulkanHandle parent, HandleType type,
                     VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
@@ -135,5 +152,11 @@ fn vkmk_cmdpool_info(VkCommandPoolCreateFlags flags, u32 family_index) -> VkComm
 
 fn vkmk_cmdbuf_alloc_info(VkCommandPool cmdpool, VkCommandBufferLevel level)
   -> VkCommandBufferAllocateInfo;
+
+fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
+                    const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo;
+
+fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
+  -> VkRenderingAttachmentInfo;
 
 } // namespace kappa::render

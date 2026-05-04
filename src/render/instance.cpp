@@ -4,6 +4,9 @@
 
 #include <GLFW/glfw3.h>
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
 
@@ -79,11 +82,23 @@ fn init_vulkan() {
   glfwSetFramebufferSizeCallback(
     g_win->handle,
     +[](GLFWwindow*, int w, int h) { g_ctx->vk.rebuild_swapchain(VkExtent2D(w, h)); });
+
+  vk_init_imgui(g_ctx->vk, []() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+
+    ImGui_ImplGlfw_InitForVulkan(g_win->handle, true);
+  });
 }
 
 fn destroy_vulkan() -> void {
   ka_assert(g_ctx.has_value());
   g_ctx.reset();
+  ImGui_ImplGlfw_Shutdown();
+  ImGui::DestroyContext();
 }
 
 } // namespace
@@ -101,6 +116,14 @@ fn destroy() -> void {
 
 fn start_frame() -> void {
   ka_assert(g_ctx.has_value());
+  vk_imgui_frame(g_ctx->vk, []() {
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::ShowDemoWindow();
+
+    ImGui::Render();
+  });
   g_ctx->vk.draw();
 }
 

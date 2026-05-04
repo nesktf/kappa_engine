@@ -78,6 +78,12 @@ public:
     VkPipelineLayout gradient_layout;
   };
 
+  struct ImDrawData {
+    VkFence fence;
+    VkCommandPool cmdpool;
+    VkCommandBuffer cmdbuf;
+  };
+
 public:
   VulkanContextImpl() = default; // Manually initialized
 
@@ -100,8 +106,11 @@ public:
   PartialInit<FrameData> frames[MAX_FRAMES_IN_FLIGHT];
   u32 curr_frame;
 
-  VkDescriptorPool desc_alloc;
   PartialInit<DrawThing> draw;
+  PartialInit<ImDrawData> imdraw;
 };
+
+fn vk_get_graphics_queue(VulkanContextImpl& ctx) -> VkQueue;
+fn vk_draw_imgui(VkCommandBuffer cmd, VkImageView target, VkExtent2D swapchain_extent) -> void;
 
 } // namespace kappa::render

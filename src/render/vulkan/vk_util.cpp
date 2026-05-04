@@ -1,5 +1,6 @@
 #include "./vk_util.hpp"
 #include "./vk_private.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -54,6 +55,7 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
   case VulkanDelQueue::TYPE_##_type: \
     return #_type
   switch (type) {
+    STR(DELETER);
     STR(IMAGE);
     STR(IMAGE_VIEW);
     STR(SURFACE);
@@ -68,66 +70,84 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     STR(DESCLAYOUT);
     STR(PIPLAYOUT);
     STR(PIPELINE);
+    default:
+      return "UNKNOWN";
   }
-  KA_UNREACHABLE();
 #undef STR
+}
+
+using VulkanHandle = VulkanDelQueue::VulkanHandle;
+
+fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHandle other_parent,
+                  VulkanHandle handle) -> void {
+  using enum VulkanDelQueue::HandleType;
+  VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
+  switch (type) {
+    case TYPE_IMAGE: {
+      vmaDestroyImage((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
+      // vkDestroyImage((VkDevice)parent, (VkImage)handle, vkalloc);
+    } break;
+    case TYPE_IMAGE_VIEW: {
+      vkDestroyImageView((VkDevice)parent, (VkImageView)handle, vkalloc);
+    } break;
+    case TYPE_SURFACE: {
+      vkDestroySurfaceKHR((VkInstance)parent, (VkSurfaceKHR)handle, vkalloc);
+    } break;
+    case TYPE_CMDPOOL: {
+      vkDestroyCommandPool((VkDevice)parent, (VkCommandPool)handle, vkalloc);
+    } break;
+    case TYPE_FENCE: {
+      vkDestroyFence((VkDevice)parent, (VkFence)handle, vkalloc);
+    } break;
+    case TYPE_SEMAPHORE: {
+      vkDestroySemaphore((VkDevice)parent, (VkSemaphore)handle, vkalloc);
+    } break;
+    case TYPE_VMALLOC: {
+      vmaDestroyAllocator((VmaAllocator)handle);
+    } break;
+    case TYPE_MESSENGER: {
+      DestroyDebugUtilsMessengerEXT((VkInstance)parent, (VkDebugUtilsMessengerEXT)handle, vkalloc);
+    } break;
+    case TYPE_DEVICE: {
+      vkDestroyDevice((VkDevice)handle, vkalloc);
+    } break;
+    case TYPE_INSTANCE: {
+      vkDestroyInstance((VkInstance)handle, vkalloc);
+    } break;
+    case TYPE_DESCPOOL: {
+      vkDestroyDescriptorPool((VkDevice)parent, (VkDescriptorPool)handle, vkalloc);
+    } break;
+    case TYPE_DESCLAYOUT: {
+      vkDestroyDescriptorSetLayout((VkDevice)parent, (VkDescriptorSetLayout)handle, vkalloc);
+    } break;
+    case TYPE_PIPLAYOUT: {
+      vkDestroyPipelineLayout((VkDevice)parent, (VkPipelineLayout)handle, vkalloc);
+    } break;
+    case TYPE_PIPELINE: {
+      vkDestroyPipeline((VkDevice)parent, (VkPipeline)handle, vkalloc);
+    } break;
+    case TYPE_DELETER:
+      break;
+  }
 }
 
 } // namespace
 
 fn VulkanDelQueue::flush() -> void {
-  static constexpr VkAllocationCallbacks* vkalloc = nullptr;
   for (auto it = _queue.rbegin(); it != _queue.rend(); ++it) {
-    const auto [handle, parent, other_parent, type] = *it;
-    VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
-    switch (type) {
-      case TYPE_IMAGE: {
-        vmaDestroyImage((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
-        // vkDestroyImage((VkDevice)parent, (VkImage)handle, vkalloc);
-      } break;
-      case TYPE_IMAGE_VIEW: {
-        vkDestroyImageView((VkDevice)parent, (VkImageView)handle, vkalloc);
-      } break;
-      case TYPE_SURFACE: {
-        vkDestroySurfaceKHR((VkInstance)parent, (VkSurfaceKHR)handle, vkalloc);
-      } break;
-      case TYPE_CMDPOOL: {
-        vkDestroyCommandPool((VkDevice)parent, (VkCommandPool)handle, vkalloc);
-      } break;
-      case TYPE_FENCE: {
-        vkDestroyFence((VkDevice)parent, (VkFence)handle, vkalloc);
-      } break;
-      case TYPE_SEMAPHORE: {
-        vkDestroySemaphore((VkDevice)parent, (VkSemaphore)handle, vkalloc);
-      } break;
-      case TYPE_VMALLOC: {
-        vmaDestroyAllocator((VmaAllocator)handle);
-      } break;
-      case TYPE_MESSENGER: {
-        DestroyDebugUtilsMessengerEXT((VkInstance)parent, (VkDebugUtilsMessengerEXT)handle,
-                                      vkalloc);
-      } break;
-      case TYPE_DEVICE: {
-        vkDestroyDevice((VkDevice)handle, vkalloc);
-      } break;
-      case TYPE_INSTANCE: {
-        vkDestroyInstance((VkInstance)handle, vkalloc);
-      } break;
-      case TYPE_DESCPOOL: {
-        vkDestroyDescriptorPool((VkDevice)parent, (VkDescriptorPool)handle, vkalloc);
-      } break;
-      case TYPE_DESCLAYOUT: {
-        vkDestroyDescriptorSetLayout((VkDevice)parent, (VkDescriptorSetLayout)handle, vkalloc);
-      } break;
-      case TYPE_PIPLAYOUT: {
-        vkDestroyPipelineLayout((VkDevice)parent, (VkPipelineLayout)handle, vkalloc);
-      } break;
-      case TYPE_PIPELINE: {
-        vkDestroyPipeline((VkDevice)parent, (VkPipeline)handle, vkalloc);
-      } break;
+    auto& deldata = *it;
+    if (deldata.type == TYPE_DELETER) {
+      deldata.deleter();
+    } else {
+      destroy_handle(deldata.type, deldata.handles.parent, deldata.handles.other_parent,
+                     deldata.handles.handle);
     }
   }
   _queue.clear();
+}
+
+fn VulkanDelQueue::enqueue_deleter(DelFn func) -> void {
+  _queue.emplace_back(std::move(func));
 }
 
 fn VulkanDelQueue::enqueue_handle(VulkanHandle handle, VulkanHandle parent, HandleType type,
@@ -135,7 +155,7 @@ fn VulkanDelQueue::enqueue_handle(VulkanHandle handle, VulkanHandle parent, Hand
   if (handle == VK_NULL_HANDLE) {
     return;
   }
-  _queue.emplace_back(handle, parent, other_parent, type);
+  _queue.emplace_back(type, handle, parent, other_parent);
 }
 
 fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
@@ -350,6 +370,42 @@ fn vkmk_cmdbuf_alloc_info(VkCommandPool cmdpool, VkCommandBufferLevel level)
   cmd_alloc_info.commandBufferCount = 1;
   cmd_alloc_info.level = level;
   return cmd_alloc_info;
+}
+
+fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
+                    const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo {
+  VkRenderingInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+  info.pNext = nullptr;
+
+  info.renderArea.offset.x = 0;
+  info.renderArea.offset.y = 0;
+  info.renderArea.extent = render_extent;
+
+  info.layerCount = 1;
+  info.colorAttachmentCount = 1;
+  info.pColorAttachments = color_attachment;
+  info.pDepthAttachment = depth_attachment;
+  info.pStencilAttachment = nullptr;
+
+  return info;
+}
+
+fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
+  -> VkRenderingAttachmentInfo {
+  VkRenderingAttachmentInfo info{};
+  info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+  info.pNext = nullptr;
+
+  info.imageView = view;
+  info.imageLayout = layout;
+  info.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+  info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  if (clear) {
+    info.clearValue = *clear;
+  }
+
+  return info;
 }
 
 // Framebufer creation, old

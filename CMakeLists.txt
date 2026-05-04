@@ -45,7 +45,7 @@ file(GLOB IMGUI_SOURCES "lib/imgui/*.cpp")
 list(APPEND IMGUI_SOURCES "lib/imgui/backends/imgui_impl_glfw.cpp")
 list(APPEND IMGUI_SOURCES "lib/imgui/backends/imgui_impl_vulkan.cpp")
 list(APPEND LIB_INCLUDE "lib/imgui" "lib/imgui/backends")
-list(APPEND SOURCE_FILES ${IMGUI_SOURCES})
+list(APPEND LIB_SOURCE_FILES ${IMGUI_SOURCES})
 
 # chimatools
 add_subdirectory("lib/chimatools")
@@ -89,7 +89,7 @@ add_custom_target(kappa_shaders
 file(GLOB_RECURSE SOURCE_FILES "src/**.cpp")
 file(GLOB_RECURSE HEADER_FILES "src/**.hpp")
 
-add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${HEADER_FILES})
+add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${LIB_SOURCE_FILES} ${HEADER_FILES})
 add_dependencies(${PROJECT_NAME} kappa_shaders)
 target_include_directories(${PROJECT_NAME} PUBLIC src ${LIB_INCLUDE})
 set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX CXX_STANDARD 20)

@@ -3,6 +3,7 @@
 #include "./vk_pipeline.hpp"
 
 #include "../../util/filesystem.hpp"
+#include "render/vulkan/vk_util.hpp"
 #include "vk_private.hpp"
 #include <vulkan/vulkan_core.h>
 
@@ -189,21 +190,37 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   return {};
 }
 
-fn create_frame_data(VkDevice device, u32 graphics_queue)
-  -> std::array<VulkanContextImpl::FrameData, MAX_FRAMES_IN_FLIGHT> {
-  std::array<VulkanContextImpl::FrameData, MAX_FRAMES_IN_FLIGHT> frames{};
+namespace {
+
+struct command_context {
+  std::array<VulkanContextImpl::FrameData, MAX_FRAMES_IN_FLIGHT> frames;
+  VulkanContextImpl::ImDrawData imdraw;
+};
+
+} // namespace
+
+fn create_command_data(VkDevice device, u32 graphics_queue) -> command_context {
+  command_context ctx{};
   // create a command pool for commands submitted to the graphics queue.
   // we also want the pool to allow for resetting of individual command buffers
   const auto cmdpool_info =
     vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, nullptr, &frames[i].cmdpool));
+    VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &ctx.frames[i].cmdpool));
     // ctx.delqueue.enqueue(ctx.frames[i]->cmdpool, device);
 
     // allocate the default command buffer that we will use for rendering
     const auto cmd_alloc_info =
-      vkmk_cmdbuf_alloc_info(frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &frames[i].cmdbuf));
+      vkmk_cmdbuf_alloc_info(ctx.frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &ctx.frames[i].cmdbuf));
+  }
+
+  // Immediate draw command pool
+  {
+    VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &ctx.imdraw.cmdpool));
+    const auto cmd_alloc_info =
+      vkmk_cmdbuf_alloc_info(ctx.imdraw.cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &ctx.imdraw.cmdbuf));
   }
 
   // create syncronization structures
@@ -213,18 +230,24 @@ fn create_frame_data(VkDevice device, u32 graphics_queue)
   const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
   const auto semaphore_create_info = vkmk_semaphore_info(0);
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &frames[i].render_fen));
+    VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &ctx.frames[i].render_fen));
     // ctx.delqueue.enqueue(frames[i].render_fen, device);
 
     VK_ASSERT(
-      vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &frames[i].swapchain_sem));
+      vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &ctx.frames[i].swapchain_sem));
     // ctx.delqueue.enqueue(ctx.frames[i].swapchain_sem, ctx.device.device);
 
-    VK_ASSERT(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &frames[i].render_sem));
+    VK_ASSERT(
+      vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &ctx.frames[i].render_sem));
     // ctx.delqueue.enqueue(ctx.frames[i].render_sem, ctx.device.device);
   }
 
-  return frames;
+  // Immediate draw sync things
+  {
+    VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &ctx.imdraw.fence));
+  }
+
+  return ctx;
 }
 
 fn swapchain_args_from_ctx(VulkanContextImpl& ctx, VkExtent2D surface_extent)
@@ -405,18 +428,21 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
       [](VkError&& err) -> VkSvError { return {"Failed to create swapchain", err.code()}; });
   };
 
-  const fn initialize_frame_data = [&](VulkanSwapchain&& swapchain) -> VulkanContext {
+  const fn initialize_command_data = [&](VulkanSwapchain&& swapchain) -> VulkanContext {
     ctx->swapchain.emplace(std::move(swapchain));
     const auto device = ctx->device->device();
     const auto [graphics, _, __] = ctx->device->queues();
-    auto frames = create_frame_data(device, graphics);
+    auto cmds = create_command_data(device, graphics);
     for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-      ctx->frames[i].emplace(std::move(frames[i]));
+      ctx->frames[i].emplace(std::move(cmds.frames[i]));
       ctx->delqueue.enqueue(ctx->frames[i]->cmdpool, ctx->device->device());
       ctx->delqueue.enqueue(ctx->frames[i]->render_fen, ctx->device->device());
       ctx->delqueue.enqueue(ctx->frames[i]->render_sem, ctx->device->device());
       ctx->delqueue.enqueue(ctx->frames[i]->swapchain_sem, ctx->device->device());
     }
+    ctx->imdraw.emplace(std::move(cmds.imdraw));
+    ctx->delqueue.enqueue(ctx->imdraw->cmdpool, ctx->device->device());
+    ctx->delqueue.enqueue(ctx->imdraw->fence, ctx->device->device());
 
     // temp: test rendering things
     ctx->draw.emplace(create_draw_thing(device, ctx->swapchain->extent(), ctx->vmalloc));
@@ -436,7 +462,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     .and_then(select_device)
     .and_then(create_buffer_alloc)
     .and_then(create_swapchain)
-    .transform(initialize_frame_data);
+    .transform(initialize_command_data);
 }
 
 fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void> {
@@ -510,6 +536,7 @@ fn VulkanContext::draw() -> void {
 
   // transition the draw image and the swapchain image into their correct transfer layouts
   const auto swapchain_images = _impl->swapchain->images();
+  const auto swapchain_image_views = _impl->swapchain->image_views();
   const auto swapchain_extent = _impl->swapchain->extent();
   vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image, VK_IMAGE_LAYOUT_GENERAL,
                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -525,7 +552,16 @@ fn VulkanContext::draw() -> void {
 
   // make the swapchain image into presentable mode
   vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  // draw imgui
+  {
+    vk_draw_imgui(frame.cmdbuf, swapchain_image_views[swapchain_image_idx], swapchain_extent);
+    vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
+                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                           VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  }
 
   // finalize the command buffer (we can no longer add commands, but it can now be executed)
   VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
@@ -564,6 +600,37 @@ fn VulkanContext::draw() -> void {
   ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 
   ++_impl->curr_frame;
+}
+
+fn vk_get_graphics_queue(VulkanContextImpl& ctx) -> VkQueue {
+  const auto [graphics_idx, _, __] = ctx.device->queues();
+  VkQueue graphics_queue{};
+  vkGetDeviceQueue(ctx.device->device(), graphics_idx, 0, &graphics_queue);
+  ka_assert(graphics_queue != VK_NULL_HANDLE);
+  return graphics_queue;
+}
+
+fn VulkanContext::immediate_submit(ImSubmitFn func) -> void {
+  const auto device = _impl->device->device();
+  auto& imdraw = *_impl->imdraw;
+  const auto cmd = imdraw.cmdbuf;
+  const auto graphics_queue = vk_get_graphics_queue(*_impl);
+
+  VK_ASSERT(vkResetFences(device, 1, &imdraw.fence));
+  VK_ASSERT(vkResetCommandBuffer(cmd, 0));
+
+  const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+  func(cmd);
+  VK_ASSERT(vkEndCommandBuffer(cmd));
+
+  const auto cmdinfo = vkmk_command_buffer_submit_info(cmd);
+  const auto submit = vkmk_submit_info(cmdinfo, nullptr, nullptr);
+
+  // Submit to queue and execute
+  // fence blocks until the gfx commands finish execution
+  VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, imdraw.fence));
+  VK_ASSERT(vkWaitForFences(device, 1, &imdraw.fence, VK_TRUE, 9999999999));
 }
 
 } // namespace kappa::render

@@ -77,6 +77,8 @@ public:
     TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*), 2 * sizeof(void*),
            8>;
 
+  using ImSubmitFn = TrivFn<void(VkCommandBuffer), 4 * sizeof(void*), 8>;
+
   struct Deleter {
     void operator()(VulkanContextImpl* impl) noexcept;
   };
@@ -94,8 +96,19 @@ public:
 
   fn draw() -> void;
 
+  fn immediate_submit(ImSubmitFn func) -> void;
+
+public:
+  fn get() -> VulkanContextImpl* { return _impl.get(); }
+
 private:
   std::unique_ptr<VulkanContextImpl, Deleter> _impl;
 };
+
+using ImGuiFn = TrivFn<void(), 2 * sizeof(void*), 8>;
+
+fn vk_init_imgui(VulkanContext& ctx, ImGuiFn imgui_init) -> void;
+
+fn vk_imgui_frame(VulkanContext& ctx, ImGuiFn draw) -> void;
 
 } // namespace kappa::render
