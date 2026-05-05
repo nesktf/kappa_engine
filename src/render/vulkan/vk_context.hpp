@@ -58,6 +58,8 @@ private:
   alignas(T) u8 _buffer[sizeof(T) + 1];
 };
 
+constexpr usize EFFECT_COUNT = 2;
+
 struct VulkanContextImpl {
 public:
   struct FrameData {
@@ -67,6 +69,12 @@ public:
     VkFence render_fen;
   };
 
+  struct ImDrawData {
+    VkFence fence;
+    VkCommandPool cmdpool;
+    VkCommandBuffer cmdbuf;
+  };
+
   // temp
   struct DrawThing {
     VulkanImage image;
@@ -74,14 +82,8 @@ public:
     VulkanDescPool desc_pool;
     VkDescriptorSet image_desc;
     VkDescriptorSetLayout image_desc_layout;
-    VkPipeline gradient_pipeline;
-    VkPipelineLayout gradient_layout;
-  };
-
-  struct ImDrawData {
-    VkFence fence;
-    VkCommandPool cmdpool;
-    VkCommandBuffer cmdbuf;
+    std::array<ComputeEffect, EFFECT_COUNT> background_effects;
+    s32 effect_idx;
   };
 
 public:

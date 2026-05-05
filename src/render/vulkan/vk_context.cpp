@@ -281,6 +281,36 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
   };
 }
 
+fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char* path)
+  -> VkPipeline {
+  const auto real_path = std::string(KA_RES_DIR) + path;
+  auto file = load_entire_file(real_path.c_str());
+  ka_assert(!file.empty());
+
+  auto shader = vk_create_shader(device, {file.data(), file.size()}).value();
+
+  VkPipelineShaderStageCreateInfo stage_info{};
+  stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stage_info.pNext = nullptr;
+
+  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  stage_info.module = shader;
+  stage_info.pName = "main";
+
+  VkComputePipelineCreateInfo compute_info{};
+  compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  compute_info.pNext = nullptr;
+
+  compute_info.layout = layout;
+  compute_info.stage = stage_info;
+
+  VkPipeline pip{};
+  VK_ASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc, &pip));
+  vkDestroyShaderModule(device, shader, vkalloc);
+
+  return pip;
+}
+
 // temp: test rendering things
 fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmalloc)
   -> VulkanContextImpl::DrawThing {
@@ -329,37 +359,37 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   compute_layout.pSetLayouts = &image_desc_layout;
   compute_layout.setLayoutCount = 1;
 
-  VkPipelineLayout gradient_layout{};
-  VK_ASSERT(vkCreatePipelineLayout(device, &compute_layout, vkalloc, &gradient_layout));
+  VkPushConstantRange push_constant{};
+  push_constant.offset = 0;
+  push_constant.size = sizeof(ComputeConstants);
+  push_constant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-  auto file = load_entire_file(KA_RES_DIR "/shaders/test.comp.spv");
-  ka_assert(!file.empty());
-  auto shader = vk_create_shader(device, {file.data(), file.size()}).value();
-  VkPipelineShaderStageCreateInfo stage_info{};
-  stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  stage_info.pNext = nullptr;
-  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  stage_info.module = shader;
-  stage_info.pName = "main";
+  compute_layout.pPushConstantRanges = &push_constant;
+  compute_layout.pushConstantRangeCount = 1;
 
-  VkComputePipelineCreateInfo compute_info{};
-  compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-  compute_info.pNext = nullptr;
-  compute_info.layout = gradient_layout;
-  compute_info.stage = stage_info;
+  VkPipelineLayout layout{};
+  VK_ASSERT(vkCreatePipelineLayout(device, &compute_layout, vkalloc, &layout));
 
-  VkPipeline gradient_pipeline{};
-  VK_ASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc,
-                                     &gradient_pipeline));
-  vkDestroyShaderModule(device, shader, vkalloc);
+  std::array<ComputeEffect, EFFECT_COUNT> effects{};
+  effects[0].name = "gradient_color";
+  effects[0].layout = layout;
+  effects[0].pipeline =
+    create_compute_pipeline(device, layout, "/shaders/gradient_color.comp.spv");
+  effects[0].data.data1 = ran::Vec4f32(1, 0, 0, 1);
+  effects[0].data.data2 = ran::Vec4f32(0, 0, 1, 1);
+
+  effects[1].name = "sky";
+  effects[1].layout = layout;
+  effects[1].pipeline = create_compute_pipeline(device, layout, "/shaders/sky.comp.spv");
+  effects[1].data.data1 = ran::Vec4f32(.1f, .2f, .4f, .97f);
 
   return VulkanContextImpl::DrawThing{.image = std::move(image),
                                       .extent = draw_extent,
                                       .desc_pool = std::move(desc_pool),
                                       .image_desc = image_desc,
                                       .image_desc_layout = image_desc_layout,
-                                      .gradient_pipeline = gradient_pipeline,
-                                      .gradient_layout = gradient_layout};
+                                      .background_effects = effects,
+                                      .effect_idx = 0};
 }
 
 } // namespace
@@ -450,8 +480,10 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     ctx->delqueue.enqueue(ctx->draw->image.view, device);
     ctx->draw->desc_pool.add_to_delqueue(ctx->delqueue);
     ctx->delqueue.enqueue(ctx->draw->image_desc_layout, device);
-    ctx->delqueue.enqueue(ctx->draw->gradient_layout, device);
-    ctx->delqueue.enqueue(ctx->draw->gradient_pipeline, device);
+    for (auto& effect : ctx->draw->background_effects) {
+      ctx->delqueue.enqueue(effect.pipeline, device);
+    }
+    ctx->delqueue.enqueue(ctx->draw->background_effects[0].layout, device);
 
     ctxerr.disengage();
     return {*ctx};
@@ -487,9 +519,14 @@ fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
   vkCmdClearColorImage(cmdbuf, ctx.draw.image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
                        &clear_range);
 #endif
-  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw->gradient_pipeline);
-  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, ctx.draw->gradient_layout, 0, 1,
+
+  auto& effect = ctx.draw->background_effects[ctx.draw->effect_idx];
+
+  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
+  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, effect.layout, 0, 1,
                           &ctx.draw->image_desc, 0, nullptr);
+  vkCmdPushConstants(cmdbuf, effect.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(effect.data),
+                     &effect.data);
   vkCmdDispatch(cmdbuf, std::ceil(ctx.draw->extent.width / 16.f),
                 std::ceil(ctx.draw->extent.height / 16.f), 1);
 }
@@ -631,6 +668,14 @@ fn VulkanContext::immediate_submit(ImSubmitFn func) -> void {
   // fence blocks until the gfx commands finish execution
   VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, imdraw.fence));
   VK_ASSERT(vkWaitForFences(device, 1, &imdraw.fence, VK_TRUE, 9999999999));
+}
+
+fn VulkanContext::get_effect() -> ComputeEffect& {
+  return _impl->draw->background_effects[_impl->draw->effect_idx];
+}
+
+fn VulkanContext::get_effect_idx() -> s32& {
+  return _impl->draw->effect_idx;
 }
 
 } // namespace kappa::render

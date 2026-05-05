@@ -122,6 +122,17 @@ fn start_frame() -> void {
 
     ImGui::ShowDemoWindow();
 
+    if (ImGui::Begin("background")) {
+      auto& effect = g_ctx->vk.get_effect();
+      ImGui::Text("Selected effect: %s", effect.name);
+      ImGui::SliderInt("Effect Index", &g_ctx->vk.get_effect_idx(), 0, 1);
+      ImGui::InputFloat4("data1", effect.data.data1.data());
+      ImGui::InputFloat4("data2", effect.data.data2.data());
+      ImGui::InputFloat4("data3", effect.data.data3.data());
+      ImGui::InputFloat4("data4", effect.data.data4.data());
+    }
+    ImGui::End();
+
     ImGui::Render();
   });
   g_ctx->vk.draw();

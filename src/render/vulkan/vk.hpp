@@ -6,6 +6,8 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <ranmath/ran.hpp>
+
 namespace kappa::render {
 
 fn vk_error_string(VkResult result) noexcept -> const char*;
@@ -71,6 +73,20 @@ struct VulkanInfo {
 
 struct VulkanContextImpl;
 
+struct ComputeConstants {
+  ran::Vec4f32 data1;
+  ran::Vec4f32 data2;
+  ran::Vec4f32 data3;
+  ran::Vec4f32 data4;
+};
+
+struct ComputeEffect {
+  const char* name;
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  ComputeConstants data;
+};
+
 class VulkanContext {
 public:
   using SurfaceProviderFn =
@@ -97,6 +113,10 @@ public:
   fn draw() -> void;
 
   fn immediate_submit(ImSubmitFn func) -> void;
+
+public:
+  fn get_effect() -> ComputeEffect&;
+  fn get_effect_idx() -> s32&;
 
 public:
   fn get() -> VulkanContextImpl* { return _impl.get(); }
