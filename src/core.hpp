@@ -92,6 +92,18 @@
   static_assert(alignof(_typename) <= _opaque_align_##_typename, "Invalid alignment"); \
   static_assert(sizeof(_typename) == _opaque_size_##_typename, "Invalid size")
 
+#define KA_NO_MOVE(_typename)      \
+  _typename(_typename&&) = delete; \
+  _typename& operator=(_typename&&) = delete
+
+#define KA_DO_MOVE(_typename)      \
+  _typename(_typename&&) noexcept; \
+  _typename& operator=(_typename&&) noexcept
+
+#define KA_NO_COPY(_typename)           \
+  _typename(const _typename&) = delete; \
+  _typename& operator=(const _typename&) = delete
+
 #define KA_VER_MAJ 0
 #define KA_VER_MIN 0
 #define KA_VER_REV 1

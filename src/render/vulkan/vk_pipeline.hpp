@@ -27,6 +27,11 @@ struct VulkanDescPoolRatio {
   f32 ratio;
 };
 
+struct VulkanDescPoolArgs {
+  u32 max_sets;
+  Span<const VulkanDescPoolRatio> ratios;
+};
+
 class VulkanDescPool {
 private:
   struct create_t {};
@@ -35,8 +40,7 @@ public:
   VulkanDescPool(create_t, VkDevice device, VkDescriptorPool pool);
 
 public:
-  static fn create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
-    -> VkExpect<VulkanDescPool>;
+  static fn create(VkDevice device, const VulkanDescPoolArgs& args) -> VkExpect<VulkanDescPool>;
 
 public:
   fn add_to_delqueue(VulkanDelQueue& queue) -> void;
@@ -44,6 +48,8 @@ public:
   fn alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
 
   fn clear() -> void;
+
+  fn pool_handle() -> VkDescriptorPool { return _pool; }
 
 private:
   VkDevice _device;

@@ -28,7 +28,7 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
 VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
   VkDebugUtilsMessageSeverityFlagBitsEXT msg_severity, VkDebugUtilsMessageTypeFlagsEXT msg_type,
   const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
-  auto& ctx = *static_cast<VulkanContextImpl*>(user_data);
+  auto& ctx = *static_cast<VulkanContext_impl*>(user_data);
   KA_UNUSED(ctx);
 
   const char* kind;
@@ -68,7 +68,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
   return VK_FALSE; // Should the callback abort the call that triggered the message?
 }
 
-fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
+fn make_vk_instance(VulkanContext_impl& ctx, const VulkanInfo& app_info,
                     Span<const char*> extensions) -> VkSvExpect<void> {
 
 #ifndef NDEBUG
@@ -187,67 +187,7 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   return {};
 }
 
-namespace {
-
-struct command_context {
-  std::array<VulkanContextImpl::FrameData, MAX_FRAMES_IN_FLIGHT> frames;
-  VulkanContextImpl::ImDrawData imdraw;
-};
-
-} // namespace
-
-fn create_command_data(VkDevice device, u32 graphics_queue) -> command_context {
-  command_context ctx{};
-  // create a command pool for commands submitted to the graphics queue.
-  // we also want the pool to allow for resetting of individual command buffers
-  const auto cmdpool_info =
-    vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &ctx.frames[i].cmdpool));
-    // ctx.delqueue.enqueue(ctx.frames[i]->cmdpool, device);
-
-    // allocate the default command buffer that we will use for rendering
-    const auto cmd_alloc_info =
-      vkmk_cmdbuf_alloc_info(ctx.frames[i].cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &ctx.frames[i].cmdbuf));
-  }
-
-  // Immediate draw command pool
-  {
-    VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &ctx.imdraw.cmdpool));
-    const auto cmd_alloc_info =
-      vkmk_cmdbuf_alloc_info(ctx.imdraw.cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &ctx.imdraw.cmdbuf));
-  }
-
-  // create syncronization structures
-  // one fence to control when the gpu has finished rendering the frame,
-  // and 2 semaphores to syncronize rendering with swapchain
-  // we want the fence to start signalled so we can wait on it on the first frame
-  const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
-  const auto semaphore_create_info = vkmk_semaphore_info(0);
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &ctx.frames[i].render_fen));
-    // ctx.delqueue.enqueue(frames[i].render_fen, device);
-
-    VK_ASSERT(
-      vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &ctx.frames[i].swapchain_sem));
-    // ctx.delqueue.enqueue(ctx.frames[i].swapchain_sem, ctx.device.device);
-
-    VK_ASSERT(
-      vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &ctx.frames[i].render_sem));
-    // ctx.delqueue.enqueue(ctx.frames[i].render_sem, ctx.device.device);
-  }
-
-  // Immediate draw sync things
-  {
-    VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &ctx.imdraw.fence));
-  }
-
-  return ctx;
-}
-
-fn swapchain_args_from_ctx(VulkanContextImpl& ctx, VkExtent2D surface_extent)
+fn swapchain_args_from_ctx(VulkanContext_impl& ctx, VkExtent2D surface_extent)
   -> VulkanSwapchainArgs {
   ka_assert(ctx.device);
   VulkanSwapchainArgs swargs{};
@@ -263,7 +203,7 @@ fn swapchain_args_from_ctx(VulkanContextImpl& ctx, VkExtent2D surface_extent)
   return swargs;
 }
 
-fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
+fn make_vulkan_ctx_destroyer(VulkanContext_impl* ctx) {
   return [=]() {
     if (ctx->device) {
       ctx->device->wait_idle();
@@ -274,8 +214,23 @@ fn make_vulkan_ctx_destroyer(VulkanContextImpl* ctx) {
     }
     ctx->delqueue.flush();
     std::destroy_at(ctx);
-    std::allocator<VulkanContextImpl>().deallocate(ctx, 1);
+    std::allocator<VulkanContext_impl>().deallocate(ctx, 1);
   };
+}
+
+fn create_imdraw_data(VkDevice device, u32 graphics_queue) -> VulkanContext_impl::ImDrawData {
+  VulkanContext_impl::ImDrawData data;
+  const auto cmdpool_info =
+    vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
+  VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
+
+  const auto cmd_alloc_info =
+    vkmk_cmdbuf_alloc_info(data.cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+  VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &data.cmdbuf));
+
+  const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
+  VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &data.fence));
+  return data;
 }
 
 fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char* path)
@@ -302,9 +257,17 @@ fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char*
   return pip;
 }
 
+constexpr auto sizes = std::to_array<VulkanDescPoolRatio>({
+  {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
+});
+constexpr VulkanDescPoolArgs desc_pool_args{
+  .max_sets = 10,
+  .ratios = sizes,
+};
+
 // temp: test rendering things
 fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmalloc)
-  -> VulkanContextImpl::DrawThing {
+  -> VulkanContext_impl::DrawThing {
   // Init draw image
   const VulkanImageArgs imgargs{
     .device = device,
@@ -315,10 +278,7 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   auto image = vk_alloc_image(imgargs).value();
 
   // Init descriptors
-  const auto sizes = std::to_array<VulkanDescPoolRatio>({
-    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
-  });
-  auto desc_pool = VulkanDescPool::create(device, 10, sizes).value();
+  auto desc_pool = VulkanDescPool::create(device, desc_pool_args).value();
   VkDescriptorSetLayout image_desc_layout{};
   {
     VulkanDescriptorLayoutBuilder builder;
@@ -369,18 +329,18 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   effects[1].pipeline = create_compute_pipeline(device, layout, "/shaders/sky.comp.spv");
   effects[1].data.data1 = ran::Vec4f32(.1f, .2f, .4f, .97f);
 
-  return VulkanContextImpl::DrawThing{.image = std::move(image),
-                                      .extent = draw_extent,
-                                      .desc_pool = std::move(desc_pool),
-                                      .image_desc = image_desc,
-                                      .image_desc_layout = image_desc_layout,
-                                      .background_effects = effects,
-                                      .effect_idx = 0};
+  return VulkanContext_impl::DrawThing{.image = std::move(image),
+                                       .extent = draw_extent,
+                                       .desc_pool = std::move(desc_pool),
+                                       .image_desc = image_desc,
+                                       .image_desc_layout = image_desc_layout,
+                                       .background_effects = effects,
+                                       .effect_idx = 0};
 }
 
 } // namespace
 
-fn VulkanContext::Deleter::operator()(VulkanContextImpl* ctx) noexcept -> void {
+fn VulkanContext::Deleter::operator()(VulkanContext_impl* ctx) noexcept -> void {
   make_vulkan_ctx_destroyer(ctx)();
 }
 
@@ -403,7 +363,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
   extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
 
-  auto* ctx = std::allocator<VulkanContextImpl>().allocate(1);
+  auto* ctx = std::allocator<VulkanContext_impl>().allocate(1);
   std::memset((void*)ctx, 0x00, sizeof(*ctx));
   ctx = std::construct_at(ctx);
   DeferFn ctxerr = make_vulkan_ctx_destroyer(ctx);
@@ -444,23 +404,28 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
       [](VkError&& err) -> VkSvError { return {"Failed to create swapchain", err.code()}; });
   };
 
-  const fn initialize_command_data = [&](VulkanSwapchain&& swapchain) -> VulkanContext {
+  const fn create_frame_data = [&](VulkanSwapchain&& swapchain) -> VkSvExpect<VulkanFrameData> {
     ctx->swapchain.emplace(std::move(swapchain));
     const auto device = ctx->device->device();
     const auto [graphics, _, __] = ctx->device->queues();
-    auto cmds = create_command_data(device, graphics);
-    for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-      ctx->frames[i].emplace(std::move(cmds.frames[i]));
-      ctx->delqueue.enqueue(ctx->frames[i]->cmdpool, ctx->device->device());
-      ctx->delqueue.enqueue(ctx->frames[i]->render_fen, ctx->device->device());
-      ctx->delqueue.enqueue(ctx->frames[i]->render_sem, ctx->device->device());
-      ctx->delqueue.enqueue(ctx->frames[i]->swapchain_sem, ctx->device->device());
-    }
-    ctx->imdraw.emplace(std::move(cmds.imdraw));
-    ctx->delqueue.enqueue(ctx->imdraw->cmdpool, ctx->device->device());
-    ctx->delqueue.enqueue(ctx->imdraw->fence, ctx->device->device());
+
+    // Immediate draw objects
+    ctx->imdrawdata.emplace(create_imdraw_data(device, graphics));
+    ctx->delqueue.enqueue(ctx->imdrawdata->cmdpool, ctx->device->device());
+    ctx->delqueue.enqueue(ctx->imdrawdata->fence, ctx->device->device());
+
+    return VulkanFrameData::create(device, graphics, desc_pool_args)
+      .transform_error([](VkError&& err) -> VkSvError {
+        return {"Failed to initialize frame data for swapchain", err.code()};
+      });
+  };
+
+  const fn create_context = [&](VulkanFrameData&& frames) -> VulkanContext {
+    ctx->framedata.emplace(std::move(frames));
+    ctx->framedata->add_to_delqueue(ctx->delqueue);
 
     // temp: test rendering things
+    const auto device = ctx->device->device();
     ctx->draw.emplace(create_draw_thing(device, ctx->swapchain->extent(), ctx->vmalloc));
     ctx->delqueue.enqueue(ctx->draw->image.image, ctx->draw->image.alloc, ctx->vmalloc);
     ctx->delqueue.enqueue(ctx->draw->image.view, device);
@@ -480,7 +445,8 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
     .and_then(select_device)
     .and_then(create_buffer_alloc)
     .and_then(create_swapchain)
-    .transform(initialize_command_data);
+    .and_then(create_frame_data)
+    .transform(create_context);
 }
 
 fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void> {
@@ -494,7 +460,7 @@ fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void>
 
 namespace {
 
-fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
+fn draw_background(VulkanContext_impl& ctx, VkCommandBuffer cmdbuf) -> void {
   // make a clear-color from frame number. This will flash with a 120 frame period.
   // f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
   // VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
@@ -520,7 +486,7 @@ fn draw_background(VulkanContextImpl& ctx, VkCommandBuffer cmdbuf) -> void {
 } // namespace
 
 fn VulkanContext::draw() -> void {
-  auto& frame = *_impl->frames[_impl->curr_frame % MAX_FRAMES_IN_FLIGHT];
+  auto& frame = _impl->framedata->next_frame();
 
   const auto device = _impl->device->device();
   const auto [graphics_idx, present_idx, _] = _impl->device->queues();
@@ -619,11 +585,9 @@ fn VulkanContext::draw() -> void {
 
   res = vkQueuePresentKHR(present_queue, &presentInfo);
   ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
-
-  ++_impl->curr_frame;
 }
 
-fn vk_get_graphics_queue(VulkanContextImpl& ctx) -> VkQueue {
+fn vk_get_graphics_queue(VulkanContext_impl& ctx) -> VkQueue {
   const auto [graphics_idx, _, __] = ctx.device->queues();
   VkQueue graphics_queue{};
   vkGetDeviceQueue(ctx.device->device(), graphics_idx, 0, &graphics_queue);
@@ -633,7 +597,7 @@ fn vk_get_graphics_queue(VulkanContextImpl& ctx) -> VkQueue {
 
 fn VulkanContext::immediate_submit(ImSubmitFn func) -> void {
   const auto device = _impl->device->device();
-  auto& imdraw = *_impl->imdraw;
+  auto& imdraw = *_impl->imdrawdata;
   const auto cmd = imdraw.cmdbuf;
   const auto graphics_queue = vk_get_graphics_queue(*_impl);
 

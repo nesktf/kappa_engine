@@ -37,8 +37,9 @@ VulkanDescPool::VulkanDescPool(create_t, VkDevice device, VkDescriptorPool pool)
   ka_assert(_pool != VK_NULL_HANDLE);
 }
 
-fn VulkanDescPool::create(VkDevice device, u32 max_sets, Span<const VulkanDescPoolRatio> ratios)
+fn VulkanDescPool::create(VkDevice device, const VulkanDescPoolArgs& args)
   -> VkExpect<VulkanDescPool> {
+  const auto& [max_sets, ratios] = args;
   Vec<VkDescriptorPoolSize> pool_sizes;
   pool_sizes.reserve(ratios.size());
   for (const auto& [type, ratio] : ratios) {

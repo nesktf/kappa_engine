@@ -1,7 +1,13 @@
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
+#include "render/vulkan/vk_private.hpp"
 
 #include <algorithm>
+
+#define RET_VK_ERROR(func)                    \
+  if (auto ret = (func); ret != VK_SUCCESS) { \
+    return {unexpect, ret};                   \
+  }
 
 namespace kappa::render {
 
@@ -149,6 +155,137 @@ fn VulkanSwapchain::destroy(VkDevice device) -> void {
   vkDestroySwapchainKHR(device, _swapchain, vkalloc);
   _images.reset();
   _image_views.reset();
+}
+
+struct VulkanFrameData::TempFrameData {
+  VkCommandPool cmdpool;
+  VkCommandBuffer cmdbuf;
+  VkFence render_fen;
+  VkSemaphore swapchain_sem, render_sem;
+  Optional<VulkanDescPool> pool;
+};
+
+// NOTE: Be prepared for an unholy mess of manual construction and destruction
+VulkanFrameData::VulkanFrameData(create_t, TempFrameData* frames, VkDevice device) :
+    _device(device), _curr_frame(0) {
+  ka_assert(frames);
+  auto* self_frames = _frames.as<FrameData>();
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    ka_assert(frames[i].cmdpool != VK_NULL_HANDLE);
+    ka_assert(frames[i].cmdbuf != VK_NULL_HANDLE);
+    ka_assert(frames[i].render_fen != VK_NULL_HANDLE);
+    ka_assert(frames[i].swapchain_sem != VK_NULL_HANDLE);
+    ka_assert(frames[i].render_sem != VK_NULL_HANDLE);
+    ka_assert(frames[i].pool.has_value());
+    new (self_frames + i)
+      FrameData(frames[i].cmdpool, frames[i].cmdbuf, frames[i].render_fen, frames[i].swapchain_sem,
+                frames[i].render_sem, *std::move(frames[i].pool), VulkanDelQueue());
+  }
+  static_assert(std::is_trivially_destructible_v<TempFrameData>);
+}
+
+VulkanFrameData::VulkanFrameData(VulkanFrameData&& other) noexcept :
+    _device(other._device), _curr_frame(other._curr_frame) {
+  auto* self_frames = _frames.as<FrameData>();
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    new (self_frames + i) FrameData(std::move(other._frames.as<FrameData>()[i]));
+  }
+}
+
+VulkanFrameData& VulkanFrameData::operator=(VulkanFrameData&& other) noexcept {
+  _device = other._device;
+  _curr_frame = other._curr_frame;
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    _frames.as<FrameData>()[i] = std::move(other._frames.as<FrameData>()[i]);
+  }
+  return *this;
+}
+
+VulkanFrameData::~VulkanFrameData() {
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    std::destroy_at(_frames.as<FrameData>() + i);
+  }
+}
+
+fn VulkanFrameData::create(VkDevice device, u32 graphics_queue,
+                           const VulkanDescPoolArgs& descpool_args) -> VkExpect<VulkanFrameData> {
+
+  TempFrameData vkdata[MAX_FRAMES_IN_FLIGHT]{};
+  s32 curr_frame = 0;
+
+  DeferFn on_error = [&]() {
+    for (s32 frame = curr_frame; frame >= 0; --frame) {
+      auto& data = vkdata[frame];
+      if (data.cmdpool != VK_NULL_HANDLE) {
+        vkDestroyCommandPool(device, data.cmdpool, vkalloc);
+      }
+      if (data.render_fen != VK_NULL_HANDLE) {
+        vkDestroyFence(device, data.render_fen, vkalloc);
+      }
+      if (data.render_sem != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device, data.render_sem, vkalloc);
+      }
+      if (data.swapchain_sem != VK_NULL_HANDLE) {
+        vkDestroySemaphore(device, data.swapchain_sem, vkalloc);
+      }
+      if (data.pool) {
+        vkDestroyDescriptorPool(device, data.pool->pool_handle(), vkalloc);
+      }
+    }
+  };
+
+  // create a command pool for commands submitted to the graphics queue.
+  // we also want the pool to allow for resetting of individual command buffers
+  const auto cmdpool_info =
+    vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
+
+  // one fence to control when the gpu has finished rendering the frame,
+  // and 2 semaphores to syncronize rendering with swapchain
+  // we want the fence to start signalled so we can wait on it on the first frame
+  const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
+  const auto semaphore_create_info = vkmk_semaphore_info(0);
+
+  for (; curr_frame < (s32)MAX_FRAMES_IN_FLIGHT; ++curr_frame) {
+    auto& data = vkdata[curr_frame];
+    RET_VK_ERROR(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
+
+    const auto cmd_alloc_info =
+      vkmk_cmdbuf_alloc_info(data.cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    RET_VK_ERROR(vkAllocateCommandBuffers(device, &cmd_alloc_info, &data.cmdbuf));
+
+    RET_VK_ERROR(vkCreateFence(device, &fence_create_info, vkalloc, &data.render_fen));
+    RET_VK_ERROR(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.swapchain_sem));
+    RET_VK_ERROR(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.render_sem));
+
+    auto pool = VulkanDescPool::create(device, descpool_args);
+    if (!pool) {
+      return {unexpect, pool.error()};
+    }
+    data.pool.emplace(std::move(*pool));
+  }
+
+  on_error.disengage();
+  return {in_place, create_t(), vkdata, device};
+}
+
+fn VulkanFrameData::add_to_delqueue(VulkanDelQueue& queue) -> void {
+  FrameData* frames = _frames.as<FrameData>();
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    auto& frame = frames[i];
+    queue.enqueue(frame.cmdpool, _device);
+    queue.enqueue(frame.render_fen, _device);
+    queue.enqueue(frame.swapchain_sem, _device);
+    queue.enqueue(frame.render_sem, _device);
+    frame.pool.add_to_delqueue(queue);
+  }
+}
+
+fn VulkanFrameData::next_frame() -> FrameData& {
+  return _frames.as<FrameData>()[_curr_frame++ % MAX_FRAMES_IN_FLIGHT];
+}
+
+fn VulkanFrameData::curr_frame() -> FrameData& {
+  return _frames.as<FrameData>()[_curr_frame % MAX_FRAMES_IN_FLIGHT];
 }
 
 } // namespace kappa::render

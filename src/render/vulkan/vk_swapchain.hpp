@@ -2,7 +2,11 @@
 
 #include "./vk_private.hpp"
 
+#include "./vk_pipeline.hpp"
+#include "./vk_util.hpp"
+
 #include "../../util/array.hpp"
+#include "../../util/buffer.hpp"
 
 namespace kappa::render {
 
@@ -50,6 +54,42 @@ private:
   VkExtent2D _extent;
   UniqueArray<VkImage> _images;
   UniqueArray<VkImageView> _image_views;
+};
+
+class VulkanFrameData {
+private:
+  struct create_t {};
+  struct TempFrameData;
+
+public:
+  struct FrameData {
+    VkCommandPool cmdpool;
+    VkCommandBuffer cmdbuf;
+    VkFence render_fen;
+    VkSemaphore swapchain_sem, render_sem;
+    VulkanDescPool pool;
+    VulkanDelQueue delqueue;
+  };
+
+public:
+  VulkanFrameData(create_t, TempFrameData* frames, VkDevice device);
+  ~VulkanFrameData();
+  KA_DO_MOVE(VulkanFrameData);
+  KA_NO_COPY(VulkanFrameData);
+
+public:
+  static fn create(VkDevice device, u32 graphics_queue, const VulkanDescPoolArgs& descpool_args)
+    -> VkExpect<VulkanFrameData>;
+
+public:
+  fn add_to_delqueue(VulkanDelQueue& queue) -> void;
+  fn next_frame() -> FrameData&;
+  fn curr_frame() -> FrameData&;
+
+private:
+  AlignedTypeBuffer<FrameData[MAX_FRAMES_IN_FLIGHT]> _frames;
+  VkDevice _device;
+  u64 _curr_frame;
 };
 
 } // namespace kappa::render

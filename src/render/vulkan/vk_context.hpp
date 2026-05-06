@@ -8,67 +8,14 @@
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
 
+#include "../../util/buffer.hpp"
+
 namespace kappa::render {
-
-// Shitty trivial nullable
-template<typename T>
-class PartialInit {
-public:
-  PartialInit() = default;
-
-  ~PartialInit() { reset(); }
-
-public:
-  template<typename... Args>
-  T& emplace(Args&&... args) {
-    reset();
-    auto* ptr = new (reinterpret_cast<T*>(_buffer)) T(std::forward<Args>(args)...);
-    _buffer[sizeof(T)] = 1;
-    return *ptr;
-  }
-
-  void reset() {
-    if (*this) {
-      if constexpr (!std::is_trivially_destructible_v<T>) {
-        reinterpret_cast<T*>(_buffer)->~T();
-      }
-      _buffer[sizeof(T)] = 0;
-    }
-  }
-
-  const T& get() const {
-    ka_assert(_buffer[sizeof(T)] == 1, "Not initialized");
-    return *reinterpret_cast<const T*>(_buffer);
-  }
-
-  T& get() { return const_cast<T&>(std::as_const(*this).get()); }
-
-public:
-  T& operator*() { return get(); }
-
-  const T& operator*() const { return get(); }
-
-  T* operator->() { return &get(); }
-
-  const T* operator->() const { return &get(); }
-
-  explicit operator bool() const { return _buffer[sizeof(T)] == 1; }
-
-private:
-  alignas(T) u8 _buffer[sizeof(T) + 1];
-};
 
 constexpr usize EFFECT_COUNT = 2;
 
-struct VulkanContextImpl {
+struct VulkanContext_impl {
 public:
-  struct FrameData {
-    VkCommandPool cmdpool;
-    VkCommandBuffer cmdbuf;
-    VkSemaphore swapchain_sem, render_sem;
-    VkFence render_fen;
-  };
-
   struct ImDrawData {
     VkFence fence;
     VkCommandPool cmdpool;
@@ -87,13 +34,10 @@ public:
   };
 
 public:
-  VulkanContextImpl() = default; // Manually initialized
-
-  VulkanContextImpl(VulkanContextImpl&&) = delete;
-  VulkanContextImpl(const VulkanContextImpl&) = delete;
-  VulkanContextImpl& operator=(VulkanContextImpl&&) = delete;
-  VulkanContextImpl& operator=(const VulkanContextImpl&) = delete;
-  ~VulkanContextImpl() = default;
+  VulkanContext_impl() = default; // Manually initialized
+  ~VulkanContext_impl() = default;
+  KA_NO_MOVE(VulkanContext_impl);
+  KA_NO_COPY(VulkanContext_impl);
 
 public:
   VkInstance vk;
@@ -102,17 +46,14 @@ public:
   VkSurfaceKHR surface;
   VulkanDelQueue delqueue;
 
-  PartialInit<VulkanDevice> device;
-  PartialInit<VulkanSwapchain> swapchain;
-
-  PartialInit<FrameData> frames[MAX_FRAMES_IN_FLIGHT];
-  u32 curr_frame;
-
-  PartialInit<DrawThing> draw;
-  PartialInit<ImDrawData> imdraw;
+  NullTrivial<VulkanDevice> device;
+  NullTrivial<VulkanSwapchain> swapchain;
+  NullTrivial<VulkanFrameData> framedata;
+  NullTrivial<ImDrawData> imdrawdata;
+  NullTrivial<DrawThing> draw;
 };
 
-fn vk_get_graphics_queue(VulkanContextImpl& ctx) -> VkQueue;
+fn vk_get_graphics_queue(VulkanContext_impl& ctx) -> VkQueue;
 fn vk_draw_imgui(VkCommandBuffer cmd, VkImageView target, VkExtent2D swapchain_extent) -> void;
 
 } // namespace kappa::render

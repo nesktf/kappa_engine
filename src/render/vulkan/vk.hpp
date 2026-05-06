@@ -71,8 +71,6 @@ struct VulkanInfo {
   u32 app_ver;
 };
 
-struct VulkanContextImpl;
-
 struct ComputeConstants {
   ran::Vec4f32 data1;
   ran::Vec4f32 data2;
@@ -87,6 +85,8 @@ struct ComputeEffect {
   ComputeConstants data;
 };
 
+struct VulkanContext_impl;
+
 class VulkanContext {
 public:
   using SurfaceProviderFn =
@@ -96,11 +96,11 @@ public:
   using ImSubmitFn = TrivFn<void(VkCommandBuffer), 4 * sizeof(void*), 8>;
 
   struct Deleter {
-    void operator()(VulkanContextImpl* impl) noexcept;
+    void operator()(VulkanContext_impl* impl) noexcept;
   };
 
 public:
-  VulkanContext(VulkanContextImpl& impl) noexcept : _impl(&impl) {}
+  VulkanContext(VulkanContext_impl& impl) noexcept : _impl(&impl) {}
 
 public:
   static fn create(const VulkanInfo& app_info, VkExtent2D surface_extent,
@@ -119,10 +119,10 @@ public:
   fn get_effect_idx() -> s32&;
 
 public:
-  fn get() -> VulkanContextImpl* { return _impl.get(); }
+  fn get() -> VulkanContext_impl* { return _impl.get(); }
 
 private:
-  std::unique_ptr<VulkanContextImpl, Deleter> _impl;
+  std::unique_ptr<VulkanContext_impl, Deleter> _impl;
 };
 
 using ImGuiFn = TrivFn<void(), 2 * sizeof(void*), 8>;
