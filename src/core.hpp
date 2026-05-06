@@ -72,6 +72,10 @@
 
 #define fn auto
 
+#define KA_DECL_HANDLE(_typename) \
+  struct _typename##_impl;        \
+  using _typename = _typename##_impl*
+
 #ifndef KA_INTERNAL_
 #define KA_DECL_OPAQUE(_typename, _align, _size) \
   struct _typename {                             \

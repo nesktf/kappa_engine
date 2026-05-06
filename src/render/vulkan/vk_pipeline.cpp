@@ -21,10 +21,7 @@ fn VulkanDescriptorLayoutBuilder::build(VkDevice device, VkShaderStageFlags stag
   for (auto& binding : _bindings) {
     binding.stageFlags |= stages;
   }
-  VkDescriptorSetLayoutCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  info.pNext = next;
-
+  auto info = vkmk_zero<VkDescriptorSetLayoutCreateInfo>(next);
   info.pBindings = _bindings.data();
   info.bindingCount = (u32)_bindings.size();
   info.flags = flags;
@@ -50,8 +47,7 @@ fn VulkanDescPool::create(VkDevice device, u32 max_sets, Span<const VulkanDescPo
       .descriptorCount = static_cast<u32>(ratio * max_sets),
     });
   }
-  VkDescriptorPoolCreateInfo pool_info{};
-  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  auto pool_info = vkmk_zero<VkDescriptorPoolCreateInfo>();
   pool_info.flags = 0;
   pool_info.maxSets = max_sets;
   pool_info.poolSizeCount = static_cast<u32>(pool_sizes.size());
@@ -69,9 +65,7 @@ fn VulkanDescPool::add_to_delqueue(VulkanDelQueue& queue) -> void {
 }
 
 fn VulkanDescPool::alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet> {
-  VkDescriptorSetAllocateInfo alloc_info{};
-  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.pNext = nullptr;
+  auto alloc_info = vkmk_zero<VkDescriptorSetAllocateInfo>();
   alloc_info.descriptorPool = _pool;
   alloc_info.descriptorSetCount = 1;
   alloc_info.pSetLayouts = &layout;
@@ -88,10 +82,7 @@ fn VulkanDescPool::clear() -> void {
 }
 
 fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule> {
-  VkShaderModuleCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  info.pNext = nullptr;
-
+  auto info = vkmk_zero<VkShaderModuleCreateInfo>();
   info.codeSize = src.size();
   info.pCode = reinterpret_cast<const u32*>(src.data());
   VkShaderModule shader;

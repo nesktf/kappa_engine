@@ -162,8 +162,7 @@ fn VulkanDevice::create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanD
 
     // How many queues we want for each queue family?
     for (u32 family : unique_queue_families) {
-      VkDeviceQueueCreateInfo info{};
-      info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+      auto info = vkmk_zero<VkDeviceQueueCreateInfo>();
       info.queueFamilyIndex = family;
       info.queueCount = 1;
       info.pQueuePriorities = &queue_priority;
@@ -173,22 +172,18 @@ fn VulkanDevice::create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanD
   }
   ka_assert(queue_idx > 0);
 
-  VkPhysicalDeviceVulkan13Features vk13feats{};
-  vk13feats.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+  auto vk13feats = vkmk_zero<VkPhysicalDeviceVulkan13Features>();
   vk13feats.dynamicRendering = true;
   vk13feats.synchronization2 = true;
 
-  VkPhysicalDeviceVulkan12Features vk12feats{};
-  vk12feats.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  auto vk12feats = vkmk_zero<VkPhysicalDeviceVulkan12Features>(&vk13feats);
   vk12feats.bufferDeviceAddress = true;
   vk12feats.descriptorIndexing = true;
-  vk12feats.pNext = &vk13feats;
 
   // Which physical device features are we going to use?
   VkPhysicalDeviceFeatures features{}; // all VK_FALSE for now
 
-  VkDeviceCreateInfo create_info{};
-  create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  auto create_info = vkmk_zero<VkDeviceCreateInfo>();
   create_info.pQueueCreateInfos = queue_infos.data();
   create_info.queueCreateInfoCount = queue_idx;
   create_info.pEnabledFeatures = &features;

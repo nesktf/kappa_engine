@@ -5,7 +5,71 @@
 #include "../../util/array.hpp"
 #include <vulkan/vulkan_core.h>
 
+#define KA_VK_STRUCT(_typename, _sType)                                  \
+  template<>                                                             \
+  struct VulkanStructTraits<_typename> {                                 \
+    static constexpr VkStructureType sType = VK_STRUCTURE_TYPE_##_sType; \
+  }
+
 namespace kappa::render {
+
+template<typename T>
+struct VulkanStructTraits;
+
+template<typename T>
+concept is_vulkan_struct = std::same_as<std::remove_const_t<decltype(T::sType)>, VkStructureType>;
+
+KA_VK_STRUCT(VkApplicationInfo, APPLICATION_INFO);
+KA_VK_STRUCT(VkInstanceCreateInfo, INSTANCE_CREATE_INFO);
+KA_VK_STRUCT(VkDebugUtilsMessengerCreateInfoEXT, DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT);
+KA_VK_STRUCT(VkPipelineShaderStageCreateInfo, PIPELINE_SHADER_STAGE_CREATE_INFO);
+KA_VK_STRUCT(VkComputePipelineCreateInfo, COMPUTE_PIPELINE_CREATE_INFO);
+KA_VK_STRUCT(VkPresentInfoKHR, PRESENT_INFO_KHR);
+KA_VK_STRUCT(VkImageBlit2, IMAGE_BLIT_2);
+KA_VK_STRUCT(VkBlitImageInfo2, BLIT_IMAGE_INFO_2);
+KA_VK_STRUCT(VkImageMemoryBarrier2, IMAGE_MEMORY_BARRIER_2);
+KA_VK_STRUCT(VkDependencyInfo, DEPENDENCY_INFO);
+KA_VK_STRUCT(VkSemaphoreSubmitInfo, SEMAPHORE_SUBMIT_INFO);
+KA_VK_STRUCT(VkSubmitInfo2, SUBMIT_INFO_2);
+KA_VK_STRUCT(VkCommandBufferSubmitInfo, COMMAND_BUFFER_SUBMIT_INFO);
+KA_VK_STRUCT(VkImageCreateInfo, IMAGE_CREATE_INFO);
+KA_VK_STRUCT(VkImageViewCreateInfo, IMAGE_VIEW_CREATE_INFO);
+KA_VK_STRUCT(VkFenceCreateInfo, FENCE_CREATE_INFO);
+KA_VK_STRUCT(VkSemaphoreCreateInfo, SEMAPHORE_CREATE_INFO);
+KA_VK_STRUCT(VkCommandBufferBeginInfo, COMMAND_BUFFER_BEGIN_INFO);
+KA_VK_STRUCT(VkCommandPoolCreateInfo, COMMAND_POOL_CREATE_INFO);
+KA_VK_STRUCT(VkCommandBufferAllocateInfo, COMMAND_BUFFER_ALLOCATE_INFO);
+KA_VK_STRUCT(VkRenderingInfo, RENDERING_INFO);
+KA_VK_STRUCT(VkRenderingAttachmentInfo, RENDERING_ATTACHMENT_INFO);
+KA_VK_STRUCT(VkDescriptorSetAllocateInfo, DESCRIPTOR_SET_ALLOCATE_INFO);
+KA_VK_STRUCT(VkShaderModuleCreateInfo, SHADER_MODULE_CREATE_INFO);
+KA_VK_STRUCT(VkDescriptorSetLayoutCreateInfo, DESCRIPTOR_SET_LAYOUT_CREATE_INFO);
+KA_VK_STRUCT(VkDescriptorPoolCreateInfo, DESCRIPTOR_POOL_CREATE_INFO);
+KA_VK_STRUCT(VkDeviceQueueCreateInfo, DEVICE_QUEUE_CREATE_INFO);
+KA_VK_STRUCT(VkPhysicalDeviceVulkan13Features, PHYSICAL_DEVICE_VULKAN_1_3_FEATURES);
+KA_VK_STRUCT(VkPhysicalDeviceVulkan12Features, PHYSICAL_DEVICE_VULKAN_1_2_FEATURES);
+KA_VK_STRUCT(VkDeviceCreateInfo, DEVICE_CREATE_INFO);
+KA_VK_STRUCT(VkSwapchainCreateInfoKHR, SWAPCHAIN_CREATE_INFO_KHR);
+KA_VK_STRUCT(VkPipelineLayoutCreateInfo, PIPELINE_LAYOUT_CREATE_INFO);
+KA_VK_STRUCT(VkWriteDescriptorSet, WRITE_DESCRIPTOR_SET);
+
+template<is_vulkan_struct T>
+fn vkmk_zero(void* pNext = nullptr) -> T {
+  T info;
+  std::memset(&info, 0x00, sizeof(info));
+  info.sType = VulkanStructTraits<T>::sType;
+  info.pNext = pNext;
+  return info;
+}
+
+template<typename T>
+fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
+  T info;
+  std::memset(&info, 0x00, sizeof(info));
+  info.sType = sType;
+  info.pNext = pNext;
+  return info;
+}
 
 class VulkanDelQueue {
 public:

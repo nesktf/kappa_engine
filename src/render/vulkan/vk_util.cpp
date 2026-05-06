@@ -161,10 +161,7 @@ fn VulkanDelQueue::enqueue_handle(VulkanHandle handle, VulkanHandle parent, Hand
 fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
                         VkExtent2D dst_ext) -> void {
   // Prepare the region
-  VkImageBlit2 blit_region{};
-  blit_region.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-  blit_region.pNext = nullptr;
-
+  auto blit_region = vkmk_zero<VkImageBlit2>();
   blit_region.srcOffsets[1].x = src_ext.width;
   blit_region.srcOffsets[1].y = src_ext.height;
   blit_region.srcOffsets[1].z = 1;
@@ -184,9 +181,7 @@ fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExte
   blit_region.dstSubresource.mipLevel = 0;
 
   // Blit the thing
-  VkBlitImageInfo2 blit_info{};
-  blit_info.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-  blit_info.pNext = nullptr;
+  auto blit_info = vkmk_zero<VkBlitImageInfo2>();
   blit_info.dstImage = dst;
   blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
   blit_info.srcImage = src;
@@ -199,10 +194,7 @@ fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExte
 
 fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
                           VkImageLayout new_layout) -> void {
-  VkImageMemoryBarrier2 barrier{};
-  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-  barrier.pNext = nullptr;
-
+  auto barrier = vkmk_zero<VkImageMemoryBarrier2>();
   barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
   barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
   barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -217,10 +209,7 @@ fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_l
   barrier.subresourceRange = vkmk_image_subresource_range(aspect_mask);
   barrier.image = img;
 
-  VkDependencyInfo dep_info{};
-  dep_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-  dep_info.pNext = nullptr;
-
+  auto dep_info = vkmk_zero<VkDependencyInfo>();
   dep_info.imageMemoryBarrierCount = 1;
   dep_info.pImageMemoryBarriers = &barrier;
 
@@ -229,9 +218,7 @@ fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_l
 
 fn vkmk_semaphore_submit_info(VkPipelineStageFlags2 mask, VkSemaphore sem)
   -> VkSemaphoreSubmitInfo {
-  VkSemaphoreSubmitInfo submit{};
-  submit.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-  submit.pNext = nullptr;
+  auto submit = vkmk_zero<VkSemaphoreSubmitInfo>();
   submit.semaphore = sem;
   submit.stageMask = mask;
   submit.deviceIndex = 0;
@@ -240,9 +227,7 @@ fn vkmk_semaphore_submit_info(VkPipelineStageFlags2 mask, VkSemaphore sem)
 }
 
 fn vkmk_command_buffer_submit_info(VkCommandBuffer cmdbuf) -> VkCommandBufferSubmitInfo {
-  VkCommandBufferSubmitInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-  info.pNext = nullptr;
+  auto info = vkmk_zero<VkCommandBufferSubmitInfo>();
   info.commandBuffer = cmdbuf;
   info.deviceMask = 0;
   return info;
@@ -251,10 +236,7 @@ fn vkmk_command_buffer_submit_info(VkCommandBuffer cmdbuf) -> VkCommandBufferSub
 fn vkmk_submit_info(const VkCommandBufferSubmitInfo& cmd_info,
                     const VkSemaphoreSubmitInfo* signal_sem_info,
                     const VkSemaphoreSubmitInfo* wait_sem_info) -> VkSubmitInfo2 {
-  VkSubmitInfo2 info{};
-  info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-  info.pNext = nullptr;
-
+  auto info = vkmk_zero<VkSubmitInfo2>();
   info.waitSemaphoreInfoCount = wait_sem_info == nullptr ? 0 : 1;
   info.pWaitSemaphoreInfos = wait_sem_info;
 
@@ -269,10 +251,7 @@ fn vkmk_submit_info(const VkCommandBufferSubmitInfo& cmd_info,
 
 fn vkmk_image_info(VkFormat format, VkImageUsageFlags usage, VkExtent3D extent)
   -> VkImageCreateInfo {
-  VkImageCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  info.pNext = nullptr;
-
+  auto info = vkmk_zero<VkImageCreateInfo>();
   info.imageType = VK_IMAGE_TYPE_2D;
 
   info.format = format;
@@ -294,9 +273,7 @@ fn vkmk_image_info(VkFormat format, VkImageUsageFlags usage, VkExtent3D extent)
 fn vkmk_imageview_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask)
   -> VkImageViewCreateInfo {
   // build a image-view for the depth image to use for rendering
-  VkImageViewCreateInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  info.pNext = nullptr;
+  auto info = vkmk_zero<VkImageViewCreateInfo>();
 
   // map the color channels to something, vk_component_swizzle_identity by default
   info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -328,34 +305,26 @@ fn vkmk_image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRa
 };
 
 fn vkmk_fence_info(VkFenceCreateFlags flags) -> VkFenceCreateInfo {
-  VkFenceCreateInfo fence_create_info{};
-  fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_create_info.pNext = nullptr;
+  auto fence_create_info = vkmk_zero<VkFenceCreateInfo>();
   fence_create_info.flags = flags;
   return fence_create_info;
 }
 
 fn vkmk_semaphore_info(VkSemaphoreCreateFlags flags) -> VkSemaphoreCreateInfo {
-  VkSemaphoreCreateInfo semaphore_create_info{};
-  semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-  semaphore_create_info.pNext = nullptr;
+  auto semaphore_create_info = vkmk_zero<VkSemaphoreCreateInfo>();
   semaphore_create_info.flags = flags;
   return semaphore_create_info;
 }
 
 fn vkmk_cmdbuf_begin_info(VkCommandBufferUsageFlags flags) -> VkCommandBufferBeginInfo {
-  VkCommandBufferBeginInfo cmd_begin_info{};
-  cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  cmd_begin_info.pNext = nullptr;
+  auto cmd_begin_info = vkmk_zero<VkCommandBufferBeginInfo>();
   cmd_begin_info.pInheritanceInfo = nullptr;
   cmd_begin_info.flags = flags;
   return cmd_begin_info;
 }
 
 fn vkmk_cmdpool_info(VkCommandPoolCreateFlags flags, u32 family_index) -> VkCommandPoolCreateInfo {
-  VkCommandPoolCreateInfo cmdpool_info{};
-  cmdpool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  cmdpool_info.pNext = nullptr;
+  auto cmdpool_info = vkmk_zero<VkCommandPoolCreateInfo>();
   cmdpool_info.flags = flags;
   cmdpool_info.queueFamilyIndex = family_index;
   return cmdpool_info;
@@ -363,9 +332,7 @@ fn vkmk_cmdpool_info(VkCommandPoolCreateFlags flags, u32 family_index) -> VkComm
 
 fn vkmk_cmdbuf_alloc_info(VkCommandPool cmdpool, VkCommandBufferLevel level)
   -> VkCommandBufferAllocateInfo {
-  VkCommandBufferAllocateInfo cmd_alloc_info{};
-  cmd_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  cmd_alloc_info.pNext = nullptr;
+  auto cmd_alloc_info = vkmk_zero<VkCommandBufferAllocateInfo>();
   cmd_alloc_info.commandPool = cmdpool;
   cmd_alloc_info.commandBufferCount = 1;
   cmd_alloc_info.level = level;
@@ -374,10 +341,7 @@ fn vkmk_cmdbuf_alloc_info(VkCommandPool cmdpool, VkCommandBufferLevel level)
 
 fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
                     const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo {
-  VkRenderingInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-  info.pNext = nullptr;
-
+  auto info = vkmk_zero<VkRenderingInfo>();
   info.renderArea.offset.x = 0;
   info.renderArea.offset.y = 0;
   info.renderArea.extent = render_extent;
@@ -393,10 +357,7 @@ fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* c
 
 fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
   -> VkRenderingAttachmentInfo {
-  VkRenderingAttachmentInfo info{};
-  info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-  info.pNext = nullptr;
-
+  auto info = vkmk_zero<VkRenderingAttachmentInfo>();
   info.imageView = view;
   info.imageLayout = layout;
   info.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;

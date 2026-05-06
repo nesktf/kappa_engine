@@ -78,8 +78,7 @@ fn VulkanSwapchain::create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_s
     image_count = capabilities.maxImageCount;
   }
 
-  VkSwapchainCreateInfoKHR create_info{};
-  create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+  auto create_info = vkmk_zero<VkSwapchainCreateInfoKHR>();
   create_info.surface = args.surface;
   create_info.imageFormat = image_format;
   create_info.minImageCount = image_count;

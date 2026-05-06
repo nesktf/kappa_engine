@@ -101,8 +101,7 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   }
 #endif
 
-  VkApplicationInfo vkapp_info{};
-  vkapp_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO; // struct type
+  auto vkapp_info = vkmk_zero<VkApplicationInfo>();
   // app_info.pNext = nullptr; // No extensions, not needed if default constructed
   vkapp_info.pApplicationName = app_info.app_name;
   vkapp_info.applicationVersion = app_info.app_ver;
@@ -110,8 +109,7 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
   vkapp_info.engineVersion = KA_ENGINE_VER;
   vkapp_info.apiVersion = KA_VULKAN_VERSION;
 
-  VkInstanceCreateInfo create_info{};
-  create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  auto create_info = vkmk_zero<VkInstanceCreateInfo>();
   create_info.pApplicationInfo = &vkapp_info;
 
   u32 ext_count{0};
@@ -149,8 +147,7 @@ fn make_vk_instance(VulkanContextImpl& ctx, const VulkanInfo& app_info,
 
 #ifndef NDEBUG
   // Setup the debug messenger
-  VkDebugUtilsMessengerCreateInfoEXT messenger_info{};
-  messenger_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+  auto messenger_info = vkmk_zero<VkDebugUtilsMessengerCreateInfoEXT>();
   messenger_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
                                    // VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
                                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
@@ -289,18 +286,12 @@ fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char*
 
   auto shader = vk_create_shader(device, {file.data(), file.size()}).value();
 
-  VkPipelineShaderStageCreateInfo stage_info{};
-  stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  stage_info.pNext = nullptr;
-
+  auto stage_info = vkmk_zero<VkPipelineShaderStageCreateInfo>();
   stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
   stage_info.module = shader;
   stage_info.pName = "main";
 
-  VkComputePipelineCreateInfo compute_info{};
-  compute_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-  compute_info.pNext = nullptr;
-
+  auto compute_info = vkmk_zero<VkComputePipelineCreateInfo>();
   compute_info.layout = layout;
   compute_info.stage = stage_info;
 
@@ -340,10 +331,7 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   img_info.imageView = image.view;
 
-  VkWriteDescriptorSet draw_image_write{};
-  draw_image_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  draw_image_write.pNext = nullptr;
-
+  auto draw_image_write = vkmk_zero<VkWriteDescriptorSet>();
   draw_image_write.dstBinding = 0;
   draw_image_write.dstSet = image_desc;
   draw_image_write.descriptorCount = 1;
@@ -353,9 +341,7 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   vkUpdateDescriptorSets(device, 1, &draw_image_write, 0, nullptr);
 
   // Init pipelines
-  VkPipelineLayoutCreateInfo compute_layout{};
-  compute_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  compute_layout.pNext = nullptr;
+  auto compute_layout = vkmk_zero<VkPipelineLayoutCreateInfo>();
   compute_layout.pSetLayouts = &image_desc_layout;
   compute_layout.setLayoutCount = 1;
 
@@ -622,9 +608,7 @@ fn VulkanContext::draw() -> void {
   //  we want to wait on the _renderSemaphore for that,
   //  as its necessary that drawing commands have finished before the image is displayed to the
   //  user
-  VkPresentInfoKHR presentInfo = {};
-  presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-  presentInfo.pNext = nullptr;
+  auto presentInfo = vkmk_zero<VkPresentInfoKHR>();
   presentInfo.pSwapchains = &swapchain;
   presentInfo.swapchainCount = 1;
 
