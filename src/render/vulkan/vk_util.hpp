@@ -8,16 +8,16 @@
 #define KA_VK_STRUCT(_typename, _sType)                                  \
   template<>                                                             \
   struct VulkanStructTraits<_typename> {                                 \
+    static constexpr bool is_specialized = true;                         \
     static constexpr VkStructureType sType = VK_STRUCTURE_TYPE_##_sType; \
   }
 
 namespace kappa::render {
 
 template<typename T>
-struct VulkanStructTraits;
-
-template<typename T>
-concept is_vulkan_struct = std::same_as<std::remove_const_t<decltype(T::sType)>, VkStructureType>;
+struct VulkanStructTraits {
+  static constexpr bool is_specialized = false;
+};
 
 KA_VK_STRUCT(VkApplicationInfo, APPLICATION_INFO);
 KA_VK_STRUCT(VkInstanceCreateInfo, INSTANCE_CREATE_INFO);
@@ -53,7 +53,8 @@ KA_VK_STRUCT(VkSwapchainCreateInfoKHR, SWAPCHAIN_CREATE_INFO_KHR);
 KA_VK_STRUCT(VkPipelineLayoutCreateInfo, PIPELINE_LAYOUT_CREATE_INFO);
 KA_VK_STRUCT(VkWriteDescriptorSet, WRITE_DESCRIPTOR_SET);
 
-template<is_vulkan_struct T>
+template<typename T>
+requires(VulkanStructTraits<T>::is_specialized)
 fn vkmk_zero(void* pNext = nullptr) -> T {
   T info;
   std::memset(&info, 0x00, sizeof(info));
