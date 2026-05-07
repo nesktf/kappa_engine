@@ -54,6 +54,5 @@ public:
 };
 
 fn vk_get_graphics_queue(VulkanContext_impl& ctx) -> VkQueue;
-fn vk_draw_imgui(VkCommandBuffer cmd, VkImageView target, VkExtent2D swapchain_extent) -> void;
 
 } // namespace kappa::render

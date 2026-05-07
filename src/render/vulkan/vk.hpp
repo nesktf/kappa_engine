@@ -8,6 +8,9 @@
 
 #include <ranmath/ran.hpp>
 
+#define KA_APP_NAME    "Kappa"
+#define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
+
 namespace kappa::render {
 
 fn vk_error_string(VkResult result) noexcept -> const char*;
@@ -87,13 +90,22 @@ struct ComputeEffect {
 
 struct VulkanContext_impl;
 
+struct VulkanSurfaceProvider {
+  using SurfaceProviderFn =
+    TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*) const,
+           2 * sizeof(void*), 8>;
+  using ImGuiFn = TrivFn<void() const, 2 * sizeof(void*), 8>;
+
+  VkExtent2D initial_extent;
+  Span<const char*> extensions;
+  SurfaceProviderFn provider_fn;
+  ImGuiFn imgui_fn;
+};
+
 class VulkanContext {
 public:
-  using SurfaceProviderFn =
-    TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*), 2 * sizeof(void*),
-           8>;
-
   using ImSubmitFn = TrivFn<void(VkCommandBuffer), 4 * sizeof(void*), 8>;
+  using ImGuiDrawFn = TrivFn<void(), 2 * sizeof(void*), 8>;
 
   struct Deleter {
     void operator()(VulkanContext_impl* impl) noexcept;
@@ -103,14 +115,13 @@ public:
   VulkanContext(VulkanContext_impl& impl) noexcept : _impl(&impl) {}
 
 public:
-  static fn create(const VulkanInfo& app_info, VkExtent2D surface_extent,
-                   Span<const char*> surface_extensions, SurfaceProviderFn surface_provider)
+  static fn create(const VulkanInfo& app_info, const VulkanSurfaceProvider& surface_args)
     -> VkSvExpect<VulkanContext>;
 
 public:
   fn rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void>;
 
-  fn draw() -> void;
+  fn draw(ImGuiDrawFn imgui_draw) -> void;
 
   fn immediate_submit(ImSubmitFn func) -> void;
 
@@ -124,11 +135,5 @@ public:
 private:
   std::unique_ptr<VulkanContext_impl, Deleter> _impl;
 };
-
-using ImGuiFn = TrivFn<void(), 2 * sizeof(void*), 8>;
-
-fn vk_init_imgui(VulkanContext& ctx, ImGuiFn imgui_init) -> void;
-
-fn vk_imgui_frame(VulkanContext& ctx, ImGuiFn draw) -> void;
 
 } // namespace kappa::render

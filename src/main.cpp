@@ -1,70 +1,60 @@
-#include "./render/instance.hpp"
+#include "./render/glfw.hpp"
 
-#include "./assets/model.hpp"
-
-#include "./util/function.hpp"
 #include "./util/logger.hpp"
-#include "./util/threadpool.hpp"
+
+#include <imgui.h>
 
 namespace {
 
 using namespace kappa;
 
+constexpr render::VulkanInfo app_info{
+  .app_name = KA_APP_NAME,
+  .app_ver = KA_APP_VERSION,
+};
+
 constexpr u32 WINDOW_WIDTH = 1280;
 constexpr u32 WINDOW_HEIGHT = 720;
 
 fn run_engine() -> void {
-  ThreadPool pool;
-  render::initialize(WINDOW_WIDTH, WINDOW_HEIGHT);
-  const DeferFn render_defer = []() {
-    render::destroy();
+  auto glfw = render::GLFWContext::create(WINDOW_WIDTH, WINDOW_HEIGHT);
+  const DeferFn glfw_defer = [&]() {
+    glfw.destroy();
+  };
+  auto vk = glfw.bind_vulkan(app_info);
+
+  const fn imgui_draw = [&]() {
+    glfw.start_frame();
+    ImGui::NewFrame();
+
+    ImGui::ShowDemoWindow();
+
+    if (ImGui::Begin("background")) {
+      auto& effect = vk.get_effect();
+      ImGui::Text("Selected effect: %s", effect.name);
+      ImGui::SliderInt("Effect Index", &vk.get_effect_idx(), 0, 1);
+      ImGui::InputFloat4("data1", effect.data.data1.data());
+      ImGui::InputFloat4("data2", effect.data.data2.data());
+      ImGui::InputFloat4("data3", effect.data.data3.data());
+      ImGui::InputFloat4("data4", effect.data.data4.data());
+    }
+    ImGui::End();
+
+    ImGui::Render();
   };
 
-#if 0
-  assets::Model3DLoader marisa_loader("./res/marisa_miy/marisa_miy.gltf", "marisa");
-  auto marisa = marisa_loader.load().value();
+  const fn on_render = [&](f64 dt, f64 alpha) {
+    (void)dt;
+    (void)alpha;
 
-  const fn filter_thing = [&](const assets::Model3DData::MeshData& mesh) {
-    auto pos = mesh.name.as_view().find("Marisa Miy-");
-    return pos != std::string::npos;
+    vk.draw(imgui_draw);
   };
-#endif
 
   const fn on_fixed_update = [&](u32 ups) {
     (void)ups;
   };
-  const fn on_render = [&](f64 dt, f64 alpha) {
-    (void)dt;
-    (void)alpha;
-    render::start_frame();
 
-    render::end_frame();
-  };
-
-  render::render_loop<60>(OverloadFn{on_fixed_update, on_render});
-
-#if 0
-  render::buffer_binding scene_buffer{
-    .offset = 0,
-    .size = 2 * sizeof(m4f32),
-    .handle = render::create_buffer(2 * sizeof(m4f32)).value(),
-  };
-  const shogle::scope_end buffer_defer = [&]() {
-    render::destroy_buffer(scene_buffer.handle);
-  };
-
-  const fn update_scene = [&](f32 w, f32 h) {
-    const m4f32 proj = shogle::math::perspective(shogle::math::rad(90.f), w / h, 0.1f, 100.f);
-    const m4f32 view(1.f);
-    render::update_buffer(scene_buffer.handle, &proj, sizeof(proj), 0);
-    render::update_buffer(scene_buffer.handle, &view, sizeof(view), sizeof(proj));
-  };
-  auto model = render::model3d_renderable::from_asset(marisa, filter_thing).value();
-  vec<render::render_data> render_data;
-
-  auto mari_instancer = render::model3d_instance_handler::create(model, 1).value();
-
-#endif
+  render::render_loop<60>(glfw, OverloadFn{on_fixed_update, on_render});
 }
 
 } // namespace

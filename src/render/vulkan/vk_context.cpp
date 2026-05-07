@@ -1,11 +1,8 @@
 #include "./vk_context.hpp"
 
-#include "./vk_pipeline.hpp"
+#include "./vk_imgui.hpp"
 
 #include "../../util/filesystem.hpp"
-#include "render/vulkan/vk_util.hpp"
-#include "vk_private.hpp"
-#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -344,15 +341,14 @@ fn VulkanContext::Deleter::operator()(VulkanContext_impl* ctx) noexcept -> void 
   make_vulkan_ctx_destroyer(ctx)();
 }
 
-fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
-                         Span<const char*> surface_extensions, SurfaceProviderFn surface_provider)
+fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider& surface)
   -> VkSvExpect<VulkanContext> {
 
   Vec<const char*> extensions;
-  extensions.reserve(surface_extensions.size() + 1);
-  if (!surface_extensions.empty()) {
-    VK_LOG(debug, "Required Vulkan surface extensions ({}):", surface_extensions.size());
-    for (const char* ext : surface_extensions) {
+  extensions.reserve(surface.extensions.size() + 1);
+  if (!surface.extensions.empty()) {
+    VK_LOG(debug, "Required Vulkan surface extensions ({}):", surface.extensions.size());
+    for (const char* ext : surface.extensions) {
       VK_LOG(debug, "- {}", ext);
       extensions.push_back(ext);
     }
@@ -369,13 +365,13 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
   DeferFn ctxerr = make_vulkan_ctx_destroyer(ctx);
 
   const fn create_surface = [&]() -> VkSvExpect<VkSurfaceKHR> {
-    VkSurfaceKHR surface{};
-    const auto res = surface_provider(ctx->vk, &surface, vkalloc);
-    if (res != VK_SUCCESS || surface == VK_NULL_HANDLE) {
+    VkSurfaceKHR surf{};
+    const auto res = surface.provider_fn(ctx->vk, &surf, vkalloc);
+    if (res != VK_SUCCESS || surf == VK_NULL_HANDLE) {
       return {unexpect, "Failed to create surface",
               res == VK_SUCCESS ? VK_ERROR_INITIALIZATION_FAILED : res};
     }
-    return {in_place, surface};
+    return {in_place, surf};
   };
 
   const fn select_device = [&](VkSurfaceKHR&& surface) -> VkSvExpect<VulkanDevice> {
@@ -399,7 +395,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
   const fn create_swapchain = [&](VmaAllocator&& vmalloc) -> VkSvExpect<VulkanSwapchain> {
     ctx->vmalloc = vmalloc;
     ctx->delqueue.enqueue(vmalloc, ctx->device->device());
-    const auto swargs = swapchain_args_from_ctx(*ctx, surface_extent);
+    const auto swargs = swapchain_args_from_ctx(*ctx, surface.initial_extent);
     return VulkanSwapchain::create(swargs).transform_error(
       [](VkError&& err) -> VkSvError { return {"Failed to create swapchain", err.code()}; });
   };
@@ -423,6 +419,7 @@ fn VulkanContext::create(const VulkanInfo& app_info, VkExtent2D surface_extent,
   const fn create_context = [&](VulkanFrameData&& frames) -> VulkanContext {
     ctx->framedata.emplace(std::move(frames));
     ctx->framedata->add_to_delqueue(ctx->delqueue);
+    vk_init_imgui(*ctx, surface.imgui_fn);
 
     // temp: test rendering things
     const auto device = ctx->device->device();
@@ -485,7 +482,10 @@ fn draw_background(VulkanContext_impl& ctx, VkCommandBuffer cmdbuf) -> void {
 
 } // namespace
 
-fn VulkanContext::draw() -> void {
+fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
+  vk_imgui_new_frame();
+  imgui_fn();
+
   auto& frame = _impl->framedata->next_frame();
 
   const auto device = _impl->device->device();

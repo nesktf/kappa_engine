@@ -1,4 +1,4 @@
-#include "./vk_private.hpp"
+#include "./vk_imgui.hpp"
 
 #include "./vk_context.hpp"
 
@@ -8,8 +8,8 @@
 
 namespace kappa::render {
 
-fn vk_init_imgui(VulkanContext& ctx_, ImGuiFn imgui_init) -> void {
-  auto* ctx = ctx_.get();
+fn vk_init_imgui(VulkanContext_impl& ctx, const VulkanSurfaceProvider::ImGuiFn& imgui_init)
+  -> void {
   // 1: create descriptor pool for IMGUI
   //  the size of the pool is very oversize, but it's copied from imgui demo
   //  itself.
@@ -32,20 +32,20 @@ fn vk_init_imgui(VulkanContext& ctx_, ImGuiFn imgui_init) -> void {
   pool_info.poolSizeCount = (u32)pool_sizes.size();
   pool_info.pPoolSizes = pool_sizes.data();
 
-  const auto device = ctx->device->device();
+  const auto device = ctx.device->device();
 
   VkDescriptorPool imgui_pool;
   VK_ASSERT(vkCreateDescriptorPool(device, &pool_info, vkalloc, &imgui_pool));
 
   imgui_init();
 
-  const auto swapchain_format = ctx->swapchain->format();
+  const auto swapchain_format = ctx.swapchain->format();
 
   ImGui_ImplVulkan_InitInfo init_info{};
-  init_info.Instance = ctx->vk;
-  init_info.PhysicalDevice = ctx->device->physical_device();
-  init_info.Device = ctx->device->device();
-  init_info.Queue = vk_get_graphics_queue(*ctx);
+  init_info.Instance = ctx.vk;
+  init_info.PhysicalDevice = ctx.device->physical_device();
+  init_info.Device = ctx.device->device();
+  init_info.Queue = vk_get_graphics_queue(ctx);
   init_info.DescriptorPool = imgui_pool;
   init_info.MinImageCount = 3;
   init_info.ImageCount = 3;
@@ -61,7 +61,7 @@ fn vk_init_imgui(VulkanContext& ctx_, ImGuiFn imgui_init) -> void {
   ImGui_ImplVulkan_Init(&init_info);
   // ImGui_ImplVulkan_CreateFontsTexture();
 
-  ctx->delqueue.enqueue_deleter([=]() {
+  ctx.delqueue.enqueue_deleter([=]() {
     ImGui_ImplVulkan_Shutdown();
     vkDestroyDescriptorPool(device, imgui_pool, vkalloc);
   });
@@ -77,9 +77,8 @@ fn vk_draw_imgui(VkCommandBuffer cmd, VkImageView target, VkExtent2D swapchain_e
   vkCmdEndRendering(cmd);
 }
 
-fn vk_imgui_frame(VulkanContext&, ImGuiFn draw) -> void {
+fn vk_imgui_new_frame() -> void {
   ImGui_ImplVulkan_NewFrame();
-  draw();
 }
 
 } // namespace kappa::render
