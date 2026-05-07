@@ -114,9 +114,9 @@ fn make_vk_instance(VulkanContext_impl& ctx, const VulkanInfo& app_info,
   Vec<VkExtensionProperties> exts;
   exts.resize(ext_count);
   vkEnumerateInstanceExtensionProperties(nullptr, &ext_count, exts.data());
-  VK_LOG(debug, "Vulkan extensions available ({}):", ext_count);
+  KA_VK_LOG(debug, "Vulkan extensions available ({}):", ext_count);
   for (const auto& ext : exts) {
-    VK_LOG(debug, "- {}", ext.extensionName);
+    KA_VK_LOG(debug, "- {}", ext.extensionName);
   }
 
   bool ext_avail = true;
@@ -179,7 +179,7 @@ fn make_vk_instance(VulkanContext_impl& ctx, const VulkanInfo& app_info,
   ctx.delqueue.enqueue(ctx.messenger, ctx.vk);
 #endif
 
-  VK_LOG(debug, "Vulkan instance initialized");
+  KA_VK_LOG(debug, "Vulkan instance initialized");
 
   return {};
 }
@@ -219,14 +219,14 @@ fn create_imdraw_data(VkDevice device, u32 graphics_queue) -> VulkanContext_impl
   VulkanContext_impl::ImDrawData data;
   const auto cmdpool_info =
     vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
-  VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
+  KA_VK_ASSERT(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
 
   const auto cmd_alloc_info =
     vkmk_cmdbuf_alloc_info(data.cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-  VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &data.cmdbuf));
+  KA_VK_ASSERT(vkAllocateCommandBuffers(device, &cmd_alloc_info, &data.cmdbuf));
 
   const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
-  VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &data.fence));
+  KA_VK_ASSERT(vkCreateFence(device, &fence_create_info, vkalloc, &data.fence));
   return data;
 }
 
@@ -248,7 +248,7 @@ fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char*
   compute_info.stage = stage_info;
 
   VkPipeline pip{};
-  VK_ASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc, &pip));
+  KA_VK_ASSERT(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc, &pip));
   vkDestroyShaderModule(device, shader, vkalloc);
 
   return pip;
@@ -311,7 +311,7 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   compute_layout.pushConstantRangeCount = 1;
 
   VkPipelineLayout layout{};
-  VK_ASSERT(vkCreatePipelineLayout(device, &compute_layout, vkalloc, &layout));
+  KA_VK_ASSERT(vkCreatePipelineLayout(device, &compute_layout, vkalloc, &layout));
 
   std::array<ComputeEffect, EFFECT_COUNT> effects{};
   effects[0].name = "gradient_color";
@@ -347,13 +347,13 @@ fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider
   Vec<const char*> extensions;
   extensions.reserve(surface.extensions.size() + 1);
   if (!surface.extensions.empty()) {
-    VK_LOG(debug, "Required Vulkan surface extensions ({}):", surface.extensions.size());
+    KA_VK_LOG(debug, "Required Vulkan surface extensions ({}):", surface.extensions.size());
     for (const char* ext : surface.extensions) {
-      VK_LOG(debug, "- {}", ext);
+      KA_VK_LOG(debug, "- {}", ext);
       extensions.push_back(ext);
     }
   } else {
-    VK_LOG(warn, "No Vulkan extensions provided for surface creation");
+    KA_VK_LOG(warn, "No Vulkan extensions provided for surface creation");
   }
 #ifndef NDEBUG
   extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -499,8 +499,8 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
   ka_assert(present_queue != VK_NULL_HANDLE);
 
   // Wait for fences
-  VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
-  VK_ASSERT(vkResetFences(device, 1, &frame.render_fen));
+  KA_VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
+  KA_VK_ASSERT(vkResetFences(device, 1, &frame.render_fen));
   // frame.delqueue.flush();
 
   // Acquire swapchain image
@@ -511,9 +511,9 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
   ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
 
   // Initialize command buffer
-  VK_ASSERT(vkResetCommandBuffer(frame.cmdbuf, 0));
+  KA_VK_ASSERT(vkResetCommandBuffer(frame.cmdbuf, 0));
   const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-  VK_ASSERT(vkBeginCommandBuffer(frame.cmdbuf, &cmd_begin_info));
+  KA_VK_ASSERT(vkBeginCommandBuffer(frame.cmdbuf, &cmd_begin_info));
 
   // transition our main draw image into general layout so we can write into it
   // we will overwrite it all so we dont care about what was the older layout
@@ -553,7 +553,7 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
   }
 
   // finalize the command buffer (we can no longer add commands, but it can now be executed)
-  VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
+  KA_VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
 
   // prepare the submission to the queue.
   // we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is
@@ -567,7 +567,7 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
 
   // submit command buffer to the queue and execute it.
   //  _renderFence will now block until the graphic commands finish execution
-  VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, frame.render_fen));
+  KA_VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, frame.render_fen));
 
   // prepare present
   //  this will put the image we just rendered to into the visible window.
@@ -601,21 +601,21 @@ fn VulkanContext::immediate_submit(ImSubmitFn func) -> void {
   const auto cmd = imdraw.cmdbuf;
   const auto graphics_queue = vk_get_graphics_queue(*_impl);
 
-  VK_ASSERT(vkResetFences(device, 1, &imdraw.fence));
-  VK_ASSERT(vkResetCommandBuffer(cmd, 0));
+  KA_VK_ASSERT(vkResetFences(device, 1, &imdraw.fence));
+  KA_VK_ASSERT(vkResetCommandBuffer(cmd, 0));
 
   const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-  VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+  KA_VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
   func(cmd);
-  VK_ASSERT(vkEndCommandBuffer(cmd));
+  KA_VK_ASSERT(vkEndCommandBuffer(cmd));
 
   const auto cmdinfo = vkmk_command_buffer_submit_info(cmd);
   const auto submit = vkmk_submit_info(cmdinfo, nullptr, nullptr);
 
   // Submit to queue and execute
   // fence blocks until the gfx commands finish execution
-  VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, imdraw.fence));
-  VK_ASSERT(vkWaitForFences(device, 1, &imdraw.fence, VK_TRUE, 9999999999));
+  KA_VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, imdraw.fence));
+  KA_VK_ASSERT(vkWaitForFences(device, 1, &imdraw.fence, VK_TRUE, 9999999999));
 }
 
 fn VulkanContext::get_effect() -> ComputeEffect& {

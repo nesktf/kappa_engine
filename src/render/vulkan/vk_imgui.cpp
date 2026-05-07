@@ -4,7 +4,6 @@
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
-#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -35,7 +34,7 @@ fn vk_init_imgui(VulkanContext_impl& ctx, const VulkanSurfaceProvider::ImGuiFn& 
   const auto device = ctx.device->device();
 
   VkDescriptorPool imgui_pool;
-  VK_ASSERT(vkCreateDescriptorPool(device, &pool_info, vkalloc, &imgui_pool));
+  KA_VK_ASSERT(vkCreateDescriptorPool(device, &pool_info, vkalloc, &imgui_pool));
 
   imgui_init();
 

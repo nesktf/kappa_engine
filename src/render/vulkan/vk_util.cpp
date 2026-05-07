@@ -81,7 +81,7 @@ using VulkanHandle = VulkanDelQueue::VulkanHandle;
 fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHandle other_parent,
                   VulkanHandle handle) -> void {
   using enum VulkanDelQueue::HandleType;
-  VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
+  KA_VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
   switch (type) {
     case TYPE_IMAGE: {
       vmaDestroyImage((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);

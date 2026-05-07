@@ -1,15 +1,33 @@
 #pragma once
 
-#define VK_LOG(_level, _msg, ...) \
+#define KA_VK_LOG(_level, _msg, ...) \
   ::kappa::log_##_level("[VULKAN] " _msg __VA_OPT__(, ) __VA_ARGS__)
 
-#define VK_ASSERT(func)                                                             \
-  {                                                                                 \
-    VkResult vkres = (func);                                                        \
-    if (vkres != VK_SUCCESS) {                                                      \
-      VK_LOG(error, "ASSERT FAILURE: {}", ::kappa::render::vk_error_string(vkres)); \
-      ka_panic("VULKAN ERROR");                                                     \
-    }                                                                               \
+#define KA_VK_ASSERT(func)                                                             \
+  {                                                                                    \
+    VkResult vkres = (func);                                                           \
+    if (vkres != VK_SUCCESS) {                                                         \
+      KA_VK_LOG(error, "ASSERT FAILURE: {}", ::kappa::render::vk_error_string(vkres)); \
+      ka_panic("VULKAN ERROR");                                                        \
+    }                                                                                  \
+  }
+
+#define KA_VK_UNEX(_func)                                    \
+  if (auto _vkret = (_func); _vkret != VK_SUCCESS) {         \
+    KA_VK_LOG(error, "evil path @ {}", __PRETTY_FUNCTION__); \
+    return {unexpect, _vkret};                               \
+  }
+
+#define KA_VK_UNEX_STR(_func, _str)                          \
+  if (auto _vkret = (_func); _vkret != VK_SUCCESS) {         \
+    KA_VK_LOG(error, "evil path @ {}", __PRETTY_FUNCTION__); \
+    return {unexpect, _str, _vkret};                         \
+  }
+
+#define KA_VK_UNEX_FMT(_func, _fmt, ...)                                       \
+  if (auto _vkret = (_func); _vkret != VK_SUCCESS) {                           \
+    KA_VK_LOG(error, "evil path @ {}", __PRETTY_FUNCTION__);                   \
+    return {unexpect, ::fmt::format(_fmt __VA_OPT__(, ) __VA_ARGS__), _vkret}; \
   }
 
 #include "./vk.hpp"

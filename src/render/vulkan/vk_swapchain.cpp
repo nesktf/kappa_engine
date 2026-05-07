@@ -4,11 +4,6 @@
 
 #include <algorithm>
 
-#define RET_VK_ERROR(func)                    \
-  if (auto ret = (func); ret != VK_SUCCESS) { \
-    return {unexpect, ret};                   \
-  }
-
 namespace kappa::render {
 
 VulkanSwapchain::VulkanSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat format,
@@ -135,9 +130,9 @@ fn VulkanSwapchain::create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_s
   for (usize i = 0; i < images.size(); ++i) {
     const auto create_info =
       vkmk_imageview_info(image_format, images[i], VK_IMAGE_ASPECT_COLOR_BIT);
-    VK_ASSERT(vkCreateImageView(args.device, &create_info, vkalloc, &image_views[i]));
+    KA_VK_ASSERT(vkCreateImageView(args.device, &create_info, vkalloc, &image_views[i]));
   }
-  VK_LOG(debug, "Creating swapchain: {}x{}", swapchain_extent.width, swapchain_extent.height);
+  KA_VK_LOG(debug, "Creating swapchain: {}x{}", swapchain_extent.width, swapchain_extent.height);
 
   return {in_place,
           create_t(),
@@ -247,15 +242,15 @@ fn VulkanFrameData::create(VkDevice device, u32 graphics_queue,
 
   for (; curr_frame < (s32)MAX_FRAMES_IN_FLIGHT; ++curr_frame) {
     auto& data = vkdata[curr_frame];
-    RET_VK_ERROR(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
+    KA_VK_UNEX(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
 
     const auto cmd_alloc_info =
       vkmk_cmdbuf_alloc_info(data.cmdpool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    RET_VK_ERROR(vkAllocateCommandBuffers(device, &cmd_alloc_info, &data.cmdbuf));
+    KA_VK_UNEX(vkAllocateCommandBuffers(device, &cmd_alloc_info, &data.cmdbuf));
 
-    RET_VK_ERROR(vkCreateFence(device, &fence_create_info, vkalloc, &data.render_fen));
-    RET_VK_ERROR(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.swapchain_sem));
-    RET_VK_ERROR(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.render_sem));
+    KA_VK_UNEX(vkCreateFence(device, &fence_create_info, vkalloc, &data.render_fen));
+    KA_VK_UNEX(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.swapchain_sem));
+    KA_VK_UNEX(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.render_sem));
 
     auto pool = VulkanDescPool::create(device, descpool_args);
     if (!pool) {

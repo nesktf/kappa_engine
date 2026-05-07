@@ -27,7 +27,7 @@ fn VulkanDescriptorLayoutBuilder::build(VkDevice device, VkShaderStageFlags stag
   info.flags = flags;
 
   VkDescriptorSetLayout set;
-  VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, nullptr, &set));
+  KA_VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, nullptr, &set));
   return set;
 }
 
