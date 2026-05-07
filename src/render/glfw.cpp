@@ -36,9 +36,6 @@ fn get_extensions() -> Span<const char*> {
 } // namespace
 
 fn GLFWContext::bind_vulkan(const VulkanInfo& app_info) -> VulkanContext {
-  glfwSetWindowUserPointer(_win, this);
-  glfwSetFramebufferSizeCallback(_win, fb_resize_fn);
-
   const fn get_extent = [&]() -> VkExtent2D {
     int w, h;
     glfwGetFramebufferSize(_win, &w, &h);
@@ -63,7 +60,11 @@ fn GLFWContext::bind_vulkan(const VulkanInfo& app_info) -> VulkanContext {
         ImGui_ImplGlfw_InitForVulkan(_win, true);
       },
   };
-  return VulkanContext::create(app_info, surface).value();
+  auto vk = VulkanContext::create(app_info, surface).value();
+  _vk = &vk;
+  glfwSetWindowUserPointer(_win, this);
+  glfwSetFramebufferSizeCallback(_win, fb_resize_fn);
+  return vk;
 }
 
 fn GLFWContext::destroy() -> void {
