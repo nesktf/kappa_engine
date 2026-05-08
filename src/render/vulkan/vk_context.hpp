@@ -31,6 +31,8 @@ public:
     VkDescriptorSetLayout image_desc_layout;
     std::array<ComputeEffect, EFFECT_COUNT> background_effects;
     s32 effect_idx;
+    VkPipeline triangle_pipeline;
+    VkPipelineLayout triangle_layout;
   };
 
 public:

@@ -3,6 +3,7 @@
 #include "./vk_imgui.hpp"
 
 #include "../../util/filesystem.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -230,9 +231,13 @@ fn create_imdraw_data(VkDevice device, u32 graphics_queue) -> VulkanContext_impl
   return data;
 }
 
+fn format_file_path(const char* path) -> std::string {
+  return std::string(KA_RES_DIR) + path;
+}
+
 fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char* path)
   -> VkPipeline {
-  const auto real_path = std::string(KA_RES_DIR) + path;
+  const auto real_path = format_file_path(path);
   auto file = load_entire_file(real_path.c_str());
   ka_assert(!file.empty());
 
@@ -326,13 +331,50 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
   effects[1].pipeline = create_compute_pipeline(device, layout, "/shaders/sky.comp.spv");
   effects[1].data.data1 = ran::Vec4f32(.1f, .2f, .4f, .97f);
 
+  VkShaderModule triangle_frag = VK_NULL_HANDLE, triangle_vert = VK_NULL_HANDLE;
+  VkPipelineLayout triangle_layout = VK_NULL_HANDLE;
+  const DeferFn module_defer = [&]() {
+    if (triangle_vert != VK_NULL_HANDLE)
+      vkDestroyShaderModule(device, triangle_vert, vkalloc);
+    if (triangle_frag != VK_NULL_HANDLE)
+      vkDestroyShaderModule(device, triangle_frag, vkalloc);
+  };
+  {
+    const auto vert_path = format_file_path("/shaders/colored_triangle.vert.spv");
+    auto vert_file = load_entire_file(vert_path.c_str());
+    triangle_vert = vk_create_shader(device, {vert_file.data(), vert_file.size()}).value();
+
+    const auto frag_path = format_file_path("/shaders/colored_triangle.frag.spv");
+    auto frag_file = load_entire_file(frag_path.c_str());
+    triangle_frag = vk_create_shader(device, {frag_file.data(), frag_file.size()}).value();
+
+    auto triangle_layout_info = vkmk_pipeline_layout_info();
+    KA_VK_ASSERT(vkCreatePipelineLayout(device, &triangle_layout_info, vkalloc, &triangle_layout));
+  }
+
+  VulkanPipelineBuilder builder;
+  auto triangle_pipeline = builder.set_layout(triangle_layout)
+                             .set_shaders(triangle_vert, triangle_frag)
+                             .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                             .set_poly_mode(VK_POLYGON_MODE_FILL)
+                             .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+                             .set_color_format(image.format)
+                             .set_depth_format(VK_FORMAT_UNDEFINED)
+                             .disable_multisampling()
+                             .disable_depth_test()
+                             .disable_blending()
+                             .build(device)
+                             .value();
+
   return VulkanContext_impl::DrawThing{.image = std::move(image),
                                        .extent = draw_extent,
                                        .desc_pool = std::move(desc_pool),
                                        .image_desc = image_desc,
                                        .image_desc_layout = image_desc_layout,
                                        .background_effects = effects,
-                                       .effect_idx = 0};
+                                       .effect_idx = 0,
+                                       .triangle_pipeline = triangle_pipeline,
+                                       .triangle_layout = triangle_layout};
 }
 
 } // namespace
@@ -432,6 +474,8 @@ fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider
       ctx->delqueue.enqueue(effect.pipeline, device);
     }
     ctx->delqueue.enqueue(ctx->draw->background_effects[0].layout, device);
+    ctx->delqueue.enqueue(ctx->draw->triangle_pipeline, device);
+    ctx->delqueue.enqueue(ctx->draw->triangle_layout, device);
 
     ctxerr.disengage();
     return {*ctx};
@@ -480,6 +524,34 @@ fn draw_background(VulkanContext_impl& ctx, VkCommandBuffer cmdbuf) -> void {
                 std::ceil(ctx.draw->extent.height / 16.f), 1);
 }
 
+fn draw_geometry(VulkanContext_impl& ctx, VkCommandBuffer cmd, VkExtent2D draw_extent) -> void {
+  const auto color_attachment =
+    vkmk_attach_info(ctx.draw->image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  const auto render_info = vkmk_render_info(draw_extent, &color_attachment, nullptr);
+
+  vkCmdBeginRendering(cmd, &render_info);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.draw->triangle_pipeline);
+
+  // Dynamic state
+  VkViewport viewport{};
+  viewport.x = 0;
+  viewport.y = 0;
+  viewport.width = draw_extent.width;
+  viewport.height = draw_extent.height;
+  viewport.minDepth = 0.f;
+  viewport.maxDepth = 1.f;
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  VkRect2D scissor{};
+  scissor.offset.x = 0;
+  scissor.offset.y = 0;
+  scissor.extent = draw_extent;
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+  vkCmdEndRendering(cmd);
+}
+
 } // namespace
 
 fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
@@ -523,18 +595,24 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
   // clear the thing
   draw_background(*_impl, frame.cmdbuf);
 
-  // transition the draw image and the swapchain image into their correct transfer layouts
-  const auto swapchain_images = _impl->swapchain->images();
-  const auto swapchain_image_views = _impl->swapchain->image_views();
-  const auto swapchain_extent = _impl->swapchain->extent();
   vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image, VK_IMAGE_LAYOUT_GENERAL,
-                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
-                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
   VkExtent2D draw_extent;
   draw_extent.width = _impl->draw->image.extent.width;
   draw_extent.height = _impl->draw->image.extent.height;
+  draw_geometry(*_impl, frame.cmdbuf, draw_extent);
+
+  // transition the draw image and the swapchain image into their correct transfer layouts
+  const auto swapchain_images = _impl->swapchain->images();
+  const auto swapchain_image_views = _impl->swapchain->image_views();
+  const auto swapchain_extent = _impl->swapchain->extent();
+  vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
+                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
   // execute a copy from the draw image into the swapchain
   vkcmd_transfer_image(frame.cmdbuf, _impl->draw->image.image,
                        swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);

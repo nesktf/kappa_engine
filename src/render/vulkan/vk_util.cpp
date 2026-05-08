@@ -369,4 +369,23 @@ fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
   return info;
 }
 
+fn vkmk_pipeline_stage_info(VkShaderStageFlagBits usage, VkShaderModule shader,
+                            const char* entrypoint) -> VkPipelineShaderStageCreateInfo {
+  auto info = vkmk_zero<VkPipelineShaderStageCreateInfo>();
+  info.stage = usage;
+  info.module = shader;
+  info.pName = entrypoint ? entrypoint : "main";
+  return info;
+}
+
+fn vkmk_pipeline_layout_info() -> VkPipelineLayoutCreateInfo {
+  auto info = vkmk_zero<VkPipelineLayoutCreateInfo>();
+  info.flags = 0;
+  info.setLayoutCount = 0;
+  info.pSetLayouts = nullptr;
+  info.pushConstantRangeCount = 0;
+  info.pPushConstantRanges = nullptr;
+  return info;
+}
+
 } // namespace kappa::render

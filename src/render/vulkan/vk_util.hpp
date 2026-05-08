@@ -3,7 +3,6 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
-#include <vulkan/vulkan_core.h>
 
 #define KA_VK_STRUCT(_typename, _sType)                                  \
   template<>                                                             \
@@ -52,21 +51,29 @@ KA_VK_STRUCT(VkDeviceCreateInfo, DEVICE_CREATE_INFO);
 KA_VK_STRUCT(VkSwapchainCreateInfoKHR, SWAPCHAIN_CREATE_INFO_KHR);
 KA_VK_STRUCT(VkPipelineLayoutCreateInfo, PIPELINE_LAYOUT_CREATE_INFO);
 KA_VK_STRUCT(VkWriteDescriptorSet, WRITE_DESCRIPTOR_SET);
+KA_VK_STRUCT(VkPipelineInputAssemblyStateCreateInfo, PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineRasterizationStateCreateInfo, PIPELINE_RASTERIZATION_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineDepthStencilStateCreateInfo, PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineRenderingCreateInfo, PIPELINE_RENDERING_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineMultisampleStateCreateInfo, PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineViewportStateCreateInfo, PIPELINE_VIEWPORT_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineColorBlendStateCreateInfo, PIPELINE_COLOR_BLEND_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineVertexInputStateCreateInfo, PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkGraphicsPipelineCreateInfo, GRAPHICS_PIPELINE_CREATE_INFO);
+KA_VK_STRUCT(VkPipelineDynamicStateCreateInfo, PIPELINE_DYNAMIC_STATE_CREATE_INFO);
 
 template<typename T>
 requires(VulkanStructTraits<T>::is_specialized)
-fn vkmk_zero(void* pNext = nullptr) -> T {
-  T info;
-  std::memset(&info, 0x00, sizeof(info));
+constexpr fn vkmk_zero(void* pNext = nullptr) -> T {
+  T info{};
   info.sType = VulkanStructTraits<T>::sType;
   info.pNext = pNext;
   return info;
 }
 
 template<typename T>
-fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
-  T info;
-  std::memset(&info, 0x00, sizeof(info));
+constexpr fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
+  T info{};
   info.sType = sType;
   info.pNext = pNext;
   return info;
@@ -223,5 +230,10 @@ fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* c
 
 fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
   -> VkRenderingAttachmentInfo;
+
+fn vkmk_pipeline_stage_info(VkShaderStageFlagBits usage, VkShaderModule shader,
+                            const char* entrypoint = nullptr) -> VkPipelineShaderStageCreateInfo;
+
+fn vkmk_pipeline_layout_info() -> VkPipelineLayoutCreateInfo;
 
 } // namespace kappa::render
