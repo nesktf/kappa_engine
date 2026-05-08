@@ -88,6 +88,19 @@ struct ComputeEffect {
   ComputeConstants data;
 };
 
+struct Vertex {
+  ran::Vec3f32 pos;
+  f32 uv_x;
+  ran::Vec3f32 normal;
+  f32 uv_y;
+  ran::Vec4f32 color;
+};
+
+struct MeshData {
+  Span<const u32> indices;
+  Span<const Vertex> vertices;
+};
+
 struct VulkanContext_impl;
 
 struct VulkanSurfaceProvider {
@@ -115,13 +128,13 @@ public:
   VulkanContext(VulkanContext_impl& impl) noexcept : _impl(&impl) {}
 
 public:
-  static fn create(const VulkanInfo& app_info, const VulkanSurfaceProvider& surface_args)
-    -> VkSvExpect<VulkanContext>;
+  static fn create(const VulkanInfo& app_info, const VulkanSurfaceProvider& surface_args,
+                   const MeshData& mesh) -> VkSvExpect<VulkanContext>;
 
 public:
   fn rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void>;
 
-  fn draw(ImGuiDrawFn imgui_draw) -> VkResult;
+  fn draw(ImGuiDrawFn imgui_draw, const ran::Mat4f32& mesh_transform) -> VkResult;
 
   fn immediate_submit(ImSubmitFn func) -> void;
 

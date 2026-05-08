@@ -56,4 +56,28 @@ fn vk_alloc_image(const VulkanImageArgs& args) -> VkExpect<VulkanImage> {
   return {in_place, std::move(image)};
 }
 
+fn vk_dealloc_image(VmaAllocator vma, VkImage image, VmaAllocation alloc) -> void {
+  vmaDestroyImage(vma, image, alloc);
+}
+
+fn vk_alloc_buffer(const VulkanBufferArgs& args) -> VkExpect<VulkanBuffer> {
+  auto buffer_info = vkmk_zero<VkBufferCreateInfo>();
+  buffer_info.size = args.size;
+  buffer_info.usage = args.usage;
+
+  VmaAllocationCreateInfo alloc_info{};
+  alloc_info.usage = args.mem_usage;
+  alloc_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+  VulkanBuffer out{};
+  KA_VK_UNEX(
+    vmaCreateBuffer(args.vma, &buffer_info, &alloc_info, &out.buffer, &out.alloc, &out.info));
+
+  return {in_place, std::move(out)};
+}
+
+fn vk_dealloc_buffer(VmaAllocator vma, VkBuffer buffer, VmaAllocation alloc) -> void {
+  vmaDestroyBuffer(vma, buffer, alloc);
+}
+
 } // namespace kappa::render

@@ -1,6 +1,6 @@
 #include "./vk_util.hpp"
+#include "./vk_buffer.hpp"
 #include "./vk_private.hpp"
-#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -84,8 +84,10 @@ fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHa
   KA_VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
   switch (type) {
     case TYPE_IMAGE: {
-      vmaDestroyImage((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
-      // vkDestroyImage((VkDevice)parent, (VkImage)handle, vkalloc);
+      vk_dealloc_image((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
+    } break;
+    case TYPE_BUFFER: {
+      vk_dealloc_buffer((VmaAllocator)other_parent, (VkBuffer)handle, (VmaAllocation)parent);
     } break;
     case TYPE_IMAGE_VIEW: {
       vkDestroyImageView((VkDevice)parent, (VkImageView)handle, vkalloc);
@@ -144,6 +146,16 @@ fn VulkanDelQueue::flush() -> void {
     }
   }
   _queue.clear();
+}
+
+fn VulkanDelQueue::enqueue(const VulkanImage& image, VmaAllocator vma) -> void {
+  enqueue_handle((VulkanHandle)image.image, (VulkanHandle)image.alloc, TYPE_IMAGE,
+                 (VulkanHandle)vma);
+}
+
+fn VulkanDelQueue::enqueue(const VulkanBuffer& buffer, VmaAllocator vma) -> void {
+  enqueue_handle((VulkanHandle)buffer.buffer, (VulkanHandle)buffer.alloc, TYPE_BUFFER,
+                 (VulkanHandle)vma);
 }
 
 fn VulkanDelQueue::enqueue_deleter(DelFn func) -> void {

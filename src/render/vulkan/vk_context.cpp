@@ -3,6 +3,7 @@
 #include "./vk_imgui.hpp"
 
 #include "../../util/filesystem.hpp"
+#include "render/vulkan/vk.hpp"
 #include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
@@ -259,6 +260,25 @@ fn create_compute_pipeline(VkDevice device, VkPipelineLayout layout, const char*
   return pip;
 }
 
+fn do_immediate_submit(VkDevice device, VkCommandBuffer cmd, VkQueue graphics_queue,
+                       VkFence draw_fence, auto& func) -> void {
+  KA_VK_ASSERT(vkResetFences(device, 1, &draw_fence));
+  KA_VK_ASSERT(vkResetCommandBuffer(cmd, 0));
+
+  const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  KA_VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+  func(cmd);
+  KA_VK_ASSERT(vkEndCommandBuffer(cmd));
+
+  const auto cmdinfo = vkmk_command_buffer_submit_info(cmd);
+  const auto submit = vkmk_submit_info(cmdinfo, nullptr, nullptr);
+
+  // Submit to queue and execute
+  // fence blocks until the gfx commands finish execution
+  KA_VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, draw_fence));
+  KA_VK_ASSERT(vkWaitForFences(device, 1, &draw_fence, VK_TRUE, 9999999999));
+}
+
 constexpr auto sizes = std::to_array<VulkanDescPoolRatio>({
   {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
 });
@@ -268,8 +288,15 @@ constexpr VulkanDescPoolArgs desc_pool_args{
 };
 
 // temp: test rendering things
-fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmalloc)
-  -> VulkanContext_impl::DrawThing {
+
+struct GPUDrawPushConstants {
+  ran::Mat4f32 world_mat;
+  VkDeviceAddress vertex_buffer;
+};
+
+fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmalloc,
+                     VulkanContext_impl::ImDrawData& imdraw, VkQueue graphics_queue,
+                     const MeshData& mesh) -> VulkanContext_impl::DrawThing {
   // Init draw image
   const VulkanImageArgs imgargs{
     .device = device,
@@ -366,15 +393,112 @@ fn create_draw_thing(VkDevice device, VkExtent2D draw_extent, VmaAllocator vmall
                              .build(device)
                              .value();
 
-  return VulkanContext_impl::DrawThing{.image = std::move(image),
-                                       .extent = draw_extent,
-                                       .desc_pool = std::move(desc_pool),
-                                       .image_desc = image_desc,
-                                       .image_desc_layout = image_desc_layout,
-                                       .background_effects = effects,
-                                       .effect_idx = 0,
-                                       .triangle_pipeline = triangle_pipeline,
-                                       .triangle_layout = triangle_layout};
+  GPUMeshBuffers mesh_buffers;
+  {
+    // Vertex buffer
+    const auto vb_size = mesh.vertices.size_bytes();
+    const VulkanBufferArgs vb_args{
+      .vma = vmalloc,
+      .size = vb_size,
+      .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+               VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      .mem_usage = VMA_MEMORY_USAGE_GPU_ONLY,
+    };
+    mesh_buffers.vertex_buffer = vk_alloc_buffer(vb_args).value();
+    auto address_info = vkmk_zero<VkBufferDeviceAddressInfo>();
+    address_info.buffer = mesh_buffers.vertex_buffer.buffer;
+    mesh_buffers.vertex_buffer_addr = vkGetBufferDeviceAddress(device, &address_info);
+
+    // Index buffer
+    mesh_buffers.index_count = (u32)mesh.indices.size();
+    const auto ib_size = mesh.indices.size_bytes();
+    const VulkanBufferArgs ib_args{
+      .vma = vmalloc,
+      .size = ib_size,
+      .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      .mem_usage = VMA_MEMORY_USAGE_GPU_ONLY,
+    };
+    mesh_buffers.index_buffer = vk_alloc_buffer(ib_args).value();
+
+    // Staging
+    const VulkanBufferArgs staging_args{
+      .vma = vmalloc,
+      .size = vb_size + ib_size,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      .mem_usage = VMA_MEMORY_USAGE_CPU_ONLY,
+    };
+    auto staging = vk_alloc_buffer(staging_args).value();
+
+    void* data = staging.info.pMappedData;
+    std::memcpy(data, mesh.vertices.data(), vb_size);
+    std::memcpy(((u8*)data) + vb_size, mesh.indices.data(), ib_size);
+    fn copy_buffer = [&](VkCommandBuffer cmd) {
+      VkBufferCopy vertex_copy{};
+      vertex_copy.dstOffset = 0;
+      vertex_copy.srcOffset = 0;
+      vertex_copy.size = vb_size;
+      vkCmdCopyBuffer(cmd, staging.buffer, mesh_buffers.vertex_buffer.buffer, 1, &vertex_copy);
+
+      VkBufferCopy index_copy;
+      index_copy.dstOffset = 0;
+      index_copy.srcOffset = vb_size;
+      index_copy.size = ib_size;
+      vkCmdCopyBuffer(cmd, staging.buffer, mesh_buffers.index_buffer.buffer, 1, &index_copy);
+    };
+    do_immediate_submit(device, imdraw.cmdbuf, graphics_queue, imdraw.fence, copy_buffer);
+
+    vk_dealloc_buffer(vmalloc, staging.buffer, staging.alloc);
+  }
+
+  VkShaderModule mesh_vert = VK_NULL_HANDLE;
+  VkPipelineLayout mesh_layout = VK_NULL_HANDLE;
+  const DeferFn mesh_module_defer = [&]() {
+    if (mesh_vert != VK_NULL_HANDLE)
+      vkDestroyShaderModule(device, mesh_vert, vkalloc);
+  };
+  {
+    const auto vert_path = format_file_path("/shaders/colored_mesh.vert.spv");
+    auto vert_file = load_entire_file(vert_path.c_str());
+    mesh_vert = vk_create_shader(device, {vert_file.data(), vert_file.size()}).value();
+
+    VkPushConstantRange buffer_range{};
+    buffer_range.offset = 0;
+    buffer_range.size = sizeof(GPUDrawPushConstants);
+    buffer_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    auto mesh_layout_info = vkmk_pipeline_layout_info();
+    mesh_layout_info.pPushConstantRanges = &buffer_range;
+    mesh_layout_info.pushConstantRangeCount = 1;
+    KA_VK_ASSERT(vkCreatePipelineLayout(device, &mesh_layout_info, vkalloc, &mesh_layout));
+  }
+  builder.clear();
+  auto mesh_pipeline = builder.set_layout(mesh_layout)
+                         .set_shaders(mesh_vert, triangle_frag)
+                         .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                         .set_poly_mode(VK_POLYGON_MODE_FILL)
+                         .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+                         .set_color_format(image.format)
+                         .set_depth_format(VK_FORMAT_UNDEFINED)
+                         .disable_multisampling()
+                         .disable_blending()
+                         .disable_blending()
+                         .build(device)
+                         .value();
+
+  return VulkanContext_impl::DrawThing{
+    .image = std::move(image),
+    .extent = draw_extent,
+    .desc_pool = std::move(desc_pool),
+    .image_desc = image_desc,
+    .image_desc_layout = image_desc_layout,
+    .background_effects = effects,
+    .effect_idx = 0,
+    .triangle_pipeline = triangle_pipeline,
+    .triangle_layout = triangle_layout,
+    .mesh_buffers = std::move(mesh_buffers),
+    .mesh_pipeline = mesh_pipeline,
+    .mesh_layout = mesh_layout,
+  };
 }
 
 } // namespace
@@ -383,9 +507,8 @@ fn VulkanContext::Deleter::operator()(VulkanContext_impl* ctx) noexcept -> void 
   make_vulkan_ctx_destroyer(ctx)();
 }
 
-fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider& surface)
-  -> VkSvExpect<VulkanContext> {
-
+fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider& surface,
+                         const MeshData& mesh) -> VkSvExpect<VulkanContext> {
   Vec<const char*> extensions;
   extensions.reserve(surface.extensions.size() + 1);
   if (!surface.extensions.empty()) {
@@ -463,10 +586,15 @@ fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider
     ctx->framedata->add_to_delqueue(ctx->delqueue);
     vk_init_imgui(*ctx, surface.imgui_fn);
 
-    // temp: test rendering things
+    const auto [graphics, _, __] = ctx->device->queues();
     const auto device = ctx->device->device();
-    ctx->draw.emplace(create_draw_thing(device, ctx->swapchain->extent(), ctx->vmalloc));
-    ctx->delqueue.enqueue(ctx->draw->image.image, ctx->draw->image.alloc, ctx->vmalloc);
+    VkQueue graphics_queue{};
+    vkGetDeviceQueue(device, graphics, 0, &graphics_queue);
+
+    // temp: test rendering things
+    ctx->draw.emplace(create_draw_thing(device, ctx->swapchain->extent(), ctx->vmalloc,
+                                        *ctx->imdrawdata, graphics_queue, mesh));
+    ctx->delqueue.enqueue(ctx->draw->image, ctx->vmalloc);
     ctx->delqueue.enqueue(ctx->draw->image.view, device);
     ctx->draw->desc_pool.add_to_delqueue(ctx->delqueue);
     ctx->delqueue.enqueue(ctx->draw->image_desc_layout, device);
@@ -476,6 +604,10 @@ fn VulkanContext::create(const VulkanInfo& app_info, const VulkanSurfaceProvider
     ctx->delqueue.enqueue(ctx->draw->background_effects[0].layout, device);
     ctx->delqueue.enqueue(ctx->draw->triangle_pipeline, device);
     ctx->delqueue.enqueue(ctx->draw->triangle_layout, device);
+    ctx->delqueue.enqueue(ctx->draw->mesh_buffers.vertex_buffer, ctx->vmalloc);
+    ctx->delqueue.enqueue(ctx->draw->mesh_buffers.index_buffer, ctx->vmalloc);
+    ctx->delqueue.enqueue(ctx->draw->mesh_pipeline, device);
+    ctx->delqueue.enqueue(ctx->draw->mesh_layout, device);
 
     ctxerr.disengage();
     return {*ctx};
@@ -571,13 +703,11 @@ fn draw_background(VulkanContext_impl& ctx, VkCommandBuffer cmd) -> void {
                 std::ceil(ctx.draw->extent.height / 16.f), 1);
 }
 
-fn draw_geometry(VulkanContext_impl& ctx, VkCommandBuffer cmd, VkExtent2D draw_extent) -> void {
+fn draw_geometry(VulkanContext_impl& ctx, VkCommandBuffer cmd, VkExtent2D draw_extent,
+                 const ran::Mat4f32& mesh_transform) -> void {
   const auto color_attachment =
     vkmk_attach_info(ctx.draw->image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto render_info = vkmk_render_info(draw_extent, &color_attachment, nullptr);
-
-  vkCmdBeginRendering(cmd, &render_info);
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.draw->triangle_pipeline);
 
   // Dynamic state
   VkViewport viewport{};
@@ -595,13 +725,33 @@ fn draw_geometry(VulkanContext_impl& ctx, VkCommandBuffer cmd, VkExtent2D draw_e
   scissor.extent = draw_extent;
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  vkCmdDraw(cmd, 3, 1, 0, 0);
+  // Draw triangle
+  {
+    vkCmdBeginRendering(cmd, &render_info);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.draw->triangle_pipeline);
+
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+  }
+
+  // Draw mesh
+  {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ctx.draw->mesh_pipeline);
+
+    GPUDrawPushConstants push_constants;
+    push_constants.world_mat = mesh_transform;
+    push_constants.vertex_buffer = ctx.draw->mesh_buffers.vertex_buffer_addr;
+    vkCmdPushConstants(cmd, ctx.draw->mesh_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       sizeof(push_constants), &push_constants);
+    vkCmdBindIndexBuffer(cmd, ctx.draw->mesh_buffers.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmd, ctx.draw->mesh_buffers.index_count, 1, 0, 0, 0);
+  }
+
   vkCmdEndRendering(cmd);
 }
 
 } // namespace
 
-fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> VkResult {
+fn VulkanContext::draw(ImGuiDrawFn imgui_fn, const ran::Mat4f32& mesh_transform) -> VkResult {
   const auto& frame = _impl->framedata->next_frame();
   const auto draw_extent = _impl->draw->extent;
   const auto cmd = frame.cmdbuf;
@@ -638,7 +788,7 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> VkResult {
     // 3. Draw triangle using graphics pipeline (we use a color attachment layout)
     image_layout = vkcmd_transition_image(cmd, draw_image, image_layout,
                                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_geometry(*_impl, cmd, draw_extent);
+    draw_geometry(*_impl, cmd, draw_extent, mesh_transform);
 
     // 4. Prepare draw_image for copying
     image_layout =
@@ -713,22 +863,7 @@ fn VulkanContext::immediate_submit(ImSubmitFn func) -> void {
   auto& imdraw = *_impl->imdrawdata;
   const auto cmd = imdraw.cmdbuf;
   const auto graphics_queue = vk_get_graphics_queue(*_impl);
-
-  KA_VK_ASSERT(vkResetFences(device, 1, &imdraw.fence));
-  KA_VK_ASSERT(vkResetCommandBuffer(cmd, 0));
-
-  const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-  KA_VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-  func(cmd);
-  KA_VK_ASSERT(vkEndCommandBuffer(cmd));
-
-  const auto cmdinfo = vkmk_command_buffer_submit_info(cmd);
-  const auto submit = vkmk_submit_info(cmdinfo, nullptr, nullptr);
-
-  // Submit to queue and execute
-  // fence blocks until the gfx commands finish execution
-  KA_VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, imdraw.fence));
-  KA_VK_ASSERT(vkWaitForFences(device, 1, &imdraw.fence, VK_TRUE, 9999999999));
+  do_immediate_submit(device, cmd, graphics_queue, imdraw.fence, func);
 }
 
 fn VulkanContext::get_effect() -> ComputeEffect& {

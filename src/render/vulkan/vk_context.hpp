@@ -14,6 +14,13 @@ namespace kappa::render {
 
 constexpr usize EFFECT_COUNT = 2;
 
+struct GPUMeshBuffers {
+  VulkanBuffer index_buffer;
+  VulkanBuffer vertex_buffer;
+  VkDeviceAddress vertex_buffer_addr;
+  u32 index_count;
+};
+
 struct VulkanContext_impl {
 public:
   struct ImDrawData {
@@ -33,6 +40,9 @@ public:
     s32 effect_idx;
     VkPipeline triangle_pipeline;
     VkPipelineLayout triangle_layout;
+    GPUMeshBuffers mesh_buffers;
+    VkPipeline mesh_pipeline;
+    VkPipelineLayout mesh_layout;
   };
 
 public:

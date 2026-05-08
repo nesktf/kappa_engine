@@ -61,6 +61,8 @@ KA_VK_STRUCT(VkPipelineColorBlendStateCreateInfo, PIPELINE_COLOR_BLEND_STATE_CRE
 KA_VK_STRUCT(VkPipelineVertexInputStateCreateInfo, PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
 KA_VK_STRUCT(VkGraphicsPipelineCreateInfo, GRAPHICS_PIPELINE_CREATE_INFO);
 KA_VK_STRUCT(VkPipelineDynamicStateCreateInfo, PIPELINE_DYNAMIC_STATE_CREATE_INFO);
+KA_VK_STRUCT(VkBufferCreateInfo, BUFFER_CREATE_INFO);
+KA_VK_STRUCT(VkBufferDeviceAddressInfo, BUFFER_DEVICE_ADDRESS_INFO);
 
 template<typename T>
 requires(VulkanStructTraits<T>::is_specialized)
@@ -79,6 +81,9 @@ constexpr fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
   return info;
 }
 
+struct VulkanBuffer;
+struct VulkanImage;
+
 class VulkanDelQueue {
 public:
   using VulkanHandle = void*;
@@ -87,6 +92,7 @@ public:
   enum HandleType {
     TYPE_DELETER,
     TYPE_IMAGE,
+    TYPE_BUFFER,
     TYPE_IMAGE_VIEW,
     TYPE_SURFACE,
     TYPE_CMDPOOL,
@@ -131,9 +137,8 @@ public:
                     VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
 
-  fn enqueue(VkImage image, VmaAllocation allocation, VmaAllocator alloc) -> void {
-    enqueue_handle((VulkanHandle)image, (VulkanHandle)allocation, TYPE_IMAGE, (VulkanHandle)alloc);
-  }
+  fn enqueue(const VulkanImage& image, VmaAllocator alloc) -> void;
+  fn enqueue(const VulkanBuffer& buffer, VmaAllocator alloc) -> void;
 
   fn enqueue(VkImageView image_view, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)image_view, (VulkanHandle)device, TYPE_IMAGE_VIEW);

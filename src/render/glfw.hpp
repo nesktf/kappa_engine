@@ -20,9 +20,9 @@ public:
   static fn fb_resize_fn(GLFWwindow* win, int w, int h) -> void;
 
 public:
-  fn bind_vulkan(const VulkanInfo& app_info) -> VulkanContext;
+  fn bind_vulkan(const VulkanInfo& app_info, const MeshData& mesh_data) -> VulkanContext;
 
-  fn start_frame() -> void;
+  fn start_imgui_frame() -> void;
 
   fn poll_events() -> void;
 

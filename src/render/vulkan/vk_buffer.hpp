@@ -23,5 +23,22 @@ struct VulkanImageArgs {
 };
 
 fn vk_alloc_image(const VulkanImageArgs& args) -> VkExpect<VulkanImage>;
+fn vk_dealloc_image(VmaAllocator vma, VkImage image, VmaAllocation alloc) -> void;
+
+struct VulkanBuffer {
+  VkBuffer buffer;
+  VmaAllocation alloc;
+  VmaAllocationInfo info;
+};
+
+struct VulkanBufferArgs {
+  VmaAllocator vma;
+  usize size;
+  VkBufferUsageFlags usage;
+  VmaMemoryUsage mem_usage;
+};
+
+fn vk_alloc_buffer(const VulkanBufferArgs& args) -> VkExpect<VulkanBuffer>;
+fn vk_dealloc_buffer(VmaAllocator vma, VkBuffer buffer, VmaAllocation alloc) -> void;
 
 } // namespace kappa::render

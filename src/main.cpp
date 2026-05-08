@@ -1,6 +1,7 @@
 #include "./render/glfw.hpp"
 
 #include "./util/logger.hpp"
+#include "ranmath/forward.hpp"
 
 #include <imgui.h>
 
@@ -16,15 +17,51 @@ constexpr render::VulkanInfo app_info{
 constexpr u32 WINDOW_WIDTH = 1280;
 constexpr u32 WINDOW_HEIGHT = 720;
 
+constexpr auto rect_verts = std::to_array<render::Vertex>({
+  {
+    {.5f, -.5f, 0.f},
+    0.f,
+    {0.f, 1.f, 0.f},
+    1.f,
+    {0.f, 1.f, 0.f, 1.f},
+  },
+  {
+    {.5f, .5f, 0.f},
+    0.f,
+    {0.f, 1.f, 0.f},
+    1.f,
+    {.5f, .5f, .5f, 1.f},
+  },
+  {
+    {-.5f, -.5f, 0.f},
+    0.f,
+    {0.f, 1.f, 0.f},
+    1.f,
+    {1.f, 0.f, 0.f, 1.f},
+  },
+  {
+    {-.5f, .5f, 0.f},
+    0.f,
+    {0.f, 1.f, 0.f},
+    1.f,
+    {0.f, 1.f, 0.f, 1.f},
+  },
+});
+constexpr auto rect_indices = std::to_array<u32>({0, 1, 2, 2, 1, 3});
+constexpr render::MeshData mesh_data{
+  .indices = rect_indices,
+  .vertices = rect_verts,
+};
+
 fn run_engine() -> void {
   auto glfw = render::GLFWContext::create(WINDOW_WIDTH, WINDOW_HEIGHT);
   const DeferFn glfw_defer = [&]() {
     glfw.destroy();
   };
-  auto vk = glfw.bind_vulkan(app_info);
+  auto vk = glfw.bind_vulkan(app_info, mesh_data);
 
   const fn imgui_draw = [&]() {
-    glfw.start_frame();
+    glfw.start_imgui_frame();
     ImGui::NewFrame();
 
     ImGui::ShowDemoWindow();
@@ -43,15 +80,18 @@ fn run_engine() -> void {
     ImGui::Render();
   };
 
+  auto transform = ran::Mat4f32::identity();
   const fn on_render = [&](f64 dt, f64 alpha) {
-    (void)dt;
-    (void)alpha;
+    KA_UNUSED(dt);
+    KA_UNUSED(alpha);
 
-    vk.draw(imgui_draw);
+    vk.draw(imgui_draw, transform);
   };
 
   const fn on_fixed_update = [&](u32 ups) {
-    (void)ups;
+    KA_UNUSED(ups);
+    static constexpr auto delta = ran::pi<f32> / 60.f;
+    transform = ran::rotate(transform, delta, ran::Vec3f32(0.f, 0.f, 1.f));
   };
 
   render::render_loop<60>(glfw, OverloadFn{on_fixed_update, on_render});
