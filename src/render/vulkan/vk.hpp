@@ -121,7 +121,7 @@ public:
 public:
   fn rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void>;
 
-  fn draw(ImGuiDrawFn imgui_draw) -> void;
+  fn draw(ImGuiDrawFn imgui_draw) -> VkResult;
 
   fn immediate_submit(ImSubmitFn func) -> void;
 

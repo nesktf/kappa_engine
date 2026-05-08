@@ -501,26 +501,73 @@ fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) -> VkExpect<void>
 
 namespace {
 
-fn draw_background(VulkanContext_impl& ctx, VkCommandBuffer cmdbuf) -> void {
-  // make a clear-color from frame number. This will flash with a 120 frame period.
-  // f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
-  // VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
-  // const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-
 #if 0
+fn clear_background() -> void {
+
+  // make a clear-color from frame number. This will flash with a 120 frame period.
+  f32 flash = std::abs(std::sin(ctx.curr_frame / 120.f));
+  VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
+  const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
   // clear image
   vkCmdClearColorImage(cmdbuf, ctx.draw.image.image, VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
                        &clear_range);
+}
 #endif
 
+struct SelectedSwapchain {
+  VkSwapchainKHR swapchain;
+  VkImage image;
+  VkImageView view;
+  VkExtent2D extent;
+  u32 swapchain_idx;
+};
+
+fn acquire_swapchain_image(VkDevice device, VkSemaphore swapchain_sem, VulkanSwapchain& swp,
+                           VkResult* res) -> SelectedSwapchain {
+  const auto swapchain = swp.swapchain();
+  u32 swapchain_image_idx;
+  (*res) = vkAcquireNextImageKHR(device, swapchain, 1000000000, swapchain_sem, nullptr,
+                                 &swapchain_image_idx);
+  ka_assert(*res == VK_SUCCESS || *res == VK_SUBOPTIMAL_KHR);
+
+  const auto swapchain_images = swp.images();
+  const auto swapchain_image_views = swp.image_views();
+  return {
+    swapchain,
+    swapchain_images[swapchain_image_idx],
+    swapchain_image_views[swapchain_image_idx],
+    swp.extent(),
+    swapchain_image_idx,
+  };
+}
+
+struct DeviceQueues {
+  VkDevice device;
+  VkQueue graphics;
+  VkQueue present;
+};
+
+fn get_render_queues(VulkanDevice& dev) -> DeviceQueues {
+  const auto device = dev.device();
+  const auto [graphics_idx, present_idx, _] = dev.queues();
+  VkQueue graphics_queue{};
+  vkGetDeviceQueue(device, graphics_idx, 0, &graphics_queue);
+  ka_assert(graphics_queue != VK_NULL_HANDLE);
+  VkQueue present_queue{};
+  vkGetDeviceQueue(device, present_idx, 0, &present_queue);
+  ka_assert(present_queue != VK_NULL_HANDLE);
+  return {device, graphics_queue, present_queue};
+};
+
+fn draw_background(VulkanContext_impl& ctx, VkCommandBuffer cmd) -> void {
   auto& effect = ctx.draw->background_effects[ctx.draw->effect_idx];
 
-  vkCmdBindPipeline(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
-  vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_COMPUTE, effect.layout, 0, 1,
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.pipeline);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, effect.layout, 0, 1,
                           &ctx.draw->image_desc, 0, nullptr);
-  vkCmdPushConstants(cmdbuf, effect.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(effect.data),
+  vkCmdPushConstants(cmd, effect.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(effect.data),
                      &effect.data);
-  vkCmdDispatch(cmdbuf, std::ceil(ctx.draw->extent.width / 16.f),
+  vkCmdDispatch(cmd, std::ceil(ctx.draw->extent.width / 16.f),
                 std::ceil(ctx.draw->extent.height / 16.f), 1);
 }
 
@@ -554,115 +601,103 @@ fn draw_geometry(VulkanContext_impl& ctx, VkCommandBuffer cmd, VkExtent2D draw_e
 
 } // namespace
 
-fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> void {
+fn VulkanContext::draw(ImGuiDrawFn imgui_fn) -> VkResult {
+  const auto& frame = _impl->framedata->next_frame();
+  const auto draw_extent = _impl->draw->extent;
+  const auto cmd = frame.cmdbuf;
+  const auto& draw_image = _impl->draw->image.image;
+  const auto [device, graphics_queue, present_queue] = get_render_queues(*_impl->device);
+
+  VkResult res = VK_SUCCESS;
+
+  // Imgui user rendering things
   vk_imgui_new_frame();
   imgui_fn();
 
-  auto& frame = _impl->framedata->next_frame();
-
-  const auto device = _impl->device->device();
-  const auto [graphics_idx, present_idx, _] = _impl->device->queues();
-
-  VkQueue graphics_queue{};
-  vkGetDeviceQueue(device, graphics_idx, 0, &graphics_queue);
-  ka_assert(graphics_queue != VK_NULL_HANDLE);
-  VkQueue present_queue{};
-  vkGetDeviceQueue(device, present_idx, 0, &present_queue);
-  ka_assert(present_queue != VK_NULL_HANDLE);
-
-  // Wait for fences
+  // Wait for the previous rendering commands to finish
   KA_VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
   KA_VK_ASSERT(vkResetFences(device, 1, &frame.render_fen));
-  // frame.delqueue.flush();
 
-  // Acquire swapchain image
-  u32 swapchain_image_idx;
-  const auto swapchain = _impl->swapchain->swapchain();
-  VkResult res = vkAcquireNextImageKHR(device, swapchain, 1000000000, frame.swapchain_sem, nullptr,
-                                       &swapchain_image_idx);
-  ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
+  // Acquire swapchain image. Will signal the swapchain semaphore when we acquire an image.
+  const auto [swapchain, swapchain_image, swapchain_view, swapchain_extent, swapchain_idx] =
+    acquire_swapchain_image(device, frame.swapchain_sem, *_impl->swapchain, &res);
 
-  // Initialize command buffer
-  KA_VK_ASSERT(vkResetCommandBuffer(frame.cmdbuf, 0));
-  const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-  KA_VK_ASSERT(vkBeginCommandBuffer(frame.cmdbuf, &cmd_begin_info));
-
-  // transition our main draw image into general layout so we can write into it
-  // we will overwrite it all so we dont care about what was the older layout
-  vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image, VK_IMAGE_LAYOUT_UNDEFINED,
-                         VK_IMAGE_LAYOUT_GENERAL);
-
-  // clear the thing
-  draw_background(*_impl, frame.cmdbuf);
-
-  vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image, VK_IMAGE_LAYOUT_GENERAL,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-  VkExtent2D draw_extent;
-  draw_extent.width = _impl->draw->image.extent.width;
-  draw_extent.height = _impl->draw->image.extent.height;
-  draw_geometry(*_impl, frame.cmdbuf, draw_extent);
-
-  // transition the draw image and the swapchain image into their correct transfer layouts
-  const auto swapchain_images = _impl->swapchain->images();
-  const auto swapchain_image_views = _impl->swapchain->image_views();
-  const auto swapchain_extent = _impl->swapchain->extent();
-  vkcmd_transition_image(frame.cmdbuf, _impl->draw->image.image,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-  vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
-                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-  // execute a copy from the draw image into the swapchain
-  vkcmd_transfer_image(frame.cmdbuf, _impl->draw->image.image,
-                       swapchain_images[swapchain_image_idx], draw_extent, swapchain_extent);
-
-  // make the swapchain image into presentable mode
-  vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-  // draw imgui
+  // Rendering routine
   {
-    vk_draw_imgui(frame.cmdbuf, swapchain_image_views[swapchain_image_idx], swapchain_extent);
-    vkcmd_transition_image(frame.cmdbuf, swapchain_images[swapchain_image_idx],
-                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                           VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    // 1. Initialize command buffer
+    KA_VK_ASSERT(vkResetCommandBuffer(cmd, 0));
+    const auto cmd_begin_info =
+      vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    KA_VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+    // 2. Draw background using compute pipeline (we use a general layout)
+    VkImageLayout image_layout = VK_IMAGE_LAYOUT_UNDEFINED; // dont care about the older layout
+    image_layout = vkcmd_transition_image(cmd, draw_image, image_layout, VK_IMAGE_LAYOUT_GENERAL);
+    draw_background(*_impl, cmd);
+
+    // 3. Draw triangle using graphics pipeline (we use a color attachment layout)
+    image_layout = vkcmd_transition_image(cmd, draw_image, image_layout,
+                                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    draw_geometry(*_impl, cmd, draw_extent);
+
+    // 4. Prepare draw_image for copying
+    image_layout =
+      vkcmd_transition_image(cmd, draw_image, image_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    // 5. Prepare the swapchain image for copying
+    VkImageLayout swapchain_layout = VK_IMAGE_LAYOUT_UNDEFINED; // dont care about the older layout
+    swapchain_layout = vkcmd_transition_image(cmd, swapchain_image, swapchain_layout,
+                                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    // 6. Do the copy
+    vkcmd_transfer_image(cmd, draw_image, swapchain_image, draw_extent, swapchain_extent);
+
+    // 7. Draw ImGui ontop of the copied pixels
+    swapchain_layout = vkcmd_transition_image(cmd, swapchain_image, swapchain_layout,
+                                              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vk_draw_imgui(frame.cmdbuf, swapchain_view, swapchain_extent);
+
+    // 8. Prepare swapchain image for presenting
+    swapchain_layout = vkcmd_transition_image(cmd, swapchain_image, swapchain_layout,
+                                              VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    // 9. Finalize command buffer
+    KA_VK_ASSERT(vkEndCommandBuffer(cmd));
   }
 
-  // finalize the command buffer (we can no longer add commands, but it can now be executed)
-  KA_VK_ASSERT(vkEndCommandBuffer(frame.cmdbuf));
+  // Queue submission routine
+  {
+    // Wait until the swapchain semaphore is signaled (when we acquire an image)
+    const auto wait_info = vkmk_semaphore_submit_info(
+      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.swapchain_sem);
 
-  // prepare the submission to the queue.
-  // we want to wait on the _presentSemaphore, as that semaphore is signaled when the swapchain is
-  // ready we will signal the _renderSemaphore, to signal that rendering has finished
-  const auto cmdinfo = vkmk_command_buffer_submit_info(frame.cmdbuf);
-  const auto wait_info = vkmk_semaphore_submit_info(
-    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame.swapchain_sem);
-  const auto signal_info =
-    vkmk_semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.render_sem);
-  const auto submit = vkmk_submit_info(cmdinfo, &signal_info, &wait_info);
+    // Signal the render semaphore when the commands finish
+    const auto signal_info =
+      vkmk_semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.render_sem);
 
-  // submit command buffer to the queue and execute it.
-  //  _renderFence will now block until the graphic commands finish execution
-  KA_VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, frame.render_fen));
+    const auto cmdinfo = vkmk_command_buffer_submit_info(cmd);
+    const auto submit = vkmk_submit_info(cmdinfo, &signal_info, &wait_info);
 
-  // prepare present
-  //  this will put the image we just rendered to into the visible window.
-  //  we want to wait on the _renderSemaphore for that,
-  //  as its necessary that drawing commands have finished before the image is displayed to the
-  //  user
-  auto presentInfo = vkmk_zero<VkPresentInfoKHR>();
-  presentInfo.pSwapchains = &swapchain;
-  presentInfo.swapchainCount = 1;
+    // The render fence will block until the commands finish excecuting (on the next call)
+    KA_VK_ASSERT(vkQueueSubmit2(graphics_queue, 1, &submit, frame.render_fen));
+  }
 
-  presentInfo.pWaitSemaphores = &frame.render_sem;
-  presentInfo.waitSemaphoreCount = 1;
+  // Swapchain presentation routine
+  {
+    auto present_info = vkmk_zero<VkPresentInfoKHR>();
+    present_info.pSwapchains = &swapchain;
+    present_info.swapchainCount = 1;
+    present_info.pImageIndices = &swapchain_idx;
 
-  presentInfo.pImageIndices = &swapchain_image_idx;
+    // Wait on the render semaphore (the drawing commands have to finish before presenting)
+    present_info.pWaitSemaphores = &frame.render_sem;
+    present_info.waitSemaphoreCount = 1;
 
-  res = vkQueuePresentKHR(present_queue, &presentInfo);
-  ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
+    res = vkQueuePresentKHR(present_queue, &present_info);
+    ka_assert(res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR);
+  }
+
+  return res;
 }
 
 fn vk_get_graphics_queue(VulkanContext_impl& ctx) -> VkQueue {

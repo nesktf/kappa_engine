@@ -195,7 +195,7 @@ fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExte
                         VkExtent2D dst_ext) -> void;
 
 fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
-                          VkImageLayout new_layout) -> void;
+                          VkImageLayout new_layout) -> VkImageLayout;
 
 fn vkmk_semaphore_info(VkSemaphoreCreateFlags flags) -> VkSemaphoreCreateInfo;
 

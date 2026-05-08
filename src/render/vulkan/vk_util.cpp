@@ -193,7 +193,7 @@ fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExte
 }
 
 fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
-                          VkImageLayout new_layout) -> void {
+                          VkImageLayout new_layout) -> VkImageLayout {
   auto barrier = vkmk_zero<VkImageMemoryBarrier2>();
   barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
   barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -214,6 +214,7 @@ fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_l
   dep_info.pImageMemoryBarriers = &barrier;
 
   vkCmdPipelineBarrier2(cmd, &dep_info);
+  return new_layout;
 }
 
 fn vkmk_semaphore_submit_info(VkPipelineStageFlags2 mask, VkSemaphore sem)
