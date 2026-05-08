@@ -3,6 +3,7 @@
 #include "render/vulkan/vk_private.hpp"
 
 #include <algorithm>
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -48,7 +49,8 @@ fn VulkanSwapchain::create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_s
     // Try to get a swap surface with B8G8R8A8 pixel format or just use the first one
     // if there is not one available
     for (const auto& format : args.surface_formats) {
-      if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+      // if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+      if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
           format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
         return format;
       }
