@@ -1,5 +1,7 @@
 #pragma once
 
+#define KA_INTERNAL_
+
 #define KA_VK_LOG(_level, _msg, ...) \
   ::kappa::log_##_level("[VULKAN] " _msg __VA_OPT__(, ) __VA_ARGS__)
 
@@ -30,11 +32,13 @@
     return {unexpect, ::fmt::format(_fmt __VA_OPT__(, ) __VA_ARGS__), _vkret}; \
   }
 
-#include "./vk.hpp"
-
 #include "../../util/logger.hpp"
 
+#include "./vk_error.hpp"
+
 #include <vk_mem_alloc.h>
+
+#include <array>
 
 #define KA_VULKAN_VERSION VK_API_VERSION_1_3
 #define KA_ENGINE_VER     VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)

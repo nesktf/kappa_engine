@@ -7,7 +7,7 @@ namespace kappa::render {
 fn vk_create_vma_alloc(VkInstance vk, VkDevice device, VkPhysicalDevice physical_device)
   -> VkExpect<VmaAllocator>;
 
-struct VulkanImage {
+struct VulkanImage_data {
   VkImage image;
   VkImageView view;
   VmaAllocation alloc;
@@ -15,30 +15,22 @@ struct VulkanImage {
   VkFormat format;
 };
 
-struct VulkanImageArgs {
-  VkDevice device;
-  VmaAllocator vma;
-  VkExtent2D extent;
-  VkFormat format;
-};
+KA_CHECK_OPAQUE(VulkanImage_data);
 
-fn vk_alloc_image(const VulkanImageArgs& args) -> VkExpect<VulkanImage>;
+fn vk_alloc_image(VkDevice device, VmaAllocator vma, VkExtent3D extent, VkFormat format)
+  -> VkExpect<VulkanImage_data>;
 fn vk_dealloc_image(VmaAllocator vma, VkImage image, VmaAllocation alloc) -> void;
 
-struct VulkanBuffer {
+struct VulkanBuffer_data {
   VkBuffer buffer;
   VmaAllocation alloc;
   VmaAllocationInfo info;
 };
 
-struct VulkanBufferArgs {
-  VmaAllocator vma;
-  usize size;
-  VkBufferUsageFlags usage;
-  VmaMemoryUsage mem_usage;
-};
+KA_CHECK_OPAQUE(VulkanBuffer_data);
 
-fn vk_alloc_buffer(const VulkanBufferArgs& args) -> VkExpect<VulkanBuffer>;
+fn vk_alloc_buffer(VmaAllocator vma, usize size, VkBufferUsageFlags usage,
+                   VkMemoryPropertyFlags mem_usage) -> VkExpect<VulkanBuffer_data>;
 fn vk_dealloc_buffer(VmaAllocator vma, VkBuffer buffer, VmaAllocation alloc) -> void;
 
 } // namespace kappa::render
