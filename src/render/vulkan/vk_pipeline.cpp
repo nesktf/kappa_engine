@@ -1,4 +1,6 @@
 #include "./vk_pipeline.hpp"
+
+#include "./vk_context.hpp"
 #include "./vk_util.hpp"
 
 namespace kappa::render {
@@ -93,22 +95,52 @@ fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderMod
   return {in_place, shader};
 }
 
-VulkanPipelineBuilder::VulkanPipelineBuilder() {
-  clear();
+fn vk_create_compute_pipeline(VkDevice device, VkPipelineLayout layout, Span<const u8> src)
+  -> VkExpect<VkPipeline> {
+  return vk_create_shader(device, {src.data(), src.size()})
+    .and_then([&](VkShaderModule shader) -> VkExpect<VkPipeline> {
+      const DeferFn defer = [&]() {
+        vkDestroyShaderModule(device, shader, vkalloc);
+      };
+      auto stage_info = vkmk_zero<VkPipelineShaderStageCreateInfo>();
+      stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+      stage_info.module = shader;
+      stage_info.pName = "main";
+
+      auto compute_info = vkmk_zero<VkComputePipelineCreateInfo>();
+      compute_info.layout = layout;
+      compute_info.stage = stage_info;
+
+      VkPipeline pip{};
+      KA_VK_UNEX(
+        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc, &pip));
+      return {in_place, pip};
+    });
 }
 
-fn VulkanPipelineBuilder::clear() -> void {
-  _input_assembly = vkmk_zero<decltype(_input_assembly)>();
-  _rasterizer = vkmk_zero<decltype(_rasterizer)>();
-  std::memset(&_blend_attachment, 0x00, sizeof(_blend_attachment));
-  _multisampling = vkmk_zero<decltype(_multisampling)>();
-  _layout = VK_NULL_HANDLE;
-  _depth_stencil = vkmk_zero<decltype(_depth_stencil)>();
-  _rendering_info = vkmk_zero<decltype(_rendering_info)>();
-  _shader_stages.clear();
+} // namespace kappa::render
+
+VkResult ka_vk_create_pipeline_builder(ka_VulkanPipelineBuilder* builder) {
+  (*builder) = new ka_VulkanPipelineBuilder_impl();
+  ka_vk_pipb_clear(*builder);
+  return VK_SUCCESS;
 }
 
-fn VulkanPipelineBuilder::build(VkDevice device) -> VkExpect<VkPipeline> {
+void ka_vk_destroy_pipeline_builder(ka_VulkanPipelineBuilder builder) {
+  if (!builder) {
+    return;
+  }
+  delete builder;
+}
+
+namespace {
+
+using namespace kappa;
+using kappa::render::VkExpect;
+using kappa::render::vkmk_zero;
+
+fn build_pipeline(ka_VulkanPipelineBuilder_impl& pipb, ka_VulkanPipeline& pipeline,
+                  VkDevice device) -> VkExpect<void> {
   // Dynamic viewport & scissor
   static constexpr auto dynamic_state =
     std::to_array<VkDynamicState>({VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR});
@@ -128,102 +160,116 @@ fn VulkanPipelineBuilder::build(VkDevice device) -> VkExpect<VkPipeline> {
   color_blending.logicOpEnable = VK_FALSE;
   color_blending.logicOp = VK_LOGIC_OP_COPY;
   color_blending.attachmentCount = 1;
-  color_blending.pAttachments = &_blend_attachment;
+  color_blending.pAttachments = &pipb.blend_attachment;
 
-  auto pipeline_info = vkmk_zero<VkGraphicsPipelineCreateInfo>(&_rendering_info);
-  pipeline_info.stageCount = (u32)_shader_stages.size();
-  pipeline_info.pStages = _shader_stages.data();
+  auto pipeline_info = vkmk_zero<VkGraphicsPipelineCreateInfo>(&pipb.rendering_info);
+  pipeline_info.stageCount = (u32)pipb.shader_stages.size();
+  pipeline_info.pStages = pipb.shader_stages.data();
   pipeline_info.pVertexInputState = &vertex_input;
-  pipeline_info.pInputAssemblyState = &_input_assembly;
+  pipeline_info.pInputAssemblyState = &pipb.input_assembly;
   pipeline_info.pViewportState = &viewport_state;
-  pipeline_info.pRasterizationState = &_rasterizer;
-  pipeline_info.pMultisampleState = &_multisampling;
+  pipeline_info.pRasterizationState = &pipb.rasterizer;
+  pipeline_info.pMultisampleState = &pipb.multisampling;
   pipeline_info.pColorBlendState = &color_blending;
-  pipeline_info.pDepthStencilState = &_depth_stencil;
-  pipeline_info.layout = _layout;
+  pipeline_info.pDepthStencilState = &pipb.depth_stencil;
+  pipeline_info.layout = pipb.layout;
   pipeline_info.pDynamicState = &dynamic_info;
 
-  VkPipeline pipeline;
-  KA_VK_UNEX(
-    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, vkalloc, &pipeline));
+  KA_VK_UNEX(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, vkalloc,
+                                       &pipeline.pipeline));
+  pipeline.layout = pipb.layout;
 
-  return {in_place, pipeline};
+  return {};
 }
 
-fn VulkanPipelineBuilder::set_layout(VkPipelineLayout layout) -> VulkanPipelineBuilder& {
-  _layout = layout;
-  return *this;
+} // namespace
+
+VkResult ka_vk_pipb_build(ka_VulkanPipelineBuilder pipb, ka_VulkanContext vk,
+                          ka_VulkanPipeline* pip) {
+  ka_assert(pipb);
+  ka_assert(vk);
+  ka_assert(pip);
+  const auto device = vk->device->device();
+  std::memset(pip, 0x00, sizeof(*pip));
+  pip->vk = vk;
+  return build_pipeline(*pipb, *pip, device).error_or(kappa::render::VkError(VK_SUCCESS)).code();
 }
 
-fn VulkanPipelineBuilder::set_shaders(VkShaderModule vertex, VkShaderModule fragment)
-  -> VulkanPipelineBuilder& {
-  _shader_stages.clear();
-  _shader_stages.push_back(vkmk_pipeline_stage_info(VK_SHADER_STAGE_VERTEX_BIT, vertex));
-  _shader_stages.push_back(vkmk_pipeline_stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, fragment));
-  return *this;
+void ka_vk_pipb_clear(ka_VulkanPipelineBuilder pipb) {
+  ka_assert(pipb);
+  pipb->input_assembly = vkmk_zero<decltype(pipb->input_assembly)>();
+  pipb->rasterizer = vkmk_zero<decltype(pipb->rasterizer)>();
+  std::memset(&pipb->blend_attachment, 0x00, sizeof(pipb->blend_attachment));
+  pipb->multisampling = vkmk_zero<decltype(pipb->multisampling)>();
+  pipb->layout = VK_NULL_HANDLE;
+  pipb->depth_stencil = vkmk_zero<decltype(pipb->depth_stencil)>();
+  pipb->rendering_info = vkmk_zero<decltype(pipb->rendering_info)>();
+  pipb->shader_stages.clear();
 }
 
-fn VulkanPipelineBuilder::set_topology(VkPrimitiveTopology topology) -> VulkanPipelineBuilder& {
-  _input_assembly.topology = topology;
-  _input_assembly.primitiveRestartEnable = VK_FALSE; // not used
-  return *this;
+void ka_vk_pipb_set_layout(ka_VulkanPipelineBuilder pipb, VkPipelineLayout layout) {
+  ka_assert(pipb);
+  pipb->layout = layout;
 }
 
-fn VulkanPipelineBuilder::set_poly_mode(VkPolygonMode mode, f32 width) -> VulkanPipelineBuilder& {
-  _rasterizer.polygonMode = mode;
-  _rasterizer.lineWidth = width;
-  return *this;
+void ka_vk_pipb_add_shader(ka_VulkanPipelineBuilder pipb,
+                           ka_VulkanShaderModule const* shader_module) {
+  pipb->shader_stages.push_back(
+    kappa::render::vkmk_pipeline_stage_info(shader_module->stage, shader_module->shader));
 }
 
-fn VulkanPipelineBuilder::set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face)
-  -> VulkanPipelineBuilder& {
-  _rasterizer.cullMode = mode;
-  _rasterizer.frontFace = front_face;
-  return *this;
+void ka_vk_pipb_set_topology(ka_VulkanPipelineBuilder pipb, VkPrimitiveTopology topology) {
+  pipb->input_assembly.topology = topology;
+  pipb->input_assembly.primitiveRestartEnable = VK_FALSE; // not used
 }
 
-fn VulkanPipelineBuilder::set_color_format(VkFormat format) -> VulkanPipelineBuilder& {
-  _color_format = format;
-  _rendering_info.colorAttachmentCount = 1;
-  _rendering_info.pColorAttachmentFormats = &_color_format;
-  return *this;
+void ka_vk_pipb_set_poly_mode(ka_VulkanPipelineBuilder pipb, VkPolygonMode mode, float width) {
+  pipb->rasterizer.polygonMode = mode;
+  pipb->rasterizer.lineWidth = width;
 }
 
-fn VulkanPipelineBuilder::set_depth_format(VkFormat format) -> VulkanPipelineBuilder& {
-  _rendering_info.depthAttachmentFormat = format;
-  return *this;
+void ka_vk_pipb_set_cull_mode(ka_VulkanPipelineBuilder pipb, VkCullModeFlags mode,
+                              VkFrontFace front_face) {
+  pipb->rasterizer.cullMode = mode;
+  pipb->rasterizer.frontFace = front_face;
 }
 
-fn VulkanPipelineBuilder::disable_multisampling() -> VulkanPipelineBuilder& {
+void ka_vk_pipb_set_color_format(ka_VulkanPipelineBuilder pipb, VkFormat format) {
+  pipb->color_format = format;
+  pipb->rendering_info.colorAttachmentCount = 1;
+  pipb->rendering_info.pColorAttachmentFormats = &pipb->color_format;
+}
+
+void ka_vk_pipb_set_depth_format(ka_VulkanPipelineBuilder pipb, VkFormat format) {
+  pipb->rendering_info.depthAttachmentFormat = format;
+}
+
+void ka_vk_pipb_disable_ms(ka_VulkanPipelineBuilder pipb) {
   // No multisampling = 1 sample per pixel + no alpha coverage
-  _multisampling.sampleShadingEnable = VK_FALSE;
-  _multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-  _multisampling.minSampleShading = 1.f;
-  _multisampling.pSampleMask = nullptr;
-  _multisampling.alphaToCoverageEnable = VK_FALSE;
-  _multisampling.alphaToOneEnable = VK_FALSE;
-  return *this;
+  pipb->multisampling.sampleShadingEnable = VK_FALSE;
+  pipb->multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  pipb->multisampling.minSampleShading = 1.f;
+  pipb->multisampling.pSampleMask = nullptr;
+  pipb->multisampling.alphaToCoverageEnable = VK_FALSE;
+  pipb->multisampling.alphaToOneEnable = VK_FALSE;
 }
 
-fn VulkanPipelineBuilder::disable_blending() -> VulkanPipelineBuilder& {
+void ka_vk_pipb_disable_blending(ka_VulkanPipelineBuilder pipb) {
   // default write mask + no blending
-  _blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  _blend_attachment.blendEnable = VK_FALSE;
-  return *this;
+  pipb->blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  pipb->blend_attachment.blendEnable = VK_FALSE;
 }
 
-fn VulkanPipelineBuilder::disable_depth_test() -> VulkanPipelineBuilder& {
-  _depth_stencil.depthTestEnable = VK_FALSE;
-  _depth_stencil.depthWriteEnable = VK_FALSE;
-  _depth_stencil.depthCompareOp = VK_COMPARE_OP_NEVER;
-  _depth_stencil.depthBoundsTestEnable = VK_FALSE;
-  _depth_stencil.stencilTestEnable = VK_FALSE;
-  std::memset(&_depth_stencil.front, 0x00, sizeof(_depth_stencil.front));
-  std::memset(&_depth_stencil.back, 0x00, sizeof(_depth_stencil.back));
-  _depth_stencil.minDepthBounds = 0.f;
-  _depth_stencil.maxDepthBounds = 1.f;
-  return *this;
-}
+void ka_vk_pipb_disable_depth_test(ka_VulkanPipelineBuilder pipb) {
 
-} // namespace kappa::render
+  pipb->depth_stencil.depthTestEnable = VK_FALSE;
+  pipb->depth_stencil.depthWriteEnable = VK_FALSE;
+  pipb->depth_stencil.depthCompareOp = VK_COMPARE_OP_NEVER;
+  pipb->depth_stencil.depthBoundsTestEnable = VK_FALSE;
+  pipb->depth_stencil.stencilTestEnable = VK_FALSE;
+  std::memset(&pipb->depth_stencil.front, 0x00, sizeof(pipb->depth_stencil.front));
+  std::memset(&pipb->depth_stencil.back, 0x00, sizeof(pipb->depth_stencil.back));
+  pipb->depth_stencil.minDepthBounds = 0.f;
+  pipb->depth_stencil.maxDepthBounds = 1.f;
+}

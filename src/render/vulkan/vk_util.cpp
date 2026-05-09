@@ -148,12 +148,12 @@ fn VulkanDelQueue::flush() -> void {
   _queue.clear();
 }
 
-fn VulkanDelQueue::enqueue(const VulkanImage& image, VmaAllocator vma) -> void {
+fn VulkanDelQueue::enqueue(const ka_VulkanImage& image, VmaAllocator vma) -> void {
   enqueue_handle((VulkanHandle)image.image, (VulkanHandle)image.alloc, TYPE_IMAGE,
                  (VulkanHandle)vma);
 }
 
-fn VulkanDelQueue::enqueue(const VulkanBuffer& buffer, VmaAllocator vma) -> void {
+fn VulkanDelQueue::enqueue(const ka_VulkanBuffer& buffer, VmaAllocator vma) -> void {
   enqueue_handle((VulkanHandle)buffer.buffer, (VulkanHandle)buffer.alloc, TYPE_BUFFER,
                  (VulkanHandle)vma);
 }

@@ -3,6 +3,7 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
+#include "../../util/function.hpp"
 
 #define KA_VK_STRUCT(_typename, _sType)                                  \
   template<>                                                             \
@@ -137,8 +138,8 @@ public:
                     VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
 
-  fn enqueue(const VulkanImage& image, VmaAllocator alloc) -> void;
-  fn enqueue(const VulkanBuffer& buffer, VmaAllocator alloc) -> void;
+  fn enqueue(const ka_VulkanImage& image, VmaAllocator alloc) -> void;
+  fn enqueue(const ka_VulkanBuffer& buffer, VmaAllocator alloc) -> void;
 
   fn enqueue(VkImageView image_view, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)image_view, (VulkanHandle)device, TYPE_IMAGE_VIEW);

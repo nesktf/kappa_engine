@@ -3,6 +3,35 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
+#include "../../util/ptr.hpp"
+
+struct ka_VulkanPipelineBuilder_impl {
+  kappa::Vec<VkPipelineShaderStageCreateInfo> shader_stages;
+  VkPipelineInputAssemblyStateCreateInfo input_assembly;
+  VkPipelineRasterizationStateCreateInfo rasterizer;
+  VkPipelineColorBlendAttachmentState blend_attachment;
+  VkPipelineMultisampleStateCreateInfo multisampling;
+  VkPipelineLayout layout;
+  VkPipelineDepthStencilStateCreateInfo depth_stencil;
+  VkPipelineRenderingCreateInfo rendering_info;
+  VkFormat color_format;
+};
+
+struct ka_VulkanPipeline {
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  ka_VulkanContext vk;
+};
+
+KA_CHECK_OPAQUE(ka_VulkanPipeline);
+
+struct ka_VulkanShaderModule {
+  VkShaderModule shader;
+  VkShaderStageFlagBits stage;
+  ka_VulkanContext vk;
+};
+
+KA_CHECK_OPAQUE(ka_VulkanShaderModule);
 
 namespace kappa::render {
 
@@ -58,35 +87,7 @@ private:
 
 fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule>;
 
-class VulkanPipelineBuilder {
-public:
-  VulkanPipelineBuilder();
-
-public:
-  fn build(VkDevice device) -> VkExpect<VkPipeline>;
-  fn clear() -> void;
-
-  fn set_layout(VkPipelineLayout layout) -> VulkanPipelineBuilder&;
-  fn set_shaders(VkShaderModule vertex, VkShaderModule fragment) -> VulkanPipelineBuilder&;
-  fn set_topology(VkPrimitiveTopology topology) -> VulkanPipelineBuilder&;
-  fn set_poly_mode(VkPolygonMode mode, f32 width = 1.f) -> VulkanPipelineBuilder&;
-  fn set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) -> VulkanPipelineBuilder&;
-  fn set_color_format(VkFormat format) -> VulkanPipelineBuilder&;
-  fn set_depth_format(VkFormat format) -> VulkanPipelineBuilder&;
-  fn disable_multisampling() -> VulkanPipelineBuilder&;
-  fn disable_blending() -> VulkanPipelineBuilder&;
-  fn disable_depth_test() -> VulkanPipelineBuilder&;
-
-private:
-  Vec<VkPipelineShaderStageCreateInfo> _shader_stages;
-  VkPipelineInputAssemblyStateCreateInfo _input_assembly;
-  VkPipelineRasterizationStateCreateInfo _rasterizer;
-  VkPipelineColorBlendAttachmentState _blend_attachment;
-  VkPipelineMultisampleStateCreateInfo _multisampling;
-  VkPipelineLayout _layout;
-  VkPipelineDepthStencilStateCreateInfo _depth_stencil;
-  VkPipelineRenderingCreateInfo _rendering_info;
-  VkFormat _color_format;
-};
+fn vk_create_compute_pipeline(VkDevice device, VkPipelineLayout layout, Span<const u8> src)
+  -> VkExpect<VkPipeline>;
 
 } // namespace kappa::render

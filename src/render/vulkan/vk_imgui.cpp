@@ -1,17 +1,18 @@
 #include "./vk_imgui.hpp"
 
-#include "./vk_context.hpp"
+#include "./vk_device.hpp"
+#include "./vk_swapchain.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
 
 namespace kappa::render {
 
-fn vk_init_imgui(VulkanContext_impl& ctx, const VulkanSurfaceProvider::ImGuiFn& imgui_init)
+fn vk_init_imgui(VkInstance vk, const VulkanDevice& dev, const VulkanSwapchain& swapchain,
+                 VulkanDelQueue& delqueue, PFN_ka_vk_init_imgui init_imgui, void* init_imgui_user)
   -> void {
-  // 1: create descriptor pool for IMGUI
-  //  the size of the pool is very oversize, but it's copied from imgui demo
-  //  itself.
+  ka_assert(init_imgui);
+
   static constexpr auto pool_sizes =
     std::to_array<VkDescriptorPoolSize>({{VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
@@ -31,20 +32,20 @@ fn vk_init_imgui(VulkanContext_impl& ctx, const VulkanSurfaceProvider::ImGuiFn& 
   pool_info.poolSizeCount = (u32)pool_sizes.size();
   pool_info.pPoolSizes = pool_sizes.data();
 
-  const auto device = ctx.device->device();
+  const auto device = dev.device();
 
   VkDescriptorPool imgui_pool;
   KA_VK_ASSERT(vkCreateDescriptorPool(device, &pool_info, vkalloc, &imgui_pool));
 
-  imgui_init();
+  init_imgui(init_imgui_user);
 
-  const auto swapchain_format = ctx.swapchain->format();
+  const auto swapchain_format = swapchain.format();
 
   ImGui_ImplVulkan_InitInfo init_info{};
-  init_info.Instance = ctx.vk;
-  init_info.PhysicalDevice = ctx.device->physical_device();
-  init_info.Device = ctx.device->device();
-  init_info.Queue = vk_get_graphics_queue(ctx);
+  init_info.Instance = vk;
+  init_info.PhysicalDevice = dev.physical_device();
+  init_info.Device = dev.device();
+  init_info.Queue = dev.graphics_queue();
   init_info.DescriptorPool = imgui_pool;
   init_info.MinImageCount = 3;
   init_info.ImageCount = 3;
@@ -60,7 +61,7 @@ fn vk_init_imgui(VulkanContext_impl& ctx, const VulkanSurfaceProvider::ImGuiFn& 
   ImGui_ImplVulkan_Init(&init_info);
   // ImGui_ImplVulkan_CreateFontsTexture();
 
-  ctx.delqueue.enqueue_deleter([=]() {
+  delqueue.enqueue_deleter([=]() {
     ImGui_ImplVulkan_Shutdown();
     vkDestroyDescriptorPool(device, imgui_pool, vkalloc);
   });
@@ -74,10 +75,6 @@ fn vk_draw_imgui(VkCommandBuffer cmd, VkImageView target, VkExtent2D swapchain_e
   vkCmdBeginRendering(cmd, &render_info);
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
   vkCmdEndRendering(cmd);
-}
-
-fn vk_imgui_new_frame() -> void {
-  ImGui_ImplVulkan_NewFrame();
 }
 
 } // namespace kappa::render

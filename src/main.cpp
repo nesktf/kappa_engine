@@ -74,7 +74,7 @@ fn run_engine() -> void {
   const DeferFn glfw_defer = [&]() {
     glfw.destroy();
   };
-  auto vk = glfw.bind_vulkan(app_info, mesh_data);
+  auto vk = glfw.bind_vulkan(KA_APP_NAME, KA_APP_VERSION);
 
   const fn imgui_draw = [&]() {
     glfw.start_imgui_frame();

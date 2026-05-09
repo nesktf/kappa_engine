@@ -1,9 +1,7 @@
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
-#include "render/vulkan/vk_private.hpp"
 
 #include <algorithm>
-#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -176,7 +174,7 @@ VulkanFrameData::VulkanFrameData(create_t, TempFrameData* frames, VkDevice devic
     ka_assert(frames[i].pool.has_value());
     new (self_frames + i)
       FrameData(frames[i].cmdpool, frames[i].cmdbuf, frames[i].render_fen, frames[i].swapchain_sem,
-                frames[i].render_sem, *std::move(frames[i].pool), VulkanDelQueue());
+                frames[i].render_sem, *std::move(frames[i].pool), VulkanDelQueue(), (u32)-1);
   }
   static_assert(std::is_trivially_destructible_v<TempFrameData>);
 }

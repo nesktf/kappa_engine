@@ -2,49 +2,14 @@
 
 #include "./vk.h"
 
-#include "../../util/expected.hpp"
+#include "./vk_error.hpp"
+
 #include "../../util/function.hpp"
 #include "../../util/ptr.hpp"
 
 #include <type_traits>
 
 namespace kappa::render {
-
-class VkError : public std::exception {
-public:
-  VkError(VkResult err) : _err(err) {}
-
-public:
-  fn what() const noexcept -> const char* override { return ka_vk_error_str(_err); }
-
-  fn code() const noexcept -> VkResult { return _err; }
-
-private:
-  VkResult _err;
-};
-
-template<typename T>
-using VkExpect = Expected<T, VkError>;
-
-class VkMsgError : public std::exception {
-public:
-  VkMsgError(const char* msg, VkResult err) noexcept : _msg(msg), _err(err) {}
-
-public:
-  fn what() const noexcept -> const char* override { return _msg; }
-
-  fn code() const noexcept -> VkResult { return _err; }
-
-private:
-  const char* _msg;
-  VkResult _err;
-};
-
-template<typename T>
-using VkExpect = Expected<T, VkError>;
-
-template<typename T>
-using VkMsgExpect = Expected<T, VkMsgError>;
 
 struct VulkanContextArgs {
 public:
@@ -232,13 +197,6 @@ inline fn VulkanContext::create(const VulkanContextArgs& args) noexcept
 
 inline fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) noexcept -> VkExpect<void> {
   if (auto ret = ka_vk_rebuild_swapchain(_ctx.get(), surface_extent)) {
-    return {unexpect, ret};
-  }
-  return {};
-}
-
-inline fn VulkanContext::draw() noexcept -> VkExpect<void> {
-  if (auto ret = ka_vk_draw(_ctx.get())) {
     return {unexpect, ret};
   }
   return {};
