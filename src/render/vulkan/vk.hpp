@@ -9,6 +9,10 @@
 
 #include <type_traits>
 
+#ifdef KA_VK_ENABLE_IMGUI
+#include <imgui_impl_vulkan.h>
+#endif
+
 namespace kappa::render {
 
 struct VulkanContextArgs {
@@ -94,69 +98,25 @@ public:
   fn mapped_data() -> void*;
 };
 
-class VulkanShaderModule : public ka_VulkanShaderModule {
-public:
-  struct create_t {};
+#ifdef KA_VK_ENABLE_IMGUI
+template<typename F>
+fn vk_init_imgui(ka_VulkanContext vk, F&& imgui_initer) -> VkResult;
 
-public:
-  VulkanShaderModule(create_t, ka_VulkanShaderModule&& shader_module) noexcept :
-      ka_VulkanShaderModule(shader_module) {}
-
-public:
-  static fn create(ka_VulkanContext vk, Span<const u8> src, VkShaderStageFlags stage)
-    -> VkExpect<VulkanShaderModule>;
-  fn destroy() -> void;
+struct VulkanImGuiDrawData {
+  ImDrawData* draw_data;
+  VkPipeline pipeline;
 };
 
-class VulkanCompute : public ka_VulkanCompute {};
+fn vk_draw_imgui(void* user, VkCommandBuffer cmd);
 
-class VulkanPipeline : public ka_VulkanPipeline {};
-
-class VulkanPipelineBuilder {
-private:
-  struct Deleter {
-    void operator()(ka_VulkanPipelineBuilder pipb) noexcept {
-      ka_vk_destroy_pipeline_builder(pipb);
-    }
-  };
-
-  struct create_t {};
-
-public:
-  VulkanPipelineBuilder(create_t, ka_VulkanPipelineBuilder pipb) noexcept : _pipb(pipb) {}
-
-public:
-  static fn create() -> VulkanPipelineBuilder;
-
-public:
-  fn build(ka_VulkanContext vk) -> VkExpect<VulkanPipeline>;
-  fn clear() -> void;
-
-public:
-  fn add_shader(const VulkanShaderModule& shader) -> VulkanPipelineBuilder&;
-
-  fn set_layout(VkPipelineLayout layout) -> VulkanPipelineBuilder&;
-  fn set_topology(VkPrimitiveTopology topology) -> VulkanPipelineBuilder&;
-  fn set_poly_mode(VkPolygonMode mode, f32 width = 1.f) -> VulkanPipelineBuilder&;
-  fn set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) -> VulkanPipelineBuilder&;
-  fn set_color_format(VkFormat format) -> VulkanPipelineBuilder&;
-  fn set_depth_format(VkFormat format) -> VulkanPipelineBuilder&;
-
-  fn disable_multisampling() -> VulkanPipelineBuilder&;
-  fn disable_blending() -> VulkanPipelineBuilder&;
-  fn disable_depth_test() -> VulkanPipelineBuilder&;
-
-public:
-  operator ka_VulkanPipelineBuilder() noexcept { return _pipb.get(); }
-
-private:
-  std::unique_ptr<std::remove_pointer_t<ka_VulkanPipelineBuilder>, Deleter> _pipb;
-};
+fn vk_shutown_imgui() -> void;
+#endif
 
 } // namespace kappa::render
 
 namespace kappa::render {
 
+#if 0
 inline fn VulkanContext::create(const VulkanContextArgs& args) noexcept
   -> VkMsgExpect<VulkanContext> {
   ka_VulkanContextArgs c_args{};
@@ -222,5 +182,67 @@ fn VulkanContext::immediate_submit(F&& func) -> VkExpect<void> {
   }
   return {};
 }
+#endif
+
+#ifdef KA_VK_ENABLE_IMGUI
+template<typename F>
+fn vk_init_imgui(ka_VulkanContext vk, F&& imgui_initer) -> VkResult {
+  static constexpr auto pool_sizes =
+    std::to_array<VkDescriptorPoolSize>({{VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+                                         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+                                         {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+                                         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+                                         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+                                         {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}});
+
+  VkDescriptorPoolCreateInfo pool_info{};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = 1000;
+  pool_info.poolSizeCount = (u32)pool_sizes.size();
+  pool_info.pPoolSizes = pool_sizes.data();
+  ka_VulkanImGuiInfo imgui_info;
+  VkResult ret = VK_SUCCESS;
+  if (ret = ka_vk_create_imgui_info(vk, &imgui_info, &pool_info); ret != VK_SUCCESS) {
+    return ret;
+  }
+
+  ImGui_ImplVulkan_InitInfo init_info{};
+  init_info.Instance = imgui_info.vk;
+  init_info.PhysicalDevice = imgui_info.physical_device;
+  init_info.Device = imgui_info.device;
+  init_info.Queue = imgui_info.queue;
+  init_info.DescriptorPool = imgui_info.descpool;
+  init_info.MinImageCount = 3;
+  init_info.ImageCount = 3;
+  init_info.UseDynamicRendering = true;
+
+  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
+    VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats =
+    &imgui_info.swapchain_format;
+  init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+  imgui_initer();
+  ImGui_ImplVulkan_Init(&init_info);
+
+  return ret;
+}
+
+inline fn vk_shutown_imgui() -> void {
+  ImGui_ImplVulkan_Shutdown();
+}
+
+inline fn vk_draw_imgui(void* user, VkCommandBuffer cmd) {
+  const auto& imgui_data = *static_cast<VulkanImGuiDrawData*>(user);
+  ImGui_ImplVulkan_RenderDrawData(imgui_data.draw_data, cmd, imgui_data.pipeline);
+}
+#endif
 
 } // namespace kappa::render

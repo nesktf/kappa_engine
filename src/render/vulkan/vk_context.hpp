@@ -8,7 +8,7 @@
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
 
-struct ka_VulkanContext_impl {
+struct ka_VkContext_impl {
 public:
   struct ImDrawData {
     VkFence fence;
@@ -17,20 +17,21 @@ public:
   };
 
   struct RenderTarget {
-    ka_VulkanImage image;
+    ka_VkImage image;
     VkExtent2D extent;
     VkImageLayout layout;
   };
 
 public:
-  ka_VulkanContext_impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vma_,
-                        VkSurfaceKHR surface_, kappa::render::VulkanDevice&& device_,
-                        kappa::render::VulkanSwapchain&& swapchain_,
-                        kappa::render::VulkanFrameData&& framedata_, ImDrawData&& imdraw_,
-                        RenderTarget&& target_, kappa::render::VulkanDelQueue&& delqueue_);
-  ~ka_VulkanContext_impl();
-  KA_NO_MOVE(ka_VulkanContext_impl);
-  KA_NO_COPY(ka_VulkanContext_impl);
+  ka_VkContext_impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vmalloc_,
+                    VkSurfaceKHR surface_, kappa::render::VulkanDevice&& device_,
+                    kappa::render::VulkanSwapchain&& swapchain_,
+                    kappa::render::VulkanFrameData&& framedata_, ImDrawData&& imdrawdata_,
+                    RenderTarget&& target_, kappa::render::VulkanDescPool&& descpool_,
+                    kappa::render::VulkanDelQueue&& delqueue_);
+  ~ka_VkContext_impl();
+  KA_NO_MOVE(ka_VkContext_impl);
+  KA_NO_COPY(ka_VkContext_impl);
 
 public:
   VkInstance vk;

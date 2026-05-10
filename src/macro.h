@@ -73,15 +73,13 @@
 
 #define fn auto
 
-#define KA_DECL_HANDLE(_typename) \
-  struct _typename##_impl;        \
-  using _typename = _typename##_impl*
+#define KA_DECL_HANDLE(_typename) typedef struct _typename##_impl* _typename
 
 #ifndef KA_INTERNAL_
 #define KA_DECL_OPAQUE(_typename, _size, _align) \
-  struct _typename {                             \
+  typedef struct _typename {                     \
     alignas(_align) uint8_t _data[_size];        \
-  }
+  } _typename
 #else
 #define KA_DECL_OPAQUE(_typename, _size, _align)       \
   struct _typename;                                    \
@@ -111,6 +109,7 @@
 #define KA_VER_MIN 0
 #define KA_VER_REV 1
 
+#include <stdalign.h>
 #include <stdint.h>
 
 #endif // #ifndef KA_MACRO_H_

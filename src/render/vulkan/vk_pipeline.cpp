@@ -2,36 +2,11 @@
 
 #include "./vk_context.hpp"
 #include "./vk_util.hpp"
+#include "render/vulkan/vk.h"
+#include "render/vulkan/vk_error.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
-
-fn VulkanDescriptorLayoutBuilder::add_binding(u32 binding, VkDescriptorType type) -> void {
-  VkDescriptorSetLayoutBinding bind{};
-  bind.binding = binding;
-  bind.descriptorCount = 1;
-  bind.descriptorType = type;
-  _bindings.push_back(bind);
-}
-
-fn VulkanDescriptorLayoutBuilder::clear() -> void {
-  _bindings.clear();
-}
-
-fn VulkanDescriptorLayoutBuilder::build(VkDevice device, VkShaderStageFlags stages, void* next,
-                                        VkDescriptorSetLayoutCreateFlags flags)
-  -> VkDescriptorSetLayout {
-  for (auto& binding : _bindings) {
-    binding.stageFlags |= stages;
-  }
-  auto info = vkmk_zero<VkDescriptorSetLayoutCreateInfo>(next);
-  info.pBindings = _bindings.data();
-  info.bindingCount = (u32)_bindings.size();
-  info.flags = flags;
-
-  VkDescriptorSetLayout set;
-  KA_VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, nullptr, &set));
-  return set;
-}
 
 VulkanDescPool::VulkanDescPool(create_t, VkDevice device, VkDescriptorPool pool) :
     _device(device), _pool(pool) {
@@ -67,24 +42,30 @@ fn VulkanDescPool::add_to_delqueue(VulkanDelQueue& queue) -> void {
   queue.enqueue(_pool, _device);
 }
 
-fn VulkanDescPool::alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet> {
+fn VulkanDescPool::alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count)
+  -> VkExpect<void> {
   auto alloc_info = vkmk_zero<VkDescriptorSetAllocateInfo>();
   alloc_info.descriptorPool = _pool;
-  alloc_info.descriptorSetCount = 1;
+  alloc_info.descriptorSetCount = count;
   alloc_info.pSetLayouts = &layout;
 
-  VkDescriptorSet set;
-  if (auto ret = vkAllocateDescriptorSets(_device, &alloc_info, &set); ret != VK_SUCCESS) {
-    return {unexpect, ret};
-  }
-  return {in_place, set};
+  KA_VK_UNEX(vkAllocateDescriptorSets(_device, &alloc_info, sets));
+
+  return {};
 }
 
 fn VulkanDescPool::clear() -> void {
   vkResetDescriptorPool(_device, _pool, 0);
 }
 
-fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule> {
+} // namespace kappa::render
+
+using namespace kappa;
+using namespace kappa::render;
+
+namespace {
+
+fn create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule> {
   auto info = vkmk_zero<VkShaderModuleCreateInfo>();
   info.codeSize = src.size();
   info.pCode = reinterpret_cast<const u32*>(src.data());
@@ -95,52 +76,137 @@ fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderMod
   return {in_place, shader};
 }
 
-fn vk_create_compute_pipeline(VkDevice device, VkPipelineLayout layout, Span<const u8> src)
-  -> VkExpect<VkPipeline> {
-  return vk_create_shader(device, {src.data(), src.size()})
-    .and_then([&](VkShaderModule shader) -> VkExpect<VkPipeline> {
-      const DeferFn defer = [&]() {
-        vkDestroyShaderModule(device, shader, vkalloc);
-      };
-      auto stage_info = vkmk_zero<VkPipelineShaderStageCreateInfo>();
-      stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-      stage_info.module = shader;
-      stage_info.pName = "main";
+} // namespace
 
-      auto compute_info = vkmk_zero<VkComputePipelineCreateInfo>();
-      compute_info.layout = layout;
-      compute_info.stage = stage_info;
-
-      VkPipeline pip{};
-      KA_VK_UNEX(
-        vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &compute_info, vkalloc, &pip));
-      return {in_place, pip};
-    });
+VkResult ka_vk_create_shader(ka_VkContext vk, VkShaderModule* shader,
+                             ka_VkShaderArgs const* args) {
+  ka_assert(vk);
+  ka_assert(shader);
+  ka_assert(args);
+  auto shad = create_shader(vk->device.device(), {args->src, args->src_size});
+  if (shad) {
+    if (args->lifetime == KA_VK_LIFETIME_AUTO) {
+      vk->delqueue.enqueue(*shad, vk->device.device());
+    } else if (args->lifetime == KA_VK_LIFETIME_AUTO_FRAME) {
+      vk->framedata.curr_frame().delqueue.enqueue(*shad, vk->device.device());
+    }
+    (*shader) = *shad;
+  }
+  return shad.error_or(render::VkError(VK_SUCCESS)).code();
 }
 
-} // namespace kappa::render
-
-VkResult ka_vk_create_pipeline_builder(ka_VulkanPipelineBuilder* builder) {
-  (*builder) = new ka_VulkanPipelineBuilder_impl();
-  ka_vk_pipb_clear(*builder);
-  return VK_SUCCESS;
-}
-
-void ka_vk_destroy_pipeline_builder(ka_VulkanPipelineBuilder builder) {
-  if (!builder) {
+void ka_vk_destroy_shader(ka_VkContext vk, VkShaderModule shader) {
+  if (!vk || shader == VK_NULL_HANDLE) {
     return;
   }
-  delete builder;
+  vkDestroyShaderModule(vk->device.device(), shader, vkalloc);
+}
+
+VkResult ka_vk_create_dscset_layout(ka_VkContext vk, VkDescriptorSetLayout* layout,
+                                    ka_VkDscSetLayoutArgs const* args) {
+  ka_assert(vk);
+  ka_assert(layout);
+  ka_assert(args);
+
+  auto info = vkmk_zero<VkDescriptorSetLayoutCreateInfo>();
+  info.pBindings = args->bindings;
+  info.bindingCount = args->binding_count;
+  info.flags = args->flags;
+
+  auto ret = vkCreateDescriptorSetLayout(vk->device.device(), &info, nullptr, layout);
+  if (ret) {
+    return ret;
+  }
+
+  if (args->lifetime == KA_VK_LIFETIME_AUTO) {
+    vk->delqueue.enqueue(*layout, vk->device.device());
+  } else if (args->lifetime == KA_VK_LIFETIME_AUTO_FRAME) {
+    vk->framedata.curr_frame().delqueue.enqueue(*layout, vk->device.device());
+  }
+  return ret;
+}
+
+void ka_vk_destroy_dscset_layout(ka_VkContext vk, VkDescriptorSetLayout layout) {
+  if (!vk || layout == VK_NULL_HANDLE) {
+    return;
+  }
+  vkDestroyDescriptorSetLayout(vk->device.device(), layout, vkalloc);
+}
+
+VkResult ka_vk_alloc_dscsets(ka_VkContext vk, VkDescriptorSet* dscsets, uint32_t count,
+                             VkDescriptorSetLayout layout, ka_VkLifetime lifetime) {
+
+  ka_assert(vk);
+  ka_assert(dscsets && count > 0);
+  ka_assert(layout != VK_NULL_HANDLE);
+  KA_UNUSED(lifetime); // TODO
+  VkResult ret =
+    vk->descpool.alloc_sets(layout, dscsets, count).error_or(render::VkError(VK_SUCCESS)).code();
+  return ret;
+}
+
+void ka_vk_dealloc_dscsets(ka_VkContext vk, VkDescriptorSet* dscsets, uint32_t count) {
+  if (!vk || !dscsets || !count) {
+    return;
+  }
+  // TODO
+}
+
+void ka_vk_update_dscset(ka_VkContext vk, VkWriteDescriptorSet const* write_sets,
+                         uint32_t write_sets_count) {
+  vkUpdateDescriptorSets(vk->device.device(), write_sets_count, write_sets, 0, 0);
+}
+
+VkResult ka_vk_create_pipeline_layout(ka_VkContext vk, VkPipelineLayout* layout,
+                                      ka_VkPipelineLayoutArgs const* args) {
+  ka_assert(vk);
+  ka_assert(layout);
+  ka_assert(args);
+
+  auto layout_info = vkmk_zero<VkPipelineLayoutCreateInfo>();
+  layout_info.flags = args->flags;
+  layout_info.pPushConstantRanges = args->push_constant_ranges;
+  layout_info.pushConstantRangeCount = args->push_constant_range_count;
+  layout_info.pSetLayouts = args->set_layouts;
+  layout_info.setLayoutCount = args->set_layout_count;
+  auto ret = vkCreatePipelineLayout(vk->device.device(), &layout_info, vkalloc, layout);
+  if (ret) {
+    return ret;
+  }
+
+  if (args->lifetime == KA_VK_LIFETIME_AUTO) {
+    vk->delqueue.enqueue(*layout, vk->device.device());
+  } else if (args->lifetime == KA_VK_LIFETIME_AUTO_FRAME) {
+    vk->framedata.curr_frame().delqueue.enqueue(*layout, vk->device.device());
+  }
+
+  return ret;
+}
+
+void ka_vk_destroy_pipeline_layout(ka_VkContext vk, VkPipelineLayout layout) {
+  if (!vk || layout == VK_NULL_HANDLE) {
+    return;
+  }
+  vkDestroyPipelineLayout(vk->device.device(), layout, vkalloc);
 }
 
 namespace {
 
-using namespace kappa;
-using kappa::render::VkExpect;
-using kappa::render::vkmk_zero;
+struct VkPipelineBuildData {
+  VkPipelineShaderStageCreateInfo const* shader_stages;
+  u32 shader_stage_count;
+  VkPipelineInputAssemblyStateCreateInfo input_assembly;
+  VkPipelineRasterizationStateCreateInfo rasterizer;
+  VkPipelineColorBlendAttachmentState blend_attachment;
+  VkPipelineMultisampleStateCreateInfo multisampling;
+  VkPipelineLayout layout;
+  VkPipelineDepthStencilStateCreateInfo depth_stencil;
+  VkPipelineRenderingCreateInfo rendering_info;
+  VkFormat color_format;
+};
 
-fn build_pipeline(ka_VulkanPipelineBuilder_impl& pipb, ka_VulkanPipeline& pipeline,
-                  VkDevice device) -> VkExpect<void> {
+fn build_pipeline(VkPipelineBuildData& pipb, VkPipeline* pipeline, VkDevice device)
+  -> VkExpect<void> {
   // Dynamic viewport & scissor
   static constexpr auto dynamic_state =
     std::to_array<VkDynamicState>({VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR});
@@ -163,8 +229,8 @@ fn build_pipeline(ka_VulkanPipelineBuilder_impl& pipb, ka_VulkanPipeline& pipeli
   color_blending.pAttachments = &pipb.blend_attachment;
 
   auto pipeline_info = vkmk_zero<VkGraphicsPipelineCreateInfo>(&pipb.rendering_info);
-  pipeline_info.stageCount = (u32)pipb.shader_stages.size();
-  pipeline_info.pStages = pipb.shader_stages.data();
+  pipeline_info.stageCount = pipb.shader_stage_count;
+  pipeline_info.pStages = pipb.shader_stages;
   pipeline_info.pVertexInputState = &vertex_input;
   pipeline_info.pInputAssemblyState = &pipb.input_assembly;
   pipeline_info.pViewportState = &viewport_state;
@@ -175,101 +241,129 @@ fn build_pipeline(ka_VulkanPipelineBuilder_impl& pipb, ka_VulkanPipeline& pipeli
   pipeline_info.layout = pipb.layout;
   pipeline_info.pDynamicState = &dynamic_info;
 
-  KA_VK_UNEX(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, vkalloc,
-                                       &pipeline.pipeline));
-  pipeline.layout = pipb.layout;
+  KA_VK_UNEX(
+    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, vkalloc, pipeline));
 
   return {};
 }
 
+fn init_pip_build_data(VkPipelineBuildData& pipb) {
+  pipb.input_assembly = vkmk_zero<decltype(pipb.input_assembly)>();
+  pipb.rasterizer = vkmk_zero<decltype(pipb.rasterizer)>();
+  std::memset(&pipb.blend_attachment, 0x00, sizeof(pipb.blend_attachment));
+  pipb.multisampling = vkmk_zero<decltype(pipb.multisampling)>();
+  pipb.layout = VK_NULL_HANDLE;
+  pipb.depth_stencil = vkmk_zero<decltype(pipb.depth_stencil)>();
+  pipb.rendering_info = vkmk_zero<decltype(pipb.rendering_info)>();
+  pipb.shader_stages = nullptr;
+  pipb.shader_stage_count = 0;
+}
+
+fn collect_stages(const VkShaderModule (&modules)[KA_VK_MODULE_COUNT])
+  -> std::pair<std::array<VkPipelineShaderStageCreateInfo, KA_VK_MODULE_COUNT>, u32> {
+  static constexpr auto shader_usage = std::to_array({
+    VK_SHADER_STAGE_VERTEX_BIT,
+    VK_SHADER_STAGE_FRAGMENT_BIT,
+    VK_SHADER_STAGE_GEOMETRY_BIT,
+    VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+    VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+  });
+  std::array<VkPipelineShaderStageCreateInfo, KA_VK_MODULE_COUNT> shader_stages;
+  u32 shader_count = 0;
+  for (usize i = 0; i < KA_VK_MODULE_COUNT; ++i) {
+    if (modules[i]) {
+      shader_stages[shader_count++] = vkmk_pipeline_stage_info(shader_usage[i], modules[i]);
+    }
+  }
+  return {shader_stages, shader_count};
+}
+
 } // namespace
 
-VkResult ka_vk_pipb_build(ka_VulkanPipelineBuilder pipb, ka_VulkanContext vk,
-                          ka_VulkanPipeline* pip) {
-  ka_assert(pipb);
+VkResult ka_vk_create_pipeline_gfx(ka_VkContext vk, VkPipeline* pipeline,
+                                   ka_VkPipelineGfxArgs const* args) {
   ka_assert(vk);
-  ka_assert(pip);
-  const auto device = vk->device->device();
-  std::memset(pip, 0x00, sizeof(*pip));
-  pip->vk = vk;
-  return build_pipeline(*pipb, *pip, device).error_or(kappa::render::VkError(VK_SUCCESS)).code();
-}
+  ka_assert(pipeline);
+  ka_assert(args);
+  const auto device = vk->device.device();
+  const auto [shader_stages, shader_count] = collect_stages(args->shader_modules);
 
-void ka_vk_pipb_clear(ka_VulkanPipelineBuilder pipb) {
-  ka_assert(pipb);
-  pipb->input_assembly = vkmk_zero<decltype(pipb->input_assembly)>();
-  pipb->rasterizer = vkmk_zero<decltype(pipb->rasterizer)>();
-  std::memset(&pipb->blend_attachment, 0x00, sizeof(pipb->blend_attachment));
-  pipb->multisampling = vkmk_zero<decltype(pipb->multisampling)>();
-  pipb->layout = VK_NULL_HANDLE;
-  pipb->depth_stencil = vkmk_zero<decltype(pipb->depth_stencil)>();
-  pipb->rendering_info = vkmk_zero<decltype(pipb->rendering_info)>();
-  pipb->shader_stages.clear();
-}
+  VkPipelineBuildData build_data;
+  init_pip_build_data(build_data);
+  build_data.shader_stages = shader_stages.data();
+  build_data.shader_stage_count = shader_count;
+  build_data.layout = args->layout;
 
-void ka_vk_pipb_set_layout(ka_VulkanPipelineBuilder pipb, VkPipelineLayout layout) {
-  ka_assert(pipb);
-  pipb->layout = layout;
-}
+  build_data.input_assembly.topology = args->topology;
+  build_data.input_assembly.primitiveRestartEnable = VK_FALSE; // not used
 
-void ka_vk_pipb_add_shader(ka_VulkanPipelineBuilder pipb,
-                           ka_VulkanShaderModule const* shader_module) {
-  pipb->shader_stages.push_back(
-    kappa::render::vkmk_pipeline_stage_info(shader_module->stage, shader_module->shader));
-}
+  build_data.color_format = args->color_format;
+  build_data.rendering_info.colorAttachmentCount = 1;
+  build_data.rendering_info.pColorAttachmentFormats = &build_data.color_format;
 
-void ka_vk_pipb_set_topology(ka_VulkanPipelineBuilder pipb, VkPrimitiveTopology topology) {
-  pipb->input_assembly.topology = topology;
-  pipb->input_assembly.primitiveRestartEnable = VK_FALSE; // not used
-}
+  build_data.rasterizer.polygonMode = args->poly_mode;
+  build_data.rasterizer.lineWidth = args->poly_width;
 
-void ka_vk_pipb_set_poly_mode(ka_VulkanPipelineBuilder pipb, VkPolygonMode mode, float width) {
-  pipb->rasterizer.polygonMode = mode;
-  pipb->rasterizer.lineWidth = width;
-}
+  build_data.rasterizer.cullMode = args->cull_mode;
+  build_data.rasterizer.frontFace = args->cull_front_face;
 
-void ka_vk_pipb_set_cull_mode(ka_VulkanPipelineBuilder pipb, VkCullModeFlags mode,
-                              VkFrontFace front_face) {
-  pipb->rasterizer.cullMode = mode;
-  pipb->rasterizer.frontFace = front_face;
-}
+  build_data.rendering_info.depthAttachmentFormat = args->depth_format;
 
-void ka_vk_pipb_set_color_format(ka_VulkanPipelineBuilder pipb, VkFormat format) {
-  pipb->color_format = format;
-  pipb->rendering_info.colorAttachmentCount = 1;
-  pipb->rendering_info.pColorAttachmentFormats = &pipb->color_format;
-}
+  // No multisampling
+  // 1 sample per pixel + no alpha coverage
+  build_data.multisampling.sampleShadingEnable = VK_FALSE;
+  build_data.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  build_data.multisampling.minSampleShading = 1.f;
+  build_data.multisampling.pSampleMask = nullptr;
+  build_data.multisampling.alphaToCoverageEnable = VK_FALSE;
+  build_data.multisampling.alphaToOneEnable = VK_FALSE;
 
-void ka_vk_pipb_set_depth_format(ka_VulkanPipelineBuilder pipb, VkFormat format) {
-  pipb->rendering_info.depthAttachmentFormat = format;
-}
-
-void ka_vk_pipb_disable_ms(ka_VulkanPipelineBuilder pipb) {
-  // No multisampling = 1 sample per pixel + no alpha coverage
-  pipb->multisampling.sampleShadingEnable = VK_FALSE;
-  pipb->multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-  pipb->multisampling.minSampleShading = 1.f;
-  pipb->multisampling.pSampleMask = nullptr;
-  pipb->multisampling.alphaToCoverageEnable = VK_FALSE;
-  pipb->multisampling.alphaToOneEnable = VK_FALSE;
-}
-
-void ka_vk_pipb_disable_blending(ka_VulkanPipelineBuilder pipb) {
+  // No blending
   // default write mask + no blending
-  pipb->blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-  pipb->blend_attachment.blendEnable = VK_FALSE;
+  build_data.blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+                                               VK_COLOR_COMPONENT_G_BIT |
+                                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  build_data.blend_attachment.blendEnable = VK_FALSE;
+
+  // No depth test
+  build_data.depth_stencil.depthTestEnable = VK_FALSE;
+  build_data.depth_stencil.depthWriteEnable = VK_FALSE;
+  build_data.depth_stencil.depthCompareOp = VK_COMPARE_OP_NEVER;
+  build_data.depth_stencil.depthBoundsTestEnable = VK_FALSE;
+  build_data.depth_stencil.stencilTestEnable = VK_FALSE;
+  std::memset(&build_data.depth_stencil.front, 0x00, sizeof(build_data.depth_stencil.front));
+  std::memset(&build_data.depth_stencil.back, 0x00, sizeof(build_data.depth_stencil.back));
+  build_data.depth_stencil.minDepthBounds = 0.f;
+  build_data.depth_stencil.maxDepthBounds = 1.f;
+
+  return build_pipeline(build_data, pipeline, device).error_or(VkError(VK_SUCCESS)).code();
 }
 
-void ka_vk_pipb_disable_depth_test(ka_VulkanPipelineBuilder pipb) {
+VkResult ka_vk_create_pipeline_cmp(ka_VkContext vk, VkPipeline* pipeline,
+                                   ka_VkPipelineCmpArgs const* args) {
+  const auto stage_info = vkmk_pipeline_stage_info(VK_SHADER_STAGE_COMPUTE_BIT, args->shader);
 
-  pipb->depth_stencil.depthTestEnable = VK_FALSE;
-  pipb->depth_stencil.depthWriteEnable = VK_FALSE;
-  pipb->depth_stencil.depthCompareOp = VK_COMPARE_OP_NEVER;
-  pipb->depth_stencil.depthBoundsTestEnable = VK_FALSE;
-  pipb->depth_stencil.stencilTestEnable = VK_FALSE;
-  std::memset(&pipb->depth_stencil.front, 0x00, sizeof(pipb->depth_stencil.front));
-  std::memset(&pipb->depth_stencil.back, 0x00, sizeof(pipb->depth_stencil.back));
-  pipb->depth_stencil.minDepthBounds = 0.f;
-  pipb->depth_stencil.maxDepthBounds = 1.f;
+  auto compute_info = vkmk_zero<VkComputePipelineCreateInfo>();
+  compute_info.layout = args->layout;
+  compute_info.stage = stage_info;
+
+  auto ret = vkCreateComputePipelines(vk->device.device(), VK_NULL_HANDLE, 1, &compute_info,
+                                      vkalloc, pipeline);
+  if (ret) {
+    return ret;
+  }
+
+  if (args->lifetime == KA_VK_LIFETIME_AUTO) {
+    vk->delqueue.enqueue(*pipeline, vk->device.device());
+  } else if (args->lifetime == KA_VK_LIFETIME_AUTO_FRAME) {
+    vk->framedata.curr_frame().delqueue.enqueue(*pipeline, vk->device.device());
+  }
+  return ret;
+}
+
+void ka_vk_destroy_pipeline(ka_VkContext vk, VkPipeline pipeline) {
+  if (!vk || pipeline == VK_NULL_HANDLE) {
+    return;
+  }
+  vkDestroyPipeline(vk->device.device(), pipeline, vkalloc);
 }

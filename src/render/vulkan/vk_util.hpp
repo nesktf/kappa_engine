@@ -82,9 +82,6 @@ constexpr fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
   return info;
 }
 
-struct VulkanBuffer;
-struct VulkanImage;
-
 class VulkanDelQueue {
 public:
   using VulkanHandle = void*;
@@ -107,6 +104,7 @@ public:
     TYPE_DESCLAYOUT,
     TYPE_PIPLAYOUT,
     TYPE_PIPELINE,
+    TYPE_SHADER,
   };
 
   struct HandleSet {
@@ -138,8 +136,8 @@ public:
                     VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
 
-  fn enqueue(const ka_VulkanImage& image, VmaAllocator alloc) -> void;
-  fn enqueue(const ka_VulkanBuffer& buffer, VmaAllocator alloc) -> void;
+  fn enqueue(const ka_VkImage& image, VmaAllocator alloc) -> void;
+  fn enqueue(const ka_VkBuffer& buffer, VmaAllocator alloc) -> void;
 
   fn enqueue(VkImageView image_view, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)image_view, (VulkanHandle)device, TYPE_IMAGE_VIEW);
@@ -191,6 +189,10 @@ public:
 
   fn enqueue(VkPipeline pipeline, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)pipeline, (VulkanHandle)device, TYPE_PIPELINE);
+  }
+
+  fn enqueue(VkShaderModule shader, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)shader, (VulkanHandle)device, TYPE_SHADER);
   }
 
 private:

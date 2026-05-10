@@ -1,5 +1,6 @@
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
+#include "render/vulkan/vk_private.hpp"
 
 #include <algorithm>
 
@@ -281,6 +282,10 @@ fn VulkanFrameData::next_frame() -> FrameData& {
 
 fn VulkanFrameData::curr_frame() -> FrameData& {
   return _frames.as<FrameData>()[_curr_frame % MAX_FRAMES_IN_FLIGHT];
+}
+
+fn VulkanFrameData::frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT> {
+  return {_frames.as<FrameData>(), MAX_FRAMES_IN_FLIGHT};
 }
 
 } // namespace kappa::render

@@ -87,6 +87,7 @@ public:
   fn add_to_delqueue(VulkanDelQueue& queue) -> void;
   fn next_frame() -> FrameData&;
   fn curr_frame() -> FrameData&;
+  fn frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
 private:
   AlignedTypeBuffer<FrameData[MAX_FRAMES_IN_FLIGHT]> _frames;

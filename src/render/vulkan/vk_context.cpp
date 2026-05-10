@@ -1,7 +1,5 @@
 #include "./vk_context.hpp"
 
-#include "./vk_imgui.hpp"
-
 using namespace kappa;
 using namespace kappa::render;
 
@@ -24,7 +22,7 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
 VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
   VkDebugUtilsMessageSeverityFlagBitsEXT msg_severity, VkDebugUtilsMessageTypeFlagsEXT msg_type,
   const VkDebugUtilsMessengerCallbackDataEXT* callback_data, void* user_data) {
-  auto& ctx = *static_cast<ka_VulkanContext>(user_data);
+  auto& ctx = *static_cast<ka_VkContext>(user_data);
   KA_UNUSED(ctx);
 
   const char* kind;
@@ -196,7 +194,7 @@ fn make_swapchain_args(VulkanDevice& dev, VkSurfaceKHR surface, VkExtent2D surfa
   return swargs;
 }
 
-fn init_imdraw_data(ka_VulkanContext_impl::ImDrawData& data, VkDevice device, u32 graphics_queue)
+fn init_imdraw_data(ka_VkContext_impl::ImDrawData& data, VkDevice device, u32 graphics_queue)
   -> VkExpect<void> {
   const auto cmdpool_info =
     vkmk_cmdpool_info(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, graphics_queue);
@@ -216,7 +214,7 @@ fn init_imdraw_data(ka_VulkanContext_impl::ImDrawData& data, VkDevice device, u3
   return {};
 }
 
-fn init_render_target(ka_VulkanContext_impl::RenderTarget& target, VkDevice device,
+fn init_render_target(ka_VkContext_impl::RenderTarget& target, VkDevice device,
                       VmaAllocator vmalloc, VkExtent2D draw_extent) -> VkExpect<void> {
   static constexpr auto target_format = VK_FORMAT_R16G16B16A16_SFLOAT;
   VkExtent3D extent;
@@ -255,19 +253,42 @@ constexpr VulkanDescPoolArgs desc_pool_args{
     return _name.error().code();                \
   }
 
-VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const* args,
+ka_VkContext_impl::ka_VkContext_impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_,
+                                     VmaAllocator vmalloc_, VkSurfaceKHR surface_,
+                                     kappa::render::VulkanDevice&& device_,
+                                     kappa::render::VulkanSwapchain&& swapchain_,
+                                     kappa::render::VulkanFrameData&& framedata_,
+                                     ImDrawData&& imdrawdata_, RenderTarget&& target_,
+                                     kappa::render::VulkanDescPool&& descpool_,
+                                     kappa::render::VulkanDelQueue&& delqueue_) :
+    vk(vk_), messenger(messenger_), vmalloc(vmalloc_), surface(surface_),
+    imdrawdata(std::move(imdrawdata_)), target(std::move(target_)), device(std::move(device_)),
+    swapchain(std::move(swapchain_)), framedata(std::move(framedata_)),
+    descpool(std::move(descpool_)), delqueue(std::move(delqueue_)) {}
+
+ka_VkContext_impl::~ka_VkContext_impl() {
+  device.wait_idle();
+  for (auto& frame : framedata.frames()) {
+    frame.delqueue.flush();
+  }
+  swapchain.destroy(device.device());
+  delqueue.flush();
+}
+
+VkResult ka_vk_create_context(ka_VkContext* ctx_, ka_VkContextArgs const* args,
                               const char** errmsg) {
   ka_assert(ctx_);
   ka_assert(args);
+  ka_assert(args->surface); // TODO: make this optional
   Vec<const char*> extensions;
   u32 extension_count = 1;
-  if (args->surface_extensions && args->surface_extension_count) {
-    extension_count += args->surface_extension_count;
+  if (args->surface->extensions && args->surface->extension_count) {
+    extension_count += args->surface->extension_count;
     extensions.reserve(extension_count);
-    KA_VK_LOG(debug, "Required Vulkan surface extensions ({}):", args->surface_extension_count);
-    for (usize i = 0; i < args->surface_extension_count; ++i) {
-      KA_VK_LOG(debug, "- {}", args->surface_extensions[i]);
-      extensions.push_back(args->surface_extensions[i]);
+    KA_VK_LOG(debug, "Required Vulkan surface extensions ({}):", args->surface->extension_count);
+    for (usize i = 0; i < args->surface->extension_count; ++i) {
+      KA_VK_LOG(debug, "- {}", args->surface->extensions[i]);
+      extensions.push_back(args->surface->extensions[i]);
     }
   } else {
     KA_VK_LOG(warn, "No Vulkan extensions provided for surface creation");
@@ -281,9 +302,9 @@ VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const
     delqueue.flush();
   };
 
-  auto* ctx = std::allocator<ka_VulkanContext_impl>().allocate(1);
+  auto* ctx = std::allocator<ka_VkContext_impl>().allocate(1);
   DeferFn ctx_err = [&]() {
-    std::allocator<ka_VulkanContext_impl>().deallocate(ctx, 1);
+    std::allocator<ka_VkContext_impl>().deallocate(ctx, 1);
   };
   VkInstance vk = VK_NULL_HANDLE;
   VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
@@ -296,8 +317,9 @@ VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const
 #endif
 
   const fn create_surface = [&](VkInstance vk, VkSurfaceKHR* surf) -> VkExpect<void> {
-    ka_assert(args->create_surface);
-    const auto res = args->create_surface(args->create_surface_user, vk, surf, vkalloc);
+    ka_assert(args->surface->create_surface);
+    const auto res =
+      args->surface->create_surface(args->surface->create_surface_user, vk, surf, vkalloc);
     if (res != VK_SUCCESS || surf == VK_NULL_HANDLE) {
       return {unexpect, res == VK_SUCCESS ? VK_ERROR_INITIALIZATION_FAILED : res};
     }
@@ -307,6 +329,7 @@ VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const
   VkSurfaceKHR surface = VK_NULL_HANDLE;
   KA_VK_UNEX_CODE(create_surface(vk, &surface), "Failed to create surface");
   delqueue.enqueue(surface, vk);
+  const auto swapchain_extent = args->surface->swapchain_extent;
 
   KA_VK_UNEX_CODE_RET(device, VulkanDevice::create(vk, surface), "Failed to create device");
   device->add_to_delqueue(delqueue);
@@ -317,7 +340,7 @@ VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const
   delqueue.enqueue(*vmalloc, device->device());
   const u32 graphics_queue = device->queues().graphics;
 
-  const auto swargs = make_swapchain_args(*device, surface, args->initial_extent);
+  const auto swargs = make_swapchain_args(*device, surface, swapchain_extent);
   KA_VK_UNEX_CODE_RET(swapchain, VulkanSwapchain::create(swargs), "Failed to create swapchain");
   DeferFn swapchain_err = [&]() {
     swapchain->destroy(device->device());
@@ -332,25 +355,20 @@ VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const
                       "Failed to create descriptor pool");
   descpool->add_to_delqueue(delqueue);
 
-  ka_VulkanContext_impl::RenderTarget render_target;
-  KA_VK_UNEX_CODE(
-    init_render_target(render_target, device->device(), *vmalloc, args->initial_extent),
-    "Failed to create render target");
+  ka_VkContext_impl::RenderTarget render_target{};
+  KA_VK_UNEX_CODE(init_render_target(render_target, device->device(), *vmalloc, swapchain),
+                  "Failed to create render target");
   delqueue.enqueue(render_target.image, *vmalloc);
 
-  ka_VulkanContext_impl::ImDrawData imdraw;
+  ka_VkContext_impl::ImDrawData imdraw{};
   KA_VK_UNEX_CODE(init_imdraw_data(imdraw, device->device(), graphics_queue),
                   "Failed to initialize immediate draw data");
   delqueue.enqueue(imdraw.cmdpool, device->device());
   delqueue.enqueue(imdraw.fence, device->device());
 
-  if (args->init_imgui) {
-    vk_init_imgui(vk, *device, *swapchain, delqueue, args->init_imgui, args->init_imgui_user);
-  }
-
-  new (ctx) ka_VulkanContext_impl(vk, messenger, *vmalloc, surface, *std::move(device),
-                                  *std::move(swapchain), *std::move(framedata), std::move(imdraw),
-                                  std::move(render_target), std::move(delqueue));
+  new (ctx) ka_VkContext_impl(vk, messenger, *vmalloc, surface, *std::move(device),
+                              *std::move(swapchain), *std::move(framedata), std::move(imdraw),
+                              std::move(render_target), *std::move(descpool), std::move(delqueue));
 
   swapchain_err.disengage();
   ctx_err.disengage();
@@ -360,17 +378,15 @@ VkResult ka_vk_create_context(ka_VulkanContext* ctx_, ka_VulkanContextArgs const
   return VK_SUCCESS;
 }
 
-void ka_vk_destroy_context(ka_VulkanContext ctx) {
+void ka_vk_destroy_context(ka_VkContext ctx) {
   if (!ctx) {
     return;
   }
-  ctx->swapchain.destroy(ctx->device.device());
-  ctx->delqueue.flush();
   std::destroy_at(ctx);
-  std::allocator<ka_VulkanContext_impl>().deallocate(ctx, 1);
+  std::allocator<ka_VkContext_impl>().deallocate(ctx, 1);
 }
 
-VkResult ka_vk_rebuild_swapchain(ka_VulkanContext vk, VkExtent2D extent) {
+VkResult ka_vk_rebuild_swapchain(ka_VkContext vk, VkExtent2D extent) {
   ka_assert(vk);
   const auto swargs = make_swapchain_args(vk->device, vk->surface, extent);
   return VulkanSwapchain::create(swargs, vk->swapchain.swapchain())
@@ -382,12 +398,13 @@ VkResult ka_vk_rebuild_swapchain(ka_VulkanContext vk, VkExtent2D extent) {
     .code();
 }
 
-void ka_vk_get_target_image_view(ka_VulkanContext vk, VkImageView* view) {
+void ka_vk_get_target_image_view(ka_VkContext vk, VkImageView* view) {
   if (vk && view) {
     (*view) = vk->target.image.view;
   }
 }
 
+#if 0
 namespace {
 
 fn immediate_submit(VkDevice device, VkCommandBuffer cmd, VkQueue graphics_queue,
@@ -411,7 +428,7 @@ fn immediate_submit(VkDevice device, VkCommandBuffer cmd, VkQueue graphics_queue
 
 } // namespace
 
-VkResult ka_vk_immediate_submit(ka_VulkanContext vk, const ka_VulkanImSubmitData* data) {
+VkResult ka_vk_immediate_submit(ka_VkContext vk, const ka_VkImSubmitData* data) {
   ka_assert(vk);
   ka_assert(data);
   ka_assert(data->submit_callback);
@@ -427,13 +444,18 @@ VkResult ka_vk_immediate_submit(ka_VulkanContext vk, const ka_VulkanImSubmitData
 
   return VK_SUCCESS;
 }
+#endif
 
-VkResult ka_vk_new_frame(ka_VulkanContext vk) {
+VkResult ka_vk_new_frame(ka_VkContext vk) {
   ka_assert(vk);
   auto& frame = vk->framedata.next_frame();
+  auto& target = vk->target;
   const auto cmd = frame.cmdbuf;
   const auto device = vk->device.device();
   const auto swapchain = vk->swapchain.swapchain();
+
+  // Clean temporary objects
+  frame.delqueue.flush();
 
   // Wait for the previous rendering commands to finish
   KA_VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
@@ -449,10 +471,14 @@ VkResult ka_vk_new_frame(ka_VulkanContext vk) {
   KA_VK_ASSERT(vkResetCommandBuffer(cmd, 0));
   const auto cmd_begin_info = vkmk_cmdbuf_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
   KA_VK_ASSERT(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+
+  // We will overwrite everything in the target image, potentially
+  target.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
   return ret;
 }
 
-VkResult ka_vk_end_frame(ka_VulkanContext vk) {
+VkResult ka_vk_end_frame(ka_VkContext vk) {
   ka_assert(vk);
   const auto& frame = vk->framedata.curr_frame();
   const auto cmd = frame.cmdbuf;
@@ -515,9 +541,133 @@ VkResult ka_vk_end_frame(ka_VulkanContext vk) {
   return ret;
 }
 
-VkResult ka_vk_record_cmd(ka_VulkanContext vk, ka_VulkanCommandData const* data) {}
+VkResult ka_vk_record_gfx_cmd(ka_VkContext vk, ka_VkTarget target_, ka_VkGfxCmdData const* data) {
+  VkResult ret = VK_SUCCESS;
+  if (!vk || !data || !data->cmds || !data->cmd_count) {
+    ret = VK_ERROR_INITIALIZATION_FAILED;
+    return ret;
+  }
 
-VkResult ka_vk_record_compute(ka_VulkanContext vk, ka_VulkanComputeData const* data) {}
+  auto& frame = vk->framedata.curr_frame();
+  auto& target = vk->target;
+  const auto draw_extent = target.extent;
+  const auto draw_view = target.image.view;
+  const auto draw_image = target.image.image;
+  const auto cmd = frame.cmdbuf;
+
+  // Prepare the target image, if not already prepared
+  static constexpr auto draw_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  if (target.layout != draw_layout) {
+    target.layout = vkcmd_transition_image(cmd, draw_image, target.layout, draw_layout);
+  }
+
+  // Clear the target image if requested
+  if (data->clear_color) {
+    const auto clear_range = vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(cmd, draw_image, VK_IMAGE_LAYOUT_GENERAL, data->clear_color, 1,
+                         &clear_range);
+  }
+
+  // Prepare viewport
+  VkViewport viewport;
+  if (data->viewport) {
+    viewport = *data->viewport;
+  } else {
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = draw_extent.width;
+    viewport.height = draw_extent.height;
+  }
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  // Prepare scissor
+  VkRect2D scissor;
+  if (data->scissor) {
+    scissor = *data->scissor;
+  } else {
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent = draw_extent;
+  }
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  // Start rendering
+  const auto color_attachment = vkmk_attach_info(draw_view, nullptr, draw_layout);
+  const auto render_info = vkmk_render_info(draw_extent, &color_attachment, nullptr);
+  vkCmdBeginRendering(cmd, &render_info);
+
+  for (usize i = 0; i < data->cmd_count; ++i) {
+    const auto& cmd_data = data->cmds[i];
+
+    // Bind pipeline
+    ka_assert(cmd_data.pipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, cmd_data.pipeline);
+
+#if 0
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cmd_data.layout, 0, 1,
+                            &ctx.draw->image_desc, 0, nullptr);
+#endif
+
+    // Upload push constants
+    for (usize j = 0; j < cmd_data.push_constant_count; ++j) {
+      const auto& push_data = cmd_data.push_constants[j];
+      if (!push_data.data || !push_data.size) {
+        continue;
+      }
+      vkCmdPushConstants(cmd, cmd_data.layout, push_data.stage, push_data.offset, push_data.size,
+                         push_data.data);
+    }
+
+    // Draw
+    const u32 instance_count = cmd_data.instance_count;
+    const u32 first_instance = cmd_data.first_instance;
+    if (cmd_data.type == KA_VK_GFX_CMD_INDEXED) {
+      // Bind index buffer
+      const auto& index_binding = cmd_data.index_binding;
+      ka_assert(index_binding.buffer);
+      vkCmdBindIndexBuffer(cmd, index_binding.buffer->buffer, index_binding.offset,
+                           index_binding.index_type);
+
+      const u32 index_count = cmd_data.draw_count;
+      const u32 first_index = cmd_data.first_item;
+      const s32 vertex_offset = cmd_data.vertex_offset;
+      vkCmdDrawIndexed(cmd, index_count, instance_count, first_index, vertex_offset,
+                       first_instance);
+    } else {
+      const u32 vertex_count = cmd_data.draw_count;
+      const u32 first_vertex = cmd_data.first_item;
+      vkCmdDraw(cmd, vertex_count, instance_count, first_vertex, first_instance);
+    }
+  }
+
+  // End
+  vkCmdEndRendering(cmd);
+
+  return ret;
+}
+
+VkResult ka_vk_record_cmp_cmd(ka_VkContext vk, ka_VkCmpCmdData const* data) {}
+
+#ifdef KA_VK_ENABLE_IMGUI
+VkResult ka_vk_create_imgui_info(ka_VkContext vk, ka_VkImGuiInfo* info,
+                                 const VkDescriptorPoolCreateInfo* descpool_info) {
+  ka_assert(vk);
+  ka_assert(info);
+  ka_assert(descpool_info);
+  VkResult ret =
+    vkCreateDescriptorPool(vk->device.device(), descpool_info, vkalloc, &info->descpool);
+  if (ret) {
+    return ret;
+  }
+  vk->delqueue.enqueue(info->descpool, vk->device.device());
+  info->vk = vk->vk;
+  info->device = vk->device.device();
+  info->queue = vk->device.graphics_queue();
+  info->swapchain_format = vk->swapchain.format();
+  info->physical_device = vk->device.physical_device();
+  return ret;
+}
+#endif
 
 #if 0
     // temp: test rendering things
@@ -843,7 +993,7 @@ fn VulkanContext::draw(ImGuiDrawFn imgui_fn, const ran::Mat4f32& mesh_transform)
   KA_VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
   KA_VK_ASSERT(vkResetFences(device, 1, &frame.render_fen));
 
-  // Acquire swapchain image. Will signal the swapchain semaphore when we acquire an image.
+  // acquire swapchain image. Will signal the swapchain semaphore when we acquire an image.
   const auto [swapchain, swapchain_image, swapchain_view, swapchain_extent, swapchain_idx] =
     acquire_swapchain_image(device, frame.swapchain_sem, *_impl->swapchain, &res);
 

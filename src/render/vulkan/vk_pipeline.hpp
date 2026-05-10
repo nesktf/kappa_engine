@@ -5,51 +5,7 @@
 #include "../../util/array.hpp"
 #include "../../util/ptr.hpp"
 
-struct ka_VulkanPipelineBuilder_impl {
-  kappa::Vec<VkPipelineShaderStageCreateInfo> shader_stages;
-  VkPipelineInputAssemblyStateCreateInfo input_assembly;
-  VkPipelineRasterizationStateCreateInfo rasterizer;
-  VkPipelineColorBlendAttachmentState blend_attachment;
-  VkPipelineMultisampleStateCreateInfo multisampling;
-  VkPipelineLayout layout;
-  VkPipelineDepthStencilStateCreateInfo depth_stencil;
-  VkPipelineRenderingCreateInfo rendering_info;
-  VkFormat color_format;
-};
-
-struct ka_VulkanPipeline {
-  VkPipeline pipeline;
-  VkPipelineLayout layout;
-  ka_VulkanContext vk;
-};
-
-KA_CHECK_OPAQUE(ka_VulkanPipeline);
-
-struct ka_VulkanShaderModule {
-  VkShaderModule shader;
-  VkShaderStageFlagBits stage;
-  ka_VulkanContext vk;
-};
-
-KA_CHECK_OPAQUE(ka_VulkanShaderModule);
-
 namespace kappa::render {
-
-class VulkanDescriptorLayoutBuilder {
-public:
-  VulkanDescriptorLayoutBuilder() = default;
-
-public:
-  fn add_binding(u32 binding, VkDescriptorType type) -> void;
-
-  fn clear() -> void;
-
-  fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
-           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
-
-private:
-  Vec<VkDescriptorSetLayoutBinding> _bindings;
-};
 
 struct VulkanDescPoolRatio {
   VkDescriptorType type;
@@ -74,7 +30,7 @@ public:
 public:
   fn add_to_delqueue(VulkanDelQueue& queue) -> void;
 
-  fn alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
+  fn alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count) -> VkExpect<void>;
 
   fn clear() -> void;
 
@@ -85,9 +41,50 @@ private:
   VkDescriptorPool _pool;
 };
 
-fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule>;
+#if 0
+class VulkanDescriptorLayoutBuilder {
+public:
+  VulkanDescriptorLayoutBuilder() = default;
 
-fn vk_create_compute_pipeline(VkDevice device, VkPipelineLayout layout, Span<const u8> src)
-  -> VkExpect<VkPipeline>;
+public:
+  fn add_binding(u32 binding, VkDescriptorType type) -> void;
+
+  fn clear() -> void;
+
+  fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
+           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
+
+private:
+  Vec<VkDescriptorSetLayoutBinding> _bindings;
+};
+
+fn VulkanDescriptorLayoutBuilder::add_binding(u32 binding, VkDescriptorType type) -> void {
+  VkDescriptorSetLayoutBinding bind{};
+  bind.binding = binding;
+  bind.descriptorCount = 1;
+  bind.descriptorType = type;
+  _bindings.push_back(bind);
+}
+
+fn VulkanDescriptorLayoutBuilder::clear() -> void {
+  _bindings.clear();
+}
+
+fn VulkanDescriptorLayoutBuilder::build(VkDevice device, VkShaderStageFlags stages, void* next,
+                                        VkDescriptorSetLayoutCreateFlags flags)
+  -> VkDescriptorSetLayout {
+  for (auto& binding : _bindings) {
+    binding.stageFlags |= stages;
+  }
+  auto info = vkmk_zero<VkDescriptorSetLayoutCreateInfo>(next);
+  info.pBindings = _bindings.data();
+  info.bindingCount = (u32)_bindings.size();
+  info.flags = flags;
+
+  VkDescriptorSetLayout set;
+  KA_VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, nullptr, &set));
+  return set;
+}
+#endif
 
 } // namespace kappa::render

@@ -56,6 +56,7 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     return #_type
   switch (type) {
     STR(DELETER);
+    STR(BUFFER);
     STR(IMAGE);
     STR(IMAGE_VIEW);
     STR(SURFACE);
@@ -70,6 +71,7 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     STR(DESCLAYOUT);
     STR(PIPLAYOUT);
     STR(PIPELINE);
+    STR(SHADER);
     default:
       return "UNKNOWN";
   }
@@ -127,6 +129,9 @@ fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHa
     } break;
     case TYPE_PIPELINE: {
       vkDestroyPipeline((VkDevice)parent, (VkPipeline)handle, vkalloc);
+    } break;
+    case TYPE_SHADER: {
+      vkDestroyShaderModule((VkDevice)parent, (VkShaderModule)handle, vkalloc);
     } break;
     case TYPE_DELETER:
       break;
