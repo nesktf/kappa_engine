@@ -1,10 +1,13 @@
 #include "./render/glfw.hpp"
 
 #include "./util/logger.hpp"
+#include "render/vulkan/vk.hpp"
+#include "util/filesystem.hpp"
 
 #include <imgui.h>
 
 #include <ranmath/ran.hpp>
+#include <vulkan/vulkan_core.h>
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -28,10 +31,9 @@ struct Vertex {
   ran::Vec4f32 color;
 };
 
-struct ComputeEffect {
-  const char* name;
-  render::VulkanCompute compute;
-  ComputeConstants data;
+struct GFXConstants {
+  ran::Mat4f32 world_mat;
+  VkDeviceAddress vertex_buffer;
 };
 
 constexpr u32 WINDOW_WIDTH = 1280;
@@ -76,32 +78,316 @@ fn run_engine() -> void {
   };
   auto vk = glfw.bind_vulkan(KA_APP_NAME, KA_APP_VERSION);
 
-  const fn imgui_draw = [&]() {
+  // Compute effects
+  static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
+  ComputeConstants compute_data[2]{};
+  compute_data[0].data1 = ran::Vec4f32(1.f, 0.f, 0.f, 1.f);
+  compute_data[0].data2 = ran::Vec4f32(0.f, 0.f, 1.f, 1.f);
+  compute_data[1].data1 = ran::Vec4f32(.1f, .2f, .4f, .97f);
+
+  // Compute pipelines
+  VkDescriptorSetLayout image_desc_layout = VK_NULL_HANDLE;
+  VkDescriptorSet image_desc = VK_NULL_HANDLE;
+  VkPipelineLayout compute_layout = VK_NULL_HANDLE;
+  VkPipeline compute_pipelines[2] = {0};
+  const DeferFn compute_defer = [&]() {
+    render::vk_destroy_desc_layout(vk, image_desc_layout);
+    render::vk_destroy_pipeline_layout(vk, compute_layout);
+    render::vk_destroy_pipeline(vk, compute_pipelines[0]);
+    render::vk_destroy_pipeline(vk, compute_pipelines[1]);
+  };
+  {
+    VkShaderModule shader_gradient = VK_NULL_HANDLE, shader_sky = VK_NULL_HANDLE;
+    const DeferFn shader_defer = [&]() {
+      render::vk_destroy_shader(vk, shader_gradient);
+      render::vk_destroy_shader(vk, shader_sky);
+    };
+
+    const auto src_gradient = load_entire_file(KA_RES_DIR "/shaders/gradient_color.comp.spv");
+    shader_gradient = render::vk_create_shader(vk, VK_SHADER_STAGE_COMPUTE_BIT,
+                                               {src_gradient.data(), src_gradient.size()})
+                        .value();
+
+    const auto src_sky = load_entire_file(KA_RES_DIR "/shaders/sky.comp.spv");
+    shader_sky =
+      render::vk_create_shader(vk, VK_SHADER_STAGE_COMPUTE_BIT, {src_sky.data(), src_sky.size()})
+        .value();
+
+    render::VkDescLayoutBuilder desc_layout_builder;
+    image_desc_layout = desc_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                          .build(vk, VK_SHADER_STAGE_COMPUTE_BIT)
+                          .value();
+
+    image_desc = vk.alloc_desc(image_desc_layout).value();
+    VkDescriptorImageInfo img_info{};
+    img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    img_info.imageView = vk.draw_image_view();
+    VkWriteDescriptorSet draw_image_write{};
+    draw_image_write.dstBinding = 0;
+    draw_image_write.dstSet = image_desc;
+    draw_image_write.descriptorCount = 1;
+    draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    draw_image_write.pImageInfo = &img_info;
+    vk.update_sets({&draw_image_write, 1}, {});
+
+    render::VkPipelineLayoutBuilder layout_builder;
+    compute_layout = layout_builder.add_layout(image_desc_layout)
+                       .add_push_range(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(ComputeConstants), 0)
+                       .build(vk)
+                       .value();
+
+    compute_pipelines[0] =
+      render::vk_create_compute_pipeline(vk, compute_layout, shader_gradient).value();
+
+    compute_pipelines[1] =
+      render::vk_create_compute_pipeline(vk, compute_layout, shader_sky).value();
+  }
+
+  // Triangle pipeline
+  VkPipelineLayout triangle_layout = VK_NULL_HANDLE;
+  VkPipeline triangle_pipeline = VK_NULL_HANDLE;
+  const DeferFn triangle_defer = [&]() {
+    render::vk_destroy_pipeline_layout(vk, triangle_layout);
+    render::vk_destroy_pipeline(vk, triangle_pipeline);
+  };
+  {
+    VkShaderModule triangle_frag = VK_NULL_HANDLE, triangle_vert = VK_NULL_HANDLE;
+    const DeferFn shader_defer = [&]() {
+      render::vk_destroy_shader(vk, triangle_frag);
+      render::vk_destroy_shader(vk, triangle_vert);
+    };
+
+    const auto vert_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.vert.spv");
+    triangle_vert =
+      render::vk_create_shader(vk, VK_SHADER_STAGE_VERTEX_BIT, {vert_src.data(), vert_src.size()})
+        .value();
+
+    const auto frag_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.frag.spv");
+    triangle_frag = render::vk_create_shader(vk, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                             {frag_src.data(), frag_src.size()})
+                      .value();
+
+    render::VkPipelineLayoutBuilder layout_builder;
+    triangle_layout = layout_builder.build(vk).value();
+
+    render::VkGfxPipelineBuilder pipeline_builder;
+    triangle_pipeline = pipeline_builder.set_layout(triangle_layout)
+                          .add_module(VK_SHADER_STAGE_VERTEX_BIT, triangle_vert)
+                          .add_module(VK_SHADER_STAGE_FRAGMENT_BIT, triangle_frag)
+                          .set_poly_mode(VK_POLYGON_MODE_FILL)
+                          .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+                          .set_color_format(vk.draw_image_format())
+                          .set_depth_format(VK_FORMAT_UNDEFINED)
+                          .disable_multisampling()
+                          .disable_depth_test()
+                          .disable_blending()
+                          .build(vk)
+                          .value();
+  }
+
+  // Mesh vertex buffer
+  static constexpr auto vb_size = sizeof(rect_verts);
+  const render::VkBufferArgs vb_args{
+    .size = vb_size,
+    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    // GPU only
+    .mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+  };
+  auto vb = render::VkAllocBuff::create(vk, vb_args).value();
+  const DeferFn vb_defer = [&]() {
+    vb.destroy(vk);
+  };
+
+  // Mesh index buffer
+  static constexpr auto ib_size = sizeof(rect_indices);
+  const render::VkBufferArgs ib_args{
+    .size = vb_size,
+    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    // GPU only
+    .mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+  };
+  auto ib = render::VkAllocBuff::create(vk, ib_args).value();
+  const DeferFn ib_defer = [&]() {
+    ib.destroy(vk);
+  };
+
+  // Copy using staging buffer
+  {
+    const render::VkBufferArgs staging_args{
+      .size = vb_size + ib_size,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      // CPU only
+      .mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+    };
+    auto staging = render::VkAllocBuff::create(vk, staging_args).value();
+    const DeferFn staging_defer = [&]() {
+      staging.destroy(vk);
+    };
+    void* data = staging.mapped_data();
+    std::memcpy(data, rect_verts.data(), vb_size);
+    std::memcpy(((u8*)data) + vb_size, rect_indices.data(), ib_size);
+    vk.record_immediate([&](VkCommandBuffer cmd) {
+      VkBufferCopy vertex_copy{};
+      vertex_copy.dstOffset = 0;
+      vertex_copy.srcOffset = 0;
+      vertex_copy.size = vb_size;
+      vkCmdCopyBuffer(cmd, staging.buffer(), vb.buffer(), 1, &vertex_copy);
+
+      VkBufferCopy index_copy;
+      index_copy.dstOffset = 0;
+      index_copy.srcOffset = vb_size;
+      index_copy.size = ib_size;
+      vkCmdCopyBuffer(cmd, staging.buffer(), ib.buffer(), 1, &index_copy);
+    });
+  }
+
+  // Mesh pipeline
+  VkPipelineLayout mesh_layout = VK_NULL_HANDLE;
+  VkPipeline mesh_pipeline = VK_NULL_HANDLE;
+  const DeferFn mesh_defer = [&]() {
+    render::vk_destroy_pipeline_layout(vk, mesh_layout);
+    render::vk_destroy_pipeline(vk, mesh_pipeline);
+  };
+  {
+    VkShaderModule mesh_vert = VK_NULL_HANDLE, mesh_frag = VK_NULL_HANDLE;
+    const DeferFn shader_defer = [&]() {
+      render::vk_destroy_shader(vk, mesh_vert);
+      render::vk_destroy_shader(vk, mesh_frag);
+    };
+
+    const auto vert_src = load_entire_file(KA_RES_DIR "/shaders/colored_mesh.vert.spv");
+    mesh_vert =
+      render::vk_create_shader(vk, VK_SHADER_STAGE_VERTEX_BIT, {vert_src.data(), vert_src.size()})
+        .value();
+
+    const auto frag_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.frag.spv");
+    mesh_frag = render::vk_create_shader(vk, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                         {frag_src.data(), frag_src.size()})
+                  .value();
+
+    render::VkPipelineLayoutBuilder layout_builder;
+    mesh_layout =
+      layout_builder.add_push_range(VK_SHADER_STAGE_VERTEX_BIT, sizeof(GFXConstants), 0)
+        .build(vk)
+        .value();
+
+    render::VkGfxPipelineBuilder pipeline_builder;
+    mesh_pipeline = pipeline_builder.set_layout(mesh_layout)
+                      .add_module(VK_SHADER_STAGE_VERTEX_BIT, mesh_vert)
+                      .add_module(VK_SHADER_STAGE_FRAGMENT_BIT, mesh_frag)
+                      .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                      .set_poly_mode(VK_POLYGON_MODE_FILL)
+                      .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
+                      .set_color_format(vk.draw_image_format())
+                      .set_depth_format(VK_FORMAT_UNDEFINED)
+                      .disable_multisampling()
+                      .disable_blending()
+                      .disable_blending()
+                      .build(vk)
+                      .value();
+  }
+
+  // Draw ImGui
+  s32 compute_idx = 0;
+  const fn imgui_draw = [&](VkCommandBuffer) {
     glfw.start_imgui_frame();
     ImGui::NewFrame();
 
     ImGui::ShowDemoWindow();
 
     if (ImGui::Begin("background")) {
-      auto& effect = vk.get_effect();
-      ImGui::Text("Selected effect: %s", effect.name);
-      ImGui::SliderInt("Effect Index", &vk.get_effect_idx(), 0, 1);
-      ImGui::InputFloat4("data1", effect.data.data1.data());
-      ImGui::InputFloat4("data2", effect.data.data2.data());
-      ImGui::InputFloat4("data3", effect.data.data3.data());
-      ImGui::InputFloat4("data4", effect.data.data4.data());
+      ImGui::Text("Selected effect: %s", compute_names[compute_idx]);
+      ImGui::SliderInt("Effect Index", &compute_idx, 0, 1);
+      ImGui::InputFloat4("data1", compute_data[compute_idx].data1.data());
+      ImGui::InputFloat4("data2", compute_data[compute_idx].data2.data());
+      ImGui::InputFloat4("data3", compute_data[compute_idx].data3.data());
+      ImGui::InputFloat4("data4", compute_data[compute_idx].data4.data());
     }
     ImGui::End();
 
     ImGui::Render();
   };
 
+  VkExtent2D draw_extent{.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT};
+  const fn draw_compute = [&](VkCommandBuffer cmd) -> void {
+    auto& data = compute_data[compute_idx];
+    const auto pipeline = compute_pipelines[compute_idx];
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout, 0, 1, &image_desc,
+                            0, nullptr);
+    vkCmdPushConstants(cmd, compute_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(data), &data);
+    vkCmdDispatch(cmd, std::ceil(draw_extent.width / 16.f), std::ceil(draw_extent.height / 16.f),
+                  1);
+  };
+
+  u32 curr_frame = 0;
+  const fn clear_background = [&](VkCommandBuffer cmd) -> void {
+    // make a clear-color from frame number. This will flash with a 120 frame period.
+    f32 flash = std::abs(std::sin((f32)curr_frame / 120.f));
+    VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
+    const auto clear_range = render::vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+    // clear image
+    vkCmdClearColorImage(cmd, vk.draw_image(), VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
+                         &clear_range);
+  };
+  KA_UNUSED(clear_background);
+
+  // Draw geometry
   auto transform = ran::Mat4f32::identity();
+  const fn draw_geometry = [&](VkCommandBuffer cmd) -> void {
+    const auto color_attachment = render::vkmk_attach_info(
+      vk.draw_image_view(), nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const auto render_info = render::vkmk_render_info(draw_extent, &color_attachment, nullptr);
+
+    // Dynamic state
+    VkViewport viewport{};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = draw_extent.width;
+    viewport.height = draw_extent.height;
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent = draw_extent;
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBeginRendering(cmd, &render_info);
+    {
+      // Draw triangle
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triangle_pipeline);
+
+      vkCmdDraw(cmd, 3, 1, 0, 0);
+
+      // Draw mesh
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
+      GFXConstants push_constants;
+      push_constants.world_mat = transform;
+      push_constants.vertex_buffer = vb.addr();
+      vkCmdPushConstants(cmd, mesh_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants),
+                         &push_constants);
+      vkCmdBindIndexBuffer(cmd, ib.buffer(), 0, VK_INDEX_TYPE_UINT32);
+      vkCmdDrawIndexed(cmd, (u32)rect_indices.size(), 1, 0, 0, 0);
+    }
+    vkCmdEndRendering(cmd);
+  };
+
   const fn on_render = [&](f64 dt, f64 alpha) {
     KA_UNUSED(dt);
     KA_UNUSED(alpha);
 
-    vk.draw(imgui_draw, transform);
+    draw_extent = vk.draw_extent();
+    vk.new_frame().value();
+    vk.record_cmd(draw_compute).value();
+    vk.record_cmd(draw_geometry).value();
+    vk.record_cmd(imgui_draw).value();
+    vk.end_frame().value();
+    ++curr_frame;
   };
 
   const fn on_fixed_update = [&](u32 ups) {

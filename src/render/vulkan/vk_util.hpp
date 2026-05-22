@@ -224,20 +224,12 @@ fn vkmk_image_info(VkFormat format, VkImageUsageFlags usage, VkExtent3D extent)
 fn vkmk_imageview_info(VkFormat format, VkImage image, VkImageAspectFlags aspect_mask)
   -> VkImageViewCreateInfo;
 
-fn vkmk_image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRange;
-
 fn vkmk_cmdbuf_begin_info(VkCommandBufferUsageFlags flags) -> VkCommandBufferBeginInfo;
 
 fn vkmk_cmdpool_info(VkCommandPoolCreateFlags flags, u32 family_index) -> VkCommandPoolCreateInfo;
 
 fn vkmk_cmdbuf_alloc_info(VkCommandPool cmdpool, VkCommandBufferLevel level)
   -> VkCommandBufferAllocateInfo;
-
-fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
-                    const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo;
-
-fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
-  -> VkRenderingAttachmentInfo;
 
 fn vkmk_pipeline_stage_info(VkShaderStageFlagBits usage, VkShaderModule shader,
                             const char* entrypoint = nullptr) -> VkPipelineShaderStageCreateInfo;

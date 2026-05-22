@@ -88,7 +88,8 @@ public:
   VkPipelineLayoutBuilder();
 
 public:
-  fn build(VkContext_Impl& vk, VkPipelineLayoutCreateFlags flags) -> VkExpect<VkPipelineLayout>;
+  fn build(VkContext_Impl& vk, VkPipelineLayoutCreateFlags flags = 0)
+    -> VkExpect<VkPipelineLayout>;
   fn clear() -> void;
 
 public:
@@ -156,7 +157,7 @@ public:
 public:
   VkAllocBuff(create_t, VkAllocBuff_Impl&& data);
 
-  static fn create(VkContext_Impl& ctx, const VkBufferArgs& args);
+  static fn create(VkContext_Impl& ctx, const VkBufferArgs& args) -> VkExpect<VkAllocBuff>;
   fn destroy(VkContext_Impl& ctx) -> void;
 
 public:
@@ -209,46 +210,6 @@ private:
   opaque_type _data;
 };
 
-struct VkPushConstant {
-  const void* data;
-  u32 size;
-  u32 offset;
-  VkShaderStageFlags stage;
-};
-
-struct VkIndexBinding {
-  Ref<const VkAllocBuff> buffer;
-  VkDeviceSize offset;
-  VkIndexType index_type;
-};
-
-struct VkGfxCmd {
-  VkPipeline pipeline;
-  VkPipelineLayout layout;
-  Span<const VkPushConstant> push_constants;
-  Optional<VkIndexBinding> index_binding;
-  u32 instance_count;
-  u32 first_instance;
-  u32 draw_count;
-  u32 first_item;
-  s32 vertex_offset;
-};
-
-struct VkGfxData {
-  Optional<VkViewport> viewport;
-  Optional<VkRect2D> scissor;
-  Optional<VkClearColorValue> clear_color;
-  Span<const VkGfxCmd> cmds;
-};
-
-struct VkComputeData {
-  VkPipeline pipeline;
-  VkPipelineLayout layout;
-  VkPushConstant push_constant;
-  Span<const VkAllocImage> work_images;
-  u32 group_count_x, group_count_y, group_count_z;
-};
-
 struct VkSurfaceArgs {
 public:
   using UpdateSurfExtFn = TrivFn<void(VkExtent2D*), 2 * sizeof(void*), 8>;
@@ -272,7 +233,7 @@ class VkContext {
 private:
   struct create_t {};
 
-  using UserGfxFn = FnRef<void(VkCommandBuffer)>;
+  using UserCmdFn = FnRef<void(VkCommandBuffer)>;
 
 public:
   struct Deleter {
@@ -292,17 +253,30 @@ public:
   fn new_frame() -> VkExpect<void>;
   fn end_frame() -> VkExpect<void>;
 
-  fn record_gfx(const VkGfxData& data) -> VkExpect<void>;
-  fn record_compute(const VkComputeData& data) -> VkExpect<void>;
+  fn draw_image_format() -> VkFormat;
+  fn draw_image_view() -> VkImageView;
+  fn draw_image() -> VkImage;
+  fn draw_extent() -> VkExtent2D;
+
+  fn alloc_desc(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
+  fn update_sets(Span<const VkWriteDescriptorSet> writes, Span<const VkCopyDescriptorSet> copies)
+    -> void;
 
   template<typename Fn>
   requires(std::invocable<std::remove_cvref_t<Fn>, VkCommandBuffer>)
-  fn record_gfx_immediate(Fn&& func) -> VkExpect<void> {
-    return _record_gfx_immediate(UserGfxFn{func});
+  fn record_cmd(Fn&& func) -> VkExpect<void> {
+    return _record_cmd(UserCmdFn{func});
+  }
+
+  template<typename Fn>
+  requires(std::invocable<std::remove_cvref_t<Fn>, VkCommandBuffer>)
+  fn record_immediate(Fn&& func) -> VkExpect<void> {
+    return _record_immediate(UserCmdFn{func});
   }
 
 private:
-  fn _record_gfx_immediate(UserGfxFn func) -> VkExpect<void>;
+  fn _record_immediate(UserCmdFn func) -> VkExpect<void>;
+  fn _record_cmd(UserCmdFn func) -> VkExpect<void>;
 
 public:
   operator VkContext_Impl&() { return *_ctx.get(); }
@@ -310,6 +284,14 @@ public:
 private:
   std::unique_ptr<VkContext_Impl, Deleter> _ctx;
 };
+
+fn vkmk_image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRange;
+
+fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
+  -> VkRenderingAttachmentInfo;
+
+fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
+                    const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo;
 
 #ifdef KA_VK_ENABLE_IMGUI
 struct VkImGuiInfo {
@@ -321,8 +303,8 @@ struct VkImGuiInfo {
   VkDescriptorPool descpool;
 };
 
-fn vk_create_imgui_info(VkContext_Impl& vk, VkImGuiInfo& info,
-                        const VkDescriptorPoolCreateInfo& pool_info) -> VkResult;
+fn vkmk_imgui_info(VkContext_Impl& vk, VkImGuiInfo& info,
+                   const VkDescriptorPoolCreateInfo& pool_info) -> VkResult;
 
 template<typename F>
 fn vk_init_imgui(VkContext_Impl& vk, F&& imgui_initer) -> VkExpect<void> {
@@ -346,7 +328,7 @@ fn vk_init_imgui(VkContext_Impl& vk, F&& imgui_initer) -> VkExpect<void> {
   pool_info.poolSizeCount = (u32)pool_sizes.size();
   pool_info.pPoolSizes = pool_sizes.data();
   VkImGuiInfo imgui_info;
-  if (auto ret = vk_create_imgui_info(vk, imgui_info, pool_info); ret != VK_SUCCESS) {
+  if (auto ret = vkmk_imgui_info(vk, imgui_info, pool_info); ret != VK_SUCCESS) {
     return {unexpect, ret};
   }
 
