@@ -136,8 +136,8 @@ public:
                     VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
 
-  fn enqueue(const ka_VkImage& image, VmaAllocator alloc) -> void;
-  fn enqueue(const ka_VkBuffer& buffer, VmaAllocator alloc) -> void;
+  fn enqueue(const VkAllocImage_Impl& image, VmaAllocator alloc) -> void;
+  fn enqueue(const VkAllocBuff_Impl& buffer, VmaAllocator alloc) -> void;
 
   fn enqueue(VkImageView image_view, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)image_view, (VulkanHandle)device, TYPE_IMAGE_VIEW);

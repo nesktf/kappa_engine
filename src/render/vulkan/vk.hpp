@@ -1,192 +1,331 @@
 #pragma once
 
-#include "./vk.h"
-
-#include "./vk_error.hpp"
-
+#include "../../util/array.hpp"
+#include "../../util/buffer.hpp"
+#include "../../util/expected.hpp"
 #include "../../util/function.hpp"
 #include "../../util/ptr.hpp"
 
-#include <type_traits>
+#include <vulkan/vulkan_core.h>
 
 #ifdef KA_VK_ENABLE_IMGUI
 #include <imgui_impl_vulkan.h>
 #endif
 
+#include <type_traits>
+
 namespace kappa::render {
 
-struct VulkanContextArgs {
+fn vk_error_string(VkResult res) noexcept -> const char*;
+
+class VkError : public std::exception {
 public:
-  using ImGuiInitFn = FnRef<void()>;
-  using SurfaceCreateFn =
-    FnRef<VkResult(VkInstance vk, VkSurfaceKHR* surface, const VkAllocationCallbacks* vkalloc)>;
+  VkError() noexcept : _err(VK_SUCCESS) {}
+
+  VkError(VkResult err) noexcept : _err(err) {}
 
 public:
-  VkExtent2D initial_extent;
-  Span<const char*> surface_extensions;
-  SurfaceCreateFn create_surface_fn;
-  Optional<ImGuiInitFn> init_imgui_fn;
+  fn what() const noexcept -> const char* override { return vk_error_string(_err); }
+
+  fn code() const noexcept -> VkResult { return _err; }
+
+private:
+  VkResult _err;
+};
+
+class VkMsgError : public std::exception {
+public:
+  VkMsgError(const char* msg, VkResult err) noexcept : _msg(msg), _err(err) {}
+
+public:
+  fn what() const noexcept -> const char* override { return _msg; }
+
+  fn code() const noexcept -> VkResult { return _err; }
+
+private:
+  const char* _msg;
+  VkResult _err;
+};
+
+template<typename T>
+using VkExpect = Expected<T, VkError>;
+
+template<typename T>
+using VkMsgExpect = Expected<T, VkMsgError>;
+
+class VkContext_Impl;
+
+enum class VkLifetime {
+  manual = 0,
+  defer_ctx,
+  defer_frame,
+};
+
+fn vk_create_shader(VkContext_Impl& vk, VkShaderStageFlags stage, Span<const u8> src)
+  -> VkExpect<VkShaderModule>;
+fn vk_destroy_shader(VkContext_Impl& vk, VkShaderModule shader) -> void;
+
+class VkDescLayoutBuilder {
+public:
+  VkDescLayoutBuilder();
+
+public:
+  fn build(VkContext_Impl& vk, VkShaderStageFlags stages, void* pNext = nullptr,
+           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkExpect<VkDescriptorSetLayout>;
+  fn clear() -> void;
+
+public:
+  fn add_binding(u32 binding, VkDescriptorType type) -> VkDescLayoutBuilder&;
+
+private:
+  Vec<VkDescriptorSetLayoutBinding> _bindings;
+};
+
+fn vk_destroy_desc_layout(VkContext_Impl& vk, VkDescriptorSetLayout layout) -> void;
+
+class VkPipelineLayoutBuilder {
+public:
+  VkPipelineLayoutBuilder();
+
+public:
+  fn build(VkContext_Impl& vk, VkPipelineLayoutCreateFlags flags) -> VkExpect<VkPipelineLayout>;
+  fn clear() -> void;
+
+public:
+  fn add_push_range(VkShaderStageFlags flags, u32 size, u32 offset) -> VkPipelineLayoutBuilder&;
+  fn add_layout(VkDescriptorSetLayout layout) -> VkPipelineLayoutBuilder&;
+
+private:
+  Vec<VkDescriptorSetLayout> _set_layouts;
+  Vec<VkPushConstantRange> _con_range;
+};
+
+fn vk_destroy_pipeline_layout(VkContext_Impl& vk, VkPipelineLayout layout) -> void;
+
+class VkGfxPipelineBuilder {
+public:
+  VkGfxPipelineBuilder();
+
+public:
+  fn build(VkContext_Impl& ctx) -> VkExpect<VkPipeline>;
+  fn clear() -> void;
+
+public:
+  fn set_layout(VkPipelineLayout layout) -> VkGfxPipelineBuilder&;
+  fn add_module(VkShaderStageFlags stage, VkShaderModule shader) -> VkGfxPipelineBuilder&;
+  fn set_topology(VkPrimitiveTopology topology) -> VkGfxPipelineBuilder&;
+  fn set_poly_mode(VkPolygonMode mode, f32 width = 1.f) -> VkGfxPipelineBuilder&;
+  fn set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) -> VkGfxPipelineBuilder&;
+  fn set_color_format(VkFormat format) -> VkGfxPipelineBuilder&;
+  fn set_depth_format(VkFormat format) -> VkGfxPipelineBuilder&;
+  fn disable_multisampling() -> VkGfxPipelineBuilder&;
+  fn disable_blending() -> VkGfxPipelineBuilder&;
+  fn disable_depth_test() -> VkGfxPipelineBuilder&;
+
+private:
+  std::array<VkPipelineShaderStageCreateInfo, 5> _shader_stages;
+  VkPipelineInputAssemblyStateCreateInfo _input_assembly;
+  VkPipelineRasterizationStateCreateInfo _rasterizer;
+  VkPipelineColorBlendAttachmentState _blend_attachment;
+  VkPipelineMultisampleStateCreateInfo _multisampling;
+  VkPipelineLayout _layout;
+  VkPipelineDepthStencilStateCreateInfo _depth_stencil;
+  VkPipelineRenderingCreateInfo _rendering_info;
+  VkFormat _color_format;
+};
+
+fn vk_create_compute_pipeline(VkContext_Impl& vk, VkPipelineLayout layout, VkShaderModule shader)
+  -> VkExpect<VkPipeline>;
+fn vk_destroy_pipeline(VkContext_Impl& vk, VkPipeline pip) -> void;
+
+struct VkBufferArgs {
+  size_t size;
+  VkBufferUsageFlags usage;
+  VkMemoryPropertyFlags mem_usage;
+};
+
+struct VkAllocBuff_Impl;
+
+class VkAllocBuff {
+private:
+  struct create_t {};
+
+public:
+  using opaque_type = TypeBuffer<VkAllocBuff_Impl, 72, 8>;
+
+public:
+  VkAllocBuff(create_t, VkAllocBuff_Impl&& data);
+
+  static fn create(VkContext_Impl& ctx, const VkBufferArgs& args);
+  fn destroy(VkContext_Impl& ctx) -> void;
+
+public:
+  fn mapped_data() -> void*;
+  fn size() -> usize;
+  fn addr() -> VkDeviceAddress;
+  fn buffer() -> VkBuffer;
+
+public:
+  operator VkAllocBuff_Impl&() { return *_data.get(); }
+
+  operator const VkAllocBuff_Impl&() const { return *_data.get(); }
+
+private:
+  opaque_type _data;
+};
+
+struct VkImageArgs {
+  VkExtent3D extent;
+  VkFormat format;
+};
+
+struct VkAllocImage_Impl;
+
+class VkAllocImage {
+private:
+  struct create_t {};
+
+public:
+  using opaque_type = TypeBuffer<VkAllocImage_Impl, 40, 8>;
+
+public:
+  VkAllocImage(create_t, VkAllocImage_Impl&& data);
+
+  static fn create(VkContext_Impl& ctx, const VkImageArgs& args);
+  fn destroy(VkContext_Impl& ctx) -> void;
+
+public:
+  fn extent() const -> VkExtent2D;
+  fn format() const -> VkFormat;
+  fn view() const -> VkImageView;
+  fn image() const -> VkImage;
+
+public:
+  operator VkAllocImage_Impl&() { return *_data.get(); }
+
+  operator const VkAllocImage_Impl&() const { return *_data.get(); }
+
+private:
+  opaque_type _data;
+};
+
+struct VkPushConstant {
+  const void* data;
+  u32 size;
+  u32 offset;
+  VkShaderStageFlags stage;
+};
+
+struct VkIndexBinding {
+  Ref<const VkAllocBuff> buffer;
+  VkDeviceSize offset;
+  VkIndexType index_type;
+};
+
+struct VkGfxCmd {
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  Span<const VkPushConstant> push_constants;
+  Optional<VkIndexBinding> index_binding;
+  u32 instance_count;
+  u32 first_instance;
+  u32 draw_count;
+  u32 first_item;
+  s32 vertex_offset;
+};
+
+struct VkGfxData {
+  Optional<VkViewport> viewport;
+  Optional<VkRect2D> scissor;
+  Optional<VkClearColorValue> clear_color;
+  Span<const VkGfxCmd> cmds;
+};
+
+struct VkComputeData {
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  VkPushConstant push_constant;
+  Span<const VkAllocImage> work_images;
+  u32 group_count_x, group_count_y, group_count_z;
+};
+
+struct VkSurfaceArgs {
+public:
+  using UpdateSurfExtFn = TrivFn<void(VkExtent2D*), 2 * sizeof(void*), 8>;
+  using CreateSurfFn = TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*),
+                              2 * sizeof(void*), 8>;
+
+public:
+  Span<const char*> extensions;
+  CreateSurfFn create;
+  UpdateSurfExtFn update_extent;
+  VkExtent2D swapchain_extent;
+};
+
+struct VkContextArgs {
+  Optional<VkSurfaceArgs> surface;
   const char* app_name;
   u32 app_ver;
 };
 
-class VulkanContext {
+class VkContext {
 private:
+  struct create_t {};
+
+  using UserGfxFn = FnRef<void(VkCommandBuffer)>;
+
+public:
   struct Deleter {
-    void operator()(ka_VulkanContext ctx) noexcept { ka_vk_destroy_context(ctx); }
+    void operator()(VkContext_Impl* ctx) noexcept { VkContext::destroy(ctx); }
   };
 
-  struct create_t {};
+  static fn destroy(VkContext_Impl* ctx) noexcept -> void;
 
 public:
-  using ImSubmitFn = TrivFn<void(VkCommandBuffer), 4 * sizeof(void*), 8>;
+  VkContext(create_t, VkContext_Impl* ctx) noexcept : _ctx(ctx) {}
+
+  static fn create(const VkContextArgs& args) -> VkMsgExpect<VkContext>;
 
 public:
-  VulkanContext(create_t, ka_VulkanContext ctx) noexcept : _ctx(ctx) {}
+  fn rebuild_swapchain(VkExtent2D ext) -> VkExpect<void>;
 
-public:
-  static fn create(const VulkanContextArgs& args) noexcept -> VkMsgExpect<VulkanContext>;
+  fn new_frame() -> VkExpect<void>;
+  fn end_frame() -> VkExpect<void>;
 
-public:
-  fn rebuild_swapchain(VkExtent2D surface_extent) noexcept -> VkExpect<void>;
+  fn record_gfx(const VkGfxData& data) -> VkExpect<void>;
+  fn record_compute(const VkComputeData& data) -> VkExpect<void>;
 
-  fn draw() noexcept -> VkExpect<void>;
-
-  template<typename F>
-  fn immediate_submit(F&& func) -> VkExpect<void>;
-
-public:
-  operator ka_VulkanContext() noexcept { return _ctx.get(); }
+  template<typename Fn>
+  requires(std::invocable<std::remove_cvref_t<Fn>, VkCommandBuffer>)
+  fn record_gfx_immediate(Fn&& func) -> VkExpect<void> {
+    return _record_gfx_immediate(UserGfxFn{func});
+  }
 
 private:
-  std::unique_ptr<std::remove_pointer_t<ka_VulkanContext>, Deleter> _ctx;
-};
+  fn _record_gfx_immediate(UserGfxFn func) -> VkExpect<void>;
 
-using VulkanImageArgs = ka_VulkanImageArgs;
+public:
+  operator VkContext_Impl&() { return *_ctx.get(); }
 
-class VulkanImage : public ka_VulkanImage {
 private:
-  struct create_t {};
-
-public:
-  VulkanImage(create_t, ka_VulkanImage&& image) noexcept : ka_VulkanImage(image) {}
-
-public:
-  static fn allocate(ka_VulkanContext vk, const VulkanImageArgs& args) -> VkExpect<VulkanImage>;
-  fn destroy() -> void;
-
-public:
-  fn extent() -> VkExtent2D;
-  fn format() -> VkFormat;
-};
-
-using VulkanBufferArgs = ka_VulkanBufferArgs;
-
-class VulkanBuffer : public ka_VulkanBuffer {
-private:
-  struct create_t {};
-
-public:
-  VulkanBuffer(create_t, ka_VulkanBuffer&& buffer) noexcept : ka_VulkanBuffer(buffer) {}
-
-public:
-  static fn allocate(ka_VulkanContext vk, const VulkanBufferArgs& args) -> VkExpect<VulkanBuffer>;
-  fn destroy() -> void;
-
-public:
-  fn size() -> usize;
-  fn mapped_data() -> void*;
+  std::unique_ptr<VkContext_Impl, Deleter> _ctx;
 };
 
 #ifdef KA_VK_ENABLE_IMGUI
-template<typename F>
-fn vk_init_imgui(ka_VulkanContext vk, F&& imgui_initer) -> VkResult;
-
-struct VulkanImGuiDrawData {
-  ImDrawData* draw_data;
-  VkPipeline pipeline;
+struct VkImGuiInfo {
+  VkInstance vk;
+  VkPhysicalDevice physical_device;
+  VkDevice device;
+  VkQueue queue;
+  VkFormat swapchain_format;
+  VkDescriptorPool descpool;
 };
 
-fn vk_draw_imgui(void* user, VkCommandBuffer cmd);
-
-fn vk_shutown_imgui() -> void;
-#endif
-
-} // namespace kappa::render
-
-namespace kappa::render {
-
-#if 0
-inline fn VulkanContext::create(const VulkanContextArgs& args) noexcept
-  -> VkMsgExpect<VulkanContext> {
-  ka_VulkanContextArgs c_args{};
-  c_args.app_name = args.app_name;
-  c_args.app_ver = args.app_ver;
-
-  fn create_surface = [&](VkInstance vk, VkSurfaceKHR* surface,
-                          const VkAllocationCallbacks* vkalloc) -> VkResult {
-    return args.create_surface_fn(vk, surface, vkalloc);
-  };
-  const fn create_surface_trampoline = +[](void* user, VkInstance vk, VkSurfaceKHR* surface,
-                                           const VkAllocationCallbacks* vkalloc) -> VkResult {
-    return (*(decltype(create_surface)*)user)(vk, surface, vkalloc);
-  };
-  c_args.create_surface = create_surface_trampoline;
-  c_args.create_surface_user = &create_surface;
-  c_args.surface_extensions = args.surface_extensions.data();
-  c_args.surface_extension_count = args.surface_extensions.size();
-
-  fn init_imgui = [&]() -> void {
-    (*args.init_imgui_fn)();
-  };
-  const fn init_imgui_trampoline = +[](void* user) -> void {
-    (*(decltype(init_imgui)*)user)();
-  };
-  if (args.init_imgui_fn) {
-    c_args.init_imgui = init_imgui_trampoline;
-    c_args.init_imgui_user = &init_imgui;
-  }
-
-  ka_VulkanContext ctx;
-  const char* msg;
-  if (auto ret = ka_vk_create_context(&ctx, &c_args, &msg)) {
-    return {unexpect, msg, ret};
-  }
-  return {in_place, create_t(), ctx};
-}
-
-inline fn VulkanContext::rebuild_swapchain(VkExtent2D surface_extent) noexcept -> VkExpect<void> {
-  if (auto ret = ka_vk_rebuild_swapchain(_ctx.get(), surface_extent)) {
-    return {unexpect, ret};
-  }
-  return {};
-}
+fn vk_create_imgui_info(VkContext_Impl& vk, VkImGuiInfo& info,
+                        const VkDescriptorPoolCreateInfo& pool_info) -> VkResult;
 
 template<typename F>
-fn VulkanContext::immediate_submit(F&& func) -> VkExpect<void> {
-  static_assert(std::is_invocable_v<std::remove_cvref_t<F>, VkCommandBuffer>,
-                "F is not invocable");
-  ka_VulkanImSubmitData c_data{};
-
-  fn submit = [&](VkCommandBuffer cmd) {
-    func(cmd);
-  };
-  const fn submit_trampoline = +[](void* user, VkCommandBuffer cmd) -> void {
-    (*(decltype(submit)*)user)(cmd);
-  };
-  c_data.submit_callback_user = &submit;
-  c_data.submit_callback = submit_trampoline;
-
-  if (auto ret = ka_vk_immediate_submit(_ctx.get(), &c_data)) {
-    return {unexpect, ret};
-  }
-  return {};
-}
-#endif
-
-#ifdef KA_VK_ENABLE_IMGUI
-template<typename F>
-fn vk_init_imgui(ka_VulkanContext vk, F&& imgui_initer) -> VkResult {
+fn vk_init_imgui(VkContext_Impl& vk, F&& imgui_initer) -> VkExpect<void> {
   static constexpr auto pool_sizes =
     std::to_array<VkDescriptorPoolSize>({{VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
@@ -206,10 +345,9 @@ fn vk_init_imgui(ka_VulkanContext vk, F&& imgui_initer) -> VkResult {
   pool_info.maxSets = 1000;
   pool_info.poolSizeCount = (u32)pool_sizes.size();
   pool_info.pPoolSizes = pool_sizes.data();
-  ka_VulkanImGuiInfo imgui_info;
-  VkResult ret = VK_SUCCESS;
-  if (ret = ka_vk_create_imgui_info(vk, &imgui_info, &pool_info); ret != VK_SUCCESS) {
-    return ret;
+  VkImGuiInfo imgui_info;
+  if (auto ret = vk_create_imgui_info(vk, imgui_info, pool_info); ret != VK_SUCCESS) {
+    return {unexpect, ret};
   }
 
   ImGui_ImplVulkan_InitInfo init_info{};
@@ -232,16 +370,21 @@ fn vk_init_imgui(ka_VulkanContext vk, F&& imgui_initer) -> VkResult {
   imgui_initer();
   ImGui_ImplVulkan_Init(&init_info);
 
-  return ret;
+  return {};
+}
+
+struct VkImGuiDrawData {
+  ImDrawData* draw_data;
+  VkPipeline pipeline;
+};
+
+inline fn vk_draw_imgui(void* user, VkCommandBuffer cmd) {
+  const auto& imgui_data = *static_cast<VkImGuiDrawData*>(user);
+  ImGui_ImplVulkan_RenderDrawData(imgui_data.draw_data, cmd, imgui_data.pipeline);
 }
 
 inline fn vk_shutown_imgui() -> void {
   ImGui_ImplVulkan_Shutdown();
-}
-
-inline fn vk_draw_imgui(void* user, VkCommandBuffer cmd) {
-  const auto& imgui_data = *static_cast<VulkanImGuiDrawData*>(user);
-  ImGui_ImplVulkan_RenderDrawData(imgui_data.draw_data, cmd, imgui_data.pipeline);
 }
 #endif
 

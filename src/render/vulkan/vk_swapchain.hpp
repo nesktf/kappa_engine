@@ -90,7 +90,7 @@ public:
   fn frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
 private:
-  AlignedTypeBuffer<FrameData[MAX_FRAMES_IN_FLIGHT]> _frames;
+  TypeBufferForArray<FrameData, MAX_FRAMES_IN_FLIGHT> _frames;
   VkDevice _device;
   u64 _curr_frame;
 };
