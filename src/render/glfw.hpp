@@ -20,7 +20,7 @@ public:
   static fn fb_resize_fn(GLFWwindow* win, int w, int h) -> void;
 
 public:
-  fn bind_vulkan(const VulkanInfo& app_info, const MeshData& mesh_data) -> VulkanContext;
+  fn bind_vulkan(const char* app_name, u32 app_ver) -> VulkanContext;
 
   fn start_imgui_frame() -> void;
 
@@ -30,7 +30,7 @@ public:
 
 private:
   GLFWwindow* _win;
-  render::VulkanContext* _vk;
+  ka_VulkanContext _vk;
 };
 
 namespace meta {

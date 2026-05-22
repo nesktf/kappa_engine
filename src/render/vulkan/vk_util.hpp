@@ -3,6 +3,7 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
+#include "../../util/function.hpp"
 
 #define KA_VK_STRUCT(_typename, _sType)                                  \
   template<>                                                             \
@@ -81,9 +82,6 @@ constexpr fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
   return info;
 }
 
-struct VulkanBuffer;
-struct VulkanImage;
-
 class VulkanDelQueue {
 public:
   using VulkanHandle = void*;
@@ -106,6 +104,7 @@ public:
     TYPE_DESCLAYOUT,
     TYPE_PIPLAYOUT,
     TYPE_PIPELINE,
+    TYPE_SHADER,
   };
 
   struct HandleSet {
@@ -137,8 +136,8 @@ public:
                     VulkanHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
 
-  fn enqueue(const VulkanImage& image, VmaAllocator alloc) -> void;
-  fn enqueue(const VulkanBuffer& buffer, VmaAllocator alloc) -> void;
+  fn enqueue(const VkAllocImage_Impl& image, VmaAllocator alloc) -> void;
+  fn enqueue(const VkAllocBuff_Impl& buffer, VmaAllocator alloc) -> void;
 
   fn enqueue(VkImageView image_view, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)image_view, (VulkanHandle)device, TYPE_IMAGE_VIEW);
@@ -190,6 +189,10 @@ public:
 
   fn enqueue(VkPipeline pipeline, VkDevice device) -> void {
     enqueue_handle((VulkanHandle)pipeline, (VulkanHandle)device, TYPE_PIPELINE);
+  }
+
+  fn enqueue(VkShaderModule shader, VkDevice device) -> void {
+    enqueue_handle((VulkanHandle)shader, (VulkanHandle)device, TYPE_SHADER);
   }
 
 private:

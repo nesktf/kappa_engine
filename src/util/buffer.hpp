@@ -2,27 +2,59 @@
 
 #include "../core.hpp"
 
+#include <memory>
 #include <utility>
 
 namespace kappa {
 
-template<usize Size, usize Align>
-struct AlignedBuffer {
+template<typename T, usize Size, usize Align>
+struct TypeBuffer {
+public:
   alignas(Align) u8 _data[Size];
 
-  template<typename T>
-  fn as() -> T* {
-    return reinterpret_cast<T*>(_data);
+  template<typename U = T>
+  static constexpr fn check_params() noexcept -> bool {
+    return (alignof(U) <= Align) && (sizeof(U) == Size);
   }
 
-  template<typename T>
-  fn as() const -> const T* {
-    return reinterpret_cast<T*>(_data);
+public:
+  fn get() -> T* { return std::launder(reinterpret_cast<T*>(_data)); }
+
+  fn get() const -> const T* { return std::launder(reinterpret_cast<const T*>(_data)); }
+
+  fn operator*()->T& { return *get(); }
+
+  fn operator*() const->const T& { return *get(); }
+
+  fn operator->()->T* { return get(); }
+
+  fn operator->() const->const T* { return get(); }
+
+  fn operator[](usize i)->T& { return *(get() + i); }
+
+  fn operator[](usize i) const->const T& { return *(get() + i); }
+
+public:
+  template<typename... Args>
+  fn construct(Args&&... args) -> T& {
+    return *(new (reinterpret_cast<T*>(_data)) T(std::forward<Args>(args)...));
   }
+
+  template<typename... Args>
+  fn construct_offset(usize offset, Args&&... args) -> T& {
+    return *(new (reinterpret_cast<T*>(_data) + offset) T(std::forward<Args>(args)...));
+  }
+
+  fn destroy() -> void { get()->~T(); }
+
+  fn destroy_offset(usize offset) -> void { get()[offset].~T(); }
 };
 
 template<typename T>
-using AlignedTypeBuffer = AlignedBuffer<sizeof(T), alignof(T)>;
+using TypeBufferFor = TypeBuffer<T, sizeof(T), alignof(T)>;
+
+template<typename T, usize Count>
+using TypeBufferForArray = TypeBuffer<T, Count * sizeof(T), alignof(T)>;
 
 // Shitty trivial nullable
 template<typename T>

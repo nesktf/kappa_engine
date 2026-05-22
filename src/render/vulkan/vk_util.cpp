@@ -56,6 +56,7 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     return #_type
   switch (type) {
     STR(DELETER);
+    STR(BUFFER);
     STR(IMAGE);
     STR(IMAGE_VIEW);
     STR(SURFACE);
@@ -70,6 +71,7 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
     STR(DESCLAYOUT);
     STR(PIPLAYOUT);
     STR(PIPELINE);
+    STR(SHADER);
     default:
       return "UNKNOWN";
   }
@@ -128,6 +130,9 @@ fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHa
     case TYPE_PIPELINE: {
       vkDestroyPipeline((VkDevice)parent, (VkPipeline)handle, vkalloc);
     } break;
+    case TYPE_SHADER: {
+      vkDestroyShaderModule((VkDevice)parent, (VkShaderModule)handle, vkalloc);
+    } break;
     case TYPE_DELETER:
       break;
   }
@@ -148,12 +153,12 @@ fn VulkanDelQueue::flush() -> void {
   _queue.clear();
 }
 
-fn VulkanDelQueue::enqueue(const VulkanImage& image, VmaAllocator vma) -> void {
+fn VulkanDelQueue::enqueue(const ka_VulkanImage& image, VmaAllocator vma) -> void {
   enqueue_handle((VulkanHandle)image.image, (VulkanHandle)image.alloc, TYPE_IMAGE,
                  (VulkanHandle)vma);
 }
 
-fn VulkanDelQueue::enqueue(const VulkanBuffer& buffer, VmaAllocator vma) -> void {
+fn VulkanDelQueue::enqueue(const ka_VulkanBuffer& buffer, VmaAllocator vma) -> void {
   enqueue_handle((VulkanHandle)buffer.buffer, (VulkanHandle)buffer.alloc, TYPE_BUFFER,
                  (VulkanHandle)vma);
 }

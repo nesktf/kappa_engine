@@ -3,24 +3,9 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
+#include "../../util/ptr.hpp"
 
 namespace kappa::render {
-
-class VulkanDescriptorLayoutBuilder {
-public:
-  VulkanDescriptorLayoutBuilder() = default;
-
-public:
-  fn add_binding(u32 binding, VkDescriptorType type) -> void;
-
-  fn clear() -> void;
-
-  fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
-           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
-
-private:
-  Vec<VkDescriptorSetLayoutBinding> _bindings;
-};
 
 struct VulkanDescPoolRatio {
   VkDescriptorType type;
@@ -45,7 +30,7 @@ public:
 public:
   fn add_to_delqueue(VulkanDelQueue& queue) -> void;
 
-  fn alloc_set(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
+  fn alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count) -> VkExpect<void>;
 
   fn clear() -> void;
 
@@ -56,37 +41,50 @@ private:
   VkDescriptorPool _pool;
 };
 
-fn vk_create_shader(VkDevice device, Span<const u8> src) -> VkExpect<VkShaderModule>;
-
-class VulkanPipelineBuilder {
+#if 0
+class VulkanDescriptorLayoutBuilder {
 public:
-  VulkanPipelineBuilder();
+  VulkanDescriptorLayoutBuilder() = default;
 
 public:
-  fn build(VkDevice device) -> VkExpect<VkPipeline>;
+  fn add_binding(u32 binding, VkDescriptorType type) -> void;
+
   fn clear() -> void;
 
-  fn set_layout(VkPipelineLayout layout) -> VulkanPipelineBuilder&;
-  fn set_shaders(VkShaderModule vertex, VkShaderModule fragment) -> VulkanPipelineBuilder&;
-  fn set_topology(VkPrimitiveTopology topology) -> VulkanPipelineBuilder&;
-  fn set_poly_mode(VkPolygonMode mode, f32 width = 1.f) -> VulkanPipelineBuilder&;
-  fn set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) -> VulkanPipelineBuilder&;
-  fn set_color_format(VkFormat format) -> VulkanPipelineBuilder&;
-  fn set_depth_format(VkFormat format) -> VulkanPipelineBuilder&;
-  fn disable_multisampling() -> VulkanPipelineBuilder&;
-  fn disable_blending() -> VulkanPipelineBuilder&;
-  fn disable_depth_test() -> VulkanPipelineBuilder&;
+  fn build(VkDevice device, VkShaderStageFlags stages, void* next = nullptr,
+           VkDescriptorSetLayoutCreateFlags flags = 0) -> VkDescriptorSetLayout;
 
 private:
-  Vec<VkPipelineShaderStageCreateInfo> _shader_stages;
-  VkPipelineInputAssemblyStateCreateInfo _input_assembly;
-  VkPipelineRasterizationStateCreateInfo _rasterizer;
-  VkPipelineColorBlendAttachmentState _blend_attachment;
-  VkPipelineMultisampleStateCreateInfo _multisampling;
-  VkPipelineLayout _layout;
-  VkPipelineDepthStencilStateCreateInfo _depth_stencil;
-  VkPipelineRenderingCreateInfo _rendering_info;
-  VkFormat _color_format;
+  Vec<VkDescriptorSetLayoutBinding> _bindings;
 };
+
+fn VulkanDescriptorLayoutBuilder::add_binding(u32 binding, VkDescriptorType type) -> void {
+  VkDescriptorSetLayoutBinding bind{};
+  bind.binding = binding;
+  bind.descriptorCount = 1;
+  bind.descriptorType = type;
+  _bindings.push_back(bind);
+}
+
+fn VulkanDescriptorLayoutBuilder::clear() -> void {
+  _bindings.clear();
+}
+
+fn VulkanDescriptorLayoutBuilder::build(VkDevice device, VkShaderStageFlags stages, void* next,
+                                        VkDescriptorSetLayoutCreateFlags flags)
+  -> VkDescriptorSetLayout {
+  for (auto& binding : _bindings) {
+    binding.stageFlags |= stages;
+  }
+  auto info = vkmk_zero<VkDescriptorSetLayoutCreateInfo>(next);
+  info.pBindings = _bindings.data();
+  info.bindingCount = (u32)_bindings.size();
+  info.flags = flags;
+
+  VkDescriptorSetLayout set;
+  KA_VK_ASSERT(vkCreateDescriptorSetLayout(device, &info, nullptr, &set));
+  return set;
+}
+#endif
 
 } // namespace kappa::render

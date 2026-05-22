@@ -224,4 +224,25 @@ fn VulkanDevice::wait_idle() -> void {
   vkDeviceWaitIdle(_device);
 }
 
+fn VulkanDevice::graphics_queue(u32 idx) const -> VkQueue {
+  VkQueue queue{};
+  vkGetDeviceQueue(_device, _queues.graphics, idx, &queue);
+  ka_assert(queue != VK_NULL_HANDLE);
+  return queue;
+}
+
+fn VulkanDevice::present_queue(u32 idx) const -> VkQueue {
+  VkQueue queue{};
+  vkGetDeviceQueue(_device, _queues.present, idx, &queue);
+  ka_assert(queue != VK_NULL_HANDLE);
+  return queue;
+}
+
+fn VulkanDevice::transfer_queue(u32 idx) const -> VkQueue {
+  VkQueue queue{};
+  vkGetDeviceQueue(_device, _queues.transfer, idx, &queue);
+  ka_assert(queue != VK_NULL_HANDLE);
+  return queue;
+}
+
 } // namespace kappa::render

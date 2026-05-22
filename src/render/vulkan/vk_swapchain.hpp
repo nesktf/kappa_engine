@@ -7,6 +7,7 @@
 
 #include "../../util/array.hpp"
 #include "../../util/buffer.hpp"
+#include "../../util/ptr.hpp"
 
 namespace kappa::render {
 
@@ -36,15 +37,15 @@ public:
   fn destroy(VkDevice device) -> void;
 
 public:
-  VkSwapchainKHR swapchain() const { return _swapchain; }
+  fn swapchain() const -> VkSwapchainKHR { return _swapchain; }
 
-  VkFormat format() const { return _format; }
+  fn format() const -> VkFormat { return _format; }
 
-  VkExtent2D extent() const { return _extent; }
+  fn extent() const -> VkExtent2D { return _extent; }
 
-  Span<const VkImage> images() const { return {_images.data(), _images.size()}; }
+  fn images() const -> Span<const VkImage> { return {_images.data(), _images.size()}; }
 
-  Span<const VkImageView> image_views() const {
+  fn image_views() const -> Span<const VkImageView> {
     return {_image_views.data(), _image_views.size()};
   }
 
@@ -69,6 +70,7 @@ public:
     VkSemaphore swapchain_sem, render_sem;
     VulkanDescPool pool;
     VulkanDelQueue delqueue;
+    u32 swapchain_idx;
   };
 
 public:
@@ -85,9 +87,10 @@ public:
   fn add_to_delqueue(VulkanDelQueue& queue) -> void;
   fn next_frame() -> FrameData&;
   fn curr_frame() -> FrameData&;
+  fn frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
 private:
-  AlignedTypeBuffer<FrameData[MAX_FRAMES_IN_FLIGHT]> _frames;
+  TypeBufferForArray<FrameData, MAX_FRAMES_IN_FLIGHT> _frames;
   VkDevice _device;
   u64 _curr_frame;
 };

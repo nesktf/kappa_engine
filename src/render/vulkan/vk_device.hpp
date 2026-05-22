@@ -3,6 +3,7 @@
 #include "./vk_private.hpp"
 
 #include "../../util/array.hpp"
+#include "../../util/ptr.hpp"
 
 namespace kappa::render {
 
@@ -29,19 +30,23 @@ public:
   fn wait_idle() -> void;
 
 public:
-  VkDevice device() const { return _device; }
+  fn device() const -> VkDevice { return _device; }
 
-  VkPhysicalDevice physical_device() const { return _physical_device; }
+  fn physical_device() const -> VkPhysicalDevice { return _physical_device; }
 
-  QueueIndices queues() const { return _queues; }
+  fn queues() const -> QueueIndices { return _queues; }
 
-  Span<const VkSurfaceFormatKHR> surface_formats() const {
+  fn surface_formats() const -> Span<const VkSurfaceFormatKHR> {
     return {_surface_formats.data(), _surface_formats.size()};
   }
 
-  Span<const VkPresentModeKHR> surface_present_modes() const {
+  fn surface_present_modes() const -> Span<const VkPresentModeKHR> {
     return {_surface_present_modes.data(), _surface_present_modes.size()};
   }
+
+  fn graphics_queue(u32 idx = 0) const -> VkQueue;
+  fn present_queue(u32 idx = 0) const -> VkQueue;
+  fn transfer_queue(u32 idx = 0) const -> VkQueue;
 
 private:
   VkDevice _device;

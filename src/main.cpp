@@ -1,23 +1,43 @@
 #include "./render/glfw.hpp"
 
 #include "./util/logger.hpp"
-#include "ranmath/forward.hpp"
 
 #include <imgui.h>
+
+#include <ranmath/ran.hpp>
+
+#define KA_APP_NAME    "Kappa"
+#define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
 
 namespace {
 
 using namespace kappa;
 
-constexpr render::VulkanInfo app_info{
-  .app_name = KA_APP_NAME,
-  .app_ver = KA_APP_VERSION,
+struct ComputeConstants {
+  ran::Vec4f32 data1;
+  ran::Vec4f32 data2;
+  ran::Vec4f32 data3;
+  ran::Vec4f32 data4;
+};
+
+struct Vertex {
+  ran::Vec3f32 pos;
+  f32 uv_x;
+  ran::Vec3f32 normal;
+  f32 uv_y;
+  ran::Vec4f32 color;
+};
+
+struct ComputeEffect {
+  const char* name;
+  render::VulkanCompute compute;
+  ComputeConstants data;
 };
 
 constexpr u32 WINDOW_WIDTH = 1280;
 constexpr u32 WINDOW_HEIGHT = 720;
 
-constexpr auto rect_verts = std::to_array<render::Vertex>({
+constexpr auto rect_verts = std::to_array<Vertex>({
   {
     {.5f, -.5f, 0.f},
     0.f,
@@ -48,17 +68,13 @@ constexpr auto rect_verts = std::to_array<render::Vertex>({
   },
 });
 constexpr auto rect_indices = std::to_array<u32>({0, 1, 2, 2, 1, 3});
-constexpr render::MeshData mesh_data{
-  .indices = rect_indices,
-  .vertices = rect_verts,
-};
 
 fn run_engine() -> void {
   auto glfw = render::GLFWContext::create(WINDOW_WIDTH, WINDOW_HEIGHT);
   const DeferFn glfw_defer = [&]() {
     glfw.destroy();
   };
-  auto vk = glfw.bind_vulkan(app_info, mesh_data);
+  auto vk = glfw.bind_vulkan(KA_APP_NAME, KA_APP_VERSION);
 
   const fn imgui_draw = [&]() {
     glfw.start_imgui_frame();

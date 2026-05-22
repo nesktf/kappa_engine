@@ -3,7 +3,6 @@
 #include "render/vulkan/vk_private.hpp"
 
 #include <algorithm>
-#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -166,7 +165,6 @@ struct VulkanFrameData::TempFrameData {
 VulkanFrameData::VulkanFrameData(create_t, TempFrameData* frames, VkDevice device) :
     _device(device), _curr_frame(0) {
   ka_assert(frames);
-  auto* self_frames = _frames.as<FrameData>();
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
     ka_assert(frames[i].cmdpool != VK_NULL_HANDLE);
     ka_assert(frames[i].cmdbuf != VK_NULL_HANDLE);
@@ -174,18 +172,17 @@ VulkanFrameData::VulkanFrameData(create_t, TempFrameData* frames, VkDevice devic
     ka_assert(frames[i].swapchain_sem != VK_NULL_HANDLE);
     ka_assert(frames[i].render_sem != VK_NULL_HANDLE);
     ka_assert(frames[i].pool.has_value());
-    new (self_frames + i)
-      FrameData(frames[i].cmdpool, frames[i].cmdbuf, frames[i].render_fen, frames[i].swapchain_sem,
-                frames[i].render_sem, *std::move(frames[i].pool), VulkanDelQueue());
+    _frames.construct_offset(i, frames[i].cmdpool, frames[i].cmdbuf, frames[i].render_fen,
+                             frames[i].swapchain_sem, frames[i].render_sem,
+                             *std::move(frames[i].pool), VulkanDelQueue(), (u32)-1);
   }
   static_assert(std::is_trivially_destructible_v<TempFrameData>);
 }
 
 VulkanFrameData::VulkanFrameData(VulkanFrameData&& other) noexcept :
     _device(other._device), _curr_frame(other._curr_frame) {
-  auto* self_frames = _frames.as<FrameData>();
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    new (self_frames + i) FrameData(std::move(other._frames.as<FrameData>()[i]));
+    _frames.construct_offset(i, std::move(other._frames[i]));
   }
 }
 
@@ -193,14 +190,14 @@ VulkanFrameData& VulkanFrameData::operator=(VulkanFrameData&& other) noexcept {
   _device = other._device;
   _curr_frame = other._curr_frame;
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    _frames.as<FrameData>()[i] = std::move(other._frames.as<FrameData>()[i]);
+    _frames[i] = std::move(other._frames[i]);
   }
   return *this;
 }
 
 VulkanFrameData::~VulkanFrameData() {
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    std::destroy_at(_frames.as<FrameData>() + i);
+    _frames.destroy_offset(i);
   }
 }
 
@@ -266,9 +263,8 @@ fn VulkanFrameData::create(VkDevice device, u32 graphics_queue,
 }
 
 fn VulkanFrameData::add_to_delqueue(VulkanDelQueue& queue) -> void {
-  FrameData* frames = _frames.as<FrameData>();
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    auto& frame = frames[i];
+    auto& frame = _frames[i];
     queue.enqueue(frame.cmdpool, _device);
     queue.enqueue(frame.render_fen, _device);
     queue.enqueue(frame.swapchain_sem, _device);
@@ -278,11 +274,15 @@ fn VulkanFrameData::add_to_delqueue(VulkanDelQueue& queue) -> void {
 }
 
 fn VulkanFrameData::next_frame() -> FrameData& {
-  return _frames.as<FrameData>()[_curr_frame++ % MAX_FRAMES_IN_FLIGHT];
+  return _frames[_curr_frame++ % MAX_FRAMES_IN_FLIGHT];
 }
 
 fn VulkanFrameData::curr_frame() -> FrameData& {
-  return _frames.as<FrameData>()[_curr_frame % MAX_FRAMES_IN_FLIGHT];
+  return _frames[_curr_frame % MAX_FRAMES_IN_FLIGHT];
+}
+
+fn VulkanFrameData::frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT> {
+  return {_frames.get(), MAX_FRAMES_IN_FLIGHT};
 }
 
 } // namespace kappa::render
