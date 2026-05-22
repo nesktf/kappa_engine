@@ -2,6 +2,7 @@
 
 #include "./util/logger.hpp"
 #include "render/vulkan/vk.hpp"
+#include "render/vulkan/vk_util.hpp"
 #include "util/filesystem.hpp"
 
 #include <imgui.h>
@@ -78,6 +79,16 @@ fn run_engine() -> void {
   };
   auto vk = glfw.bind_vulkan(KA_APP_NAME, KA_APP_VERSION);
 
+  // Draw image target
+  const render::VkImageArgs target_args{
+    .extent = {WINDOW_WIDTH, WINDOW_HEIGHT, 1},
+    .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+  };
+  auto target = render::VkAllocImage::create(vk, target_args).value();
+  const DeferFn target_defer = [&]() {
+    target.destroy(vk);
+  };
+
   // Compute effects
   static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
   ComputeConstants compute_data[2]{};
@@ -121,7 +132,7 @@ fn run_engine() -> void {
     image_desc = vk.alloc_desc(image_desc_layout).value();
     VkDescriptorImageInfo img_info{};
     img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    img_info.imageView = vk.draw_image_view();
+    img_info.imageView = target.view();
     VkWriteDescriptorSet draw_image_write{};
     draw_image_write.dstBinding = 0;
     draw_image_write.dstSet = image_desc;
@@ -176,7 +187,7 @@ fn run_engine() -> void {
                           .add_module(VK_SHADER_STAGE_FRAGMENT_BIT, triangle_frag)
                           .set_poly_mode(VK_POLYGON_MODE_FILL)
                           .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
-                          .set_color_format(vk.draw_image_format())
+                          .set_color_format(target.format())
                           .set_depth_format(VK_FORMAT_UNDEFINED)
                           .disable_multisampling()
                           .disable_depth_test()
@@ -228,14 +239,14 @@ fn run_engine() -> void {
     void* data = staging.mapped_data();
     std::memcpy(data, rect_verts.data(), vb_size);
     std::memcpy(((u8*)data) + vb_size, rect_indices.data(), ib_size);
-    vk.record_immediate([&](VkCommandBuffer cmd) {
+    vk.submit_immediate([&](VkCommandBuffer cmd) -> void {
       VkBufferCopy vertex_copy{};
       vertex_copy.dstOffset = 0;
       vertex_copy.srcOffset = 0;
       vertex_copy.size = vb_size;
       vkCmdCopyBuffer(cmd, staging.buffer(), vb.buffer(), 1, &vertex_copy);
 
-      VkBufferCopy index_copy;
+      VkBufferCopy index_copy{};
       index_copy.dstOffset = 0;
       index_copy.srcOffset = vb_size;
       index_copy.size = ib_size;
@@ -280,7 +291,7 @@ fn run_engine() -> void {
                       .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
                       .set_poly_mode(VK_POLYGON_MODE_FILL)
                       .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
-                      .set_color_format(vk.draw_image_format())
+                      .set_color_format(target.format())
                       .set_depth_format(VK_FORMAT_UNDEFINED)
                       .disable_multisampling()
                       .disable_blending()
@@ -289,9 +300,9 @@ fn run_engine() -> void {
                       .value();
   }
 
-  // Draw ImGui
+  // Draw functions
   s32 compute_idx = 0;
-  const fn imgui_draw = [&](VkCommandBuffer) {
+  const fn draw_imgui = [&]() {
     glfw.start_imgui_frame();
     ImGui::NewFrame();
 
@@ -310,7 +321,7 @@ fn run_engine() -> void {
     ImGui::Render();
   };
 
-  VkExtent2D draw_extent{.width = WINDOW_WIDTH, .height = WINDOW_HEIGHT};
+  const auto draw_extent = target.extent();
   const fn draw_compute = [&](VkCommandBuffer cmd) -> void {
     auto& data = compute_data[compute_idx];
     const auto pipeline = compute_pipelines[compute_idx];
@@ -329,7 +340,7 @@ fn run_engine() -> void {
     VkClearColorValue clear_value{{0.0f, 0.0f, flash, 1.0f}};
     const auto clear_range = render::vkmk_image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
     // clear image
-    vkCmdClearColorImage(cmd, vk.draw_image(), VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
+    vkCmdClearColorImage(cmd, target.image(), VK_IMAGE_LAYOUT_GENERAL, &clear_value, 1,
                          &clear_range);
   };
   KA_UNUSED(clear_background);
@@ -337,8 +348,8 @@ fn run_engine() -> void {
   // Draw geometry
   auto transform = ran::Mat4f32::identity();
   const fn draw_geometry = [&](VkCommandBuffer cmd) -> void {
-    const auto color_attachment = render::vkmk_attach_info(
-      vk.draw_image_view(), nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const auto color_attachment =
+      render::vkmk_attach_info(target.view(), nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     const auto render_info = render::vkmk_render_info(draw_extent, &color_attachment, nullptr);
 
     // Dynamic state
@@ -361,7 +372,6 @@ fn run_engine() -> void {
     {
       // Draw triangle
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, triangle_pipeline);
-
       vkCmdDraw(cmd, 3, 1, 0, 0);
 
       // Draw mesh
@@ -376,16 +386,44 @@ fn run_engine() -> void {
     }
     vkCmdEndRendering(cmd);
   };
+  const fn draw_things = [&](const render::VkContext::FrameContext& frame) -> void {
+    const auto cmd = frame.cmd;
+
+    // 1. Draw using compute pipeline (we use a general layout)
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED; // Don't care about the older layout
+    layout = render::vkcmd_transition_image(cmd, target.image(), layout, VK_IMAGE_LAYOUT_GENERAL);
+    draw_compute(cmd);
+
+    // 2. Draw using graphics pipelines (we use a color attachment layout)
+    layout = render::vkcmd_transition_image(cmd, target.image(), layout,
+                                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    draw_geometry(cmd);
+
+    // 3. Prepare swapchain for copying
+    VkImageLayout sw_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
+                                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    // 4. Do the copy
+    render::vkcmd_transfer_image(cmd, target.image(), frame.swapchain_image, target.extent(),
+                                 frame.swapchain_extent);
+
+    // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
+    sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
+                                               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    draw_imgui();
+
+    // 6. Prepare swapchain image for presenting
+    sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
+                                               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  };
 
   const fn on_render = [&](f64 dt, f64 alpha) {
     KA_UNUSED(dt);
     KA_UNUSED(alpha);
 
-    draw_extent = vk.draw_extent();
     vk.new_frame().value();
-    vk.record_cmd(draw_compute).value();
-    vk.record_cmd(draw_geometry).value();
-    vk.record_cmd(imgui_draw).value();
+    vk.submit_cmd(draw_things).value();
     vk.end_frame().value();
     ++curr_frame;
   };

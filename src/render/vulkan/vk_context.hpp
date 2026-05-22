@@ -8,7 +8,9 @@
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
 
-struct ka_VkContext_impl {
+namespace kappa::render {
+
+struct VkContext_Impl {
 public:
   struct ImDrawData {
     VkFence fence;
@@ -16,22 +18,16 @@ public:
     VkCommandBuffer cmdbuf;
   };
 
-  struct RenderTarget {
-    ka_VkImage image;
-    VkExtent2D extent;
-    VkImageLayout layout;
-  };
-
 public:
-  ka_VkContext_impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vmalloc_,
-                    VkSurfaceKHR surface_, kappa::render::VulkanDevice&& device_,
-                    kappa::render::VulkanSwapchain&& swapchain_,
-                    kappa::render::VulkanFrameData&& framedata_, ImDrawData&& imdrawdata_,
-                    RenderTarget&& target_, kappa::render::VulkanDescPool&& descpool_,
-                    kappa::render::VulkanDelQueue&& delqueue_);
-  ~ka_VkContext_impl();
-  KA_NO_MOVE(ka_VkContext_impl);
-  KA_NO_COPY(ka_VkContext_impl);
+  VkContext_Impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vmalloc_,
+                 VkSurfaceKHR surface_, kappa::render::VulkanDevice&& device_,
+                 kappa::render::VulkanSwapchain&& swapchain_,
+                 kappa::render::VulkanFrameData&& framedata_, ImDrawData&& imdrawdata_,
+                 kappa::render::VulkanDescPool&& descpool_,
+                 kappa::render::VulkanDelQueue&& delqueue_);
+  ~VkContext_Impl();
+  KA_NO_MOVE(VkContext_Impl);
+  KA_NO_COPY(VkContext_Impl);
 
 public:
   VkInstance vk;
@@ -39,13 +35,14 @@ public:
   VmaAllocator vmalloc;
   VkSurfaceKHR surface;
   ImDrawData imdrawdata;
-  RenderTarget target;
   kappa::render::VulkanDevice device;
   kappa::render::VulkanSwapchain swapchain;
   kappa::render::VulkanFrameData framedata;
   kappa::render::VulkanDescPool descpool;
   kappa::render::VulkanDelQueue delqueue;
 };
+
+} // namespace kappa::render
 
 #if 0
 namespace kappa::render {
@@ -59,7 +56,7 @@ struct GPUMeshBuffers {
   u32 index_count;
 };
 
-struct VulkanContext_impl {
+struct VulkanContext_Impl {
 public:
   struct ImDrawData {
     VkFence fence;
@@ -84,15 +81,15 @@ public:
   };
 
 public:
-  VulkanContext_impl() = default; // Manually initialized
-  ~VulkanContext_impl() = default;
-  KA_NO_MOVE(VulkanContext_impl);
-  KA_NO_COPY(VulkanContext_impl);
+  VulkanContext_Impl() = default; // Manually initialized
+  ~VulkanContext_Impl() = default;
+  KA_NO_MOVE(VulkanContext_Impl);
+  KA_NO_COPY(VulkanContext_Impl);
 
 public:
 };
 
-fn vk_get_graphics_queue(VulkanContext_impl& ctx) -> VkQueue;
+fn vk_get_graphics_queue(VulkanContext_Impl& ctx) -> VkQueue;
 
 } // namespace kappa::render
 #endif

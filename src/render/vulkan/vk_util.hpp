@@ -199,12 +199,6 @@ private:
   Vec<DelData> _queue;
 };
 
-fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
-                        VkExtent2D dst_ext) -> void;
-
-fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
-                          VkImageLayout new_layout) -> VkImageLayout;
-
 fn vkmk_semaphore_info(VkSemaphoreCreateFlags flags) -> VkSemaphoreCreateInfo;
 
 fn vkmk_fence_info(VkFenceCreateFlags flags) -> VkFenceCreateInfo;

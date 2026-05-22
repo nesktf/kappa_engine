@@ -8,6 +8,7 @@
 
 #include <vulkan/vulkan_core.h>
 
+#define KA_VK_ENABLE_IMGUI
 #ifdef KA_VK_ENABLE_IMGUI
 #include <imgui_impl_vulkan.h>
 #endif
@@ -53,7 +54,7 @@ using VkExpect = Expected<T, VkError>;
 template<typename T>
 using VkMsgExpect = Expected<T, VkMsgError>;
 
-class VkContext_Impl;
+struct VkContext_Impl;
 
 enum class VkLifetime {
   manual = 0,
@@ -192,7 +193,7 @@ public:
 public:
   VkAllocImage(create_t, VkAllocImage_Impl&& data);
 
-  static fn create(VkContext_Impl& ctx, const VkImageArgs& args);
+  static fn create(VkContext_Impl& ctx, const VkImageArgs& args) -> VkExpect<VkAllocImage>;
   fn destroy(VkContext_Impl& ctx) -> void;
 
 public:
@@ -230,59 +231,60 @@ struct VkContextArgs {
 };
 
 class VkContext {
-private:
-  struct create_t {};
-
-  using UserCmdFn = FnRef<void(VkCommandBuffer)>;
-
 public:
+  struct FrameContext {
+    VkCommandBuffer cmd;
+    VkImage swapchain_image;
+    VkExtent2D swapchain_extent;
+  };
+
   struct Deleter {
     void operator()(VkContext_Impl* ctx) noexcept { VkContext::destroy(ctx); }
   };
 
+private:
+  struct create_t {};
+
+  using UserCmdFn = FnRef<void(const FrameContext&)>;
+  using UserImFn = FnRef<void(VkCommandBuffer)>;
+
+public:
+  VkContext(create_t, VkContext_Impl* ctx) noexcept : _vk(ctx) {}
+
+  static fn create(const VkContextArgs& args) -> VkMsgExpect<VkContext>;
   static fn destroy(VkContext_Impl* ctx) noexcept -> void;
 
 public:
-  VkContext(create_t, VkContext_Impl* ctx) noexcept : _ctx(ctx) {}
-
-  static fn create(const VkContextArgs& args) -> VkMsgExpect<VkContext>;
-
-public:
-  fn rebuild_swapchain(VkExtent2D ext) -> VkExpect<void>;
+  fn rebuild_swapchain(VkExtent2D extent) -> VkExpect<void>;
 
   fn new_frame() -> VkExpect<void>;
   fn end_frame() -> VkExpect<void>;
-
-  fn draw_image_format() -> VkFormat;
-  fn draw_image_view() -> VkImageView;
-  fn draw_image() -> VkImage;
-  fn draw_extent() -> VkExtent2D;
 
   fn alloc_desc(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
   fn update_sets(Span<const VkWriteDescriptorSet> writes, Span<const VkCopyDescriptorSet> copies)
     -> void;
 
   template<typename Fn>
-  requires(std::invocable<std::remove_cvref_t<Fn>, VkCommandBuffer>)
-  fn record_cmd(Fn&& func) -> VkExpect<void> {
-    return _record_cmd(UserCmdFn{func});
+  requires(std::invocable<std::remove_cvref_t<Fn>, FrameContext>)
+  fn submit_cmd(Fn&& func) -> VkExpect<void> {
+    return _submit_cmd(UserCmdFn{func});
   }
 
   template<typename Fn>
   requires(std::invocable<std::remove_cvref_t<Fn>, VkCommandBuffer>)
-  fn record_immediate(Fn&& func) -> VkExpect<void> {
-    return _record_immediate(UserCmdFn{func});
+  fn submit_immediate(Fn&& func) -> VkExpect<void> {
+    return _submit_immediate(UserImFn{func});
   }
 
 private:
-  fn _record_immediate(UserCmdFn func) -> VkExpect<void>;
-  fn _record_cmd(UserCmdFn func) -> VkExpect<void>;
+  fn _submit_immediate(UserImFn func) -> VkExpect<void>;
+  fn _submit_cmd(UserCmdFn func) -> VkExpect<void>;
 
 public:
-  operator VkContext_Impl&() { return *_ctx.get(); }
+  operator VkContext_Impl&() { return *_vk.get(); }
 
 private:
-  std::unique_ptr<VkContext_Impl, Deleter> _ctx;
+  std::unique_ptr<VkContext_Impl, Deleter> _vk;
 };
 
 fn vkmk_image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRange;
@@ -292,6 +294,12 @@ fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
 
 fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
                     const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo;
+
+fn vkcmd_transition_image(VkCommandBuffer cmd, VkImage img, VkImageLayout curr_layout,
+                          VkImageLayout new_layout) -> VkImageLayout;
+
+fn vkcmd_transfer_image(VkCommandBuffer cmdbuf, VkImage src, VkImage dst, VkExtent2D src_ext,
+                        VkExtent2D dst_ext) -> void;
 
 #ifdef KA_VK_ENABLE_IMGUI
 struct VkImGuiInfo {
