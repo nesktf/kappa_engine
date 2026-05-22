@@ -5,7 +5,7 @@
 
 namespace kappa::render {
 
-GLFWContext::GLFWContext(GLFWwindow* win) : _win(win), _vk(nullptr) {}
+GLFWContext::GLFWContext(GLFWwindow* win) : _win(win) {}
 
 fn GLFWContext::create(u32 width, u32 height) -> GLFWContext {
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -20,7 +20,7 @@ fn GLFWContext::create(u32 width, u32 height) -> GLFWContext {
 
 fn GLFWContext::fb_resize_fn(GLFWwindow* win, int w, int h) -> void {
   auto& self = *static_cast<GLFWContext*>(glfwGetWindowUserPointer(win));
-  ka_vk_rebuild_swapchain(self._vk, VkExtent2D(w, h));
+  vk_rebuild_swapchain(*self._vk, VkExtent2D(w, h));
 }
 
 namespace {
@@ -35,7 +35,7 @@ fn get_extensions() -> Span<const char*> {
 
 } // namespace
 
-fn GLFWContext::bind_vulkan(const char* app_name, u32 app_ver) -> VulkanContext {
+fn GLFWContext::bind_vulkan(const char* app_name, u32 app_ver) -> VkContext {
   const fn get_extent = [&]() -> VkExtent2D {
     int w, h;
     glfwGetFramebufferSize(_win, &w, &h);
@@ -46,38 +46,46 @@ fn GLFWContext::bind_vulkan(const char* app_name, u32 app_ver) -> VulkanContext 
                                 const VkAllocationCallbacks* vkalloc) -> VkResult {
     return glfwCreateWindowSurface(vkinst, _win, vkalloc, surface);
   };
-  fn init_imgui_fn = [this]() {
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
 
-    ImGui_ImplGlfw_InitForVulkan(_win, true);
+  const VkSurfaceArgs surface_args{
+    .extensions = get_extensions(),
+    .create = create_surface_fn,
+    .update_extent = get_extent,
+    .swapchain_extent = get_extent(),
   };
-
-  const VulkanContextArgs args{
-    .initial_extent = get_extent(),
-    .surface_extensions = get_extensions(),
-    .create_surface_fn = create_surface_fn,
-    .init_imgui_fn = {in_place, init_imgui_fn},
+  const VkContextArgs vk_args{
+    .surface = {in_place, std::move(surface_args)},
     .app_name = app_name,
     .app_ver = app_ver,
   };
-  auto vk = VulkanContext::create(args).value();
-  _vk = vk;
+  auto vk = VkContext::create(vk_args).value();
+  _vk = &vk.get();
   glfwSetWindowUserPointer(_win, this);
   glfwSetFramebufferSizeCallback(_win, fb_resize_fn);
   return vk;
 }
 
 fn GLFWContext::destroy() -> void {
-  if (_vk) {
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-  }
   glfwDestroyWindow(_win);
   glfwTerminate();
+}
+
+fn GLFWContext::ImGuiIniter::operator()() -> void {
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+  io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+
+  ImGui_ImplGlfw_InitForVulkan(_win, true);
+}
+
+fn GLFWContext::ImGuiIniter::destroy() -> void {
+  ImGui_ImplGlfw_Shutdown();
+}
+
+fn GLFWContext::make_imgui_initer() -> ImGuiIniter {
+  return ImGuiIniter{_win};
 }
 
 fn GLFWContext::start_imgui_frame() -> void {

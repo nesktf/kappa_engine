@@ -62,9 +62,8 @@ enum class VkLifetime {
   defer_frame,
 };
 
-fn vk_create_shader(VkContext_Impl& vk, VkShaderStageFlags stage, Span<const u8> src)
-  -> VkExpect<VkShaderModule>;
-fn vk_destroy_shader(VkContext_Impl& vk, VkShaderModule shader) -> void;
+fn vk_create_shader(VkContext_Impl& vk, Span<const u8> src) -> VkExpect<VkShaderModule>;
+fn vk_destroy_shader(VkContext_Impl& vk, VkShaderModule shader) noexcept -> void;
 
 class VkDescLayoutBuilder {
 public:
@@ -82,7 +81,7 @@ private:
   Vec<VkDescriptorSetLayoutBinding> _bindings;
 };
 
-fn vk_destroy_desc_layout(VkContext_Impl& vk, VkDescriptorSetLayout layout) -> void;
+fn vk_destroy_desc_layout(VkContext_Impl& vk, VkDescriptorSetLayout layout) noexcept -> void;
 
 class VkPipelineLayoutBuilder {
 public:
@@ -102,9 +101,24 @@ private:
   Vec<VkPushConstantRange> _con_range;
 };
 
-fn vk_destroy_pipeline_layout(VkContext_Impl& vk, VkPipelineLayout layout) -> void;
+fn vk_destroy_pipeline_layout(VkContext_Impl& vk, VkPipelineLayout layout) noexcept -> void;
 
 class VkGfxPipelineBuilder {
+public:
+  struct ShaderEntry {
+    VkShaderModule shader;
+    const char* entrypoint;
+  };
+
+  enum ShaderStages {
+    STAGE_VERTEX = 0,
+    STAGE_FRAGMENT,
+    STAGE_GEOMETRY,
+    STAGE_TESS_EVAL,
+    STAGE_TESS_CTRL,
+    STAGE_COUNT,
+  };
+
 public:
   VkGfxPipelineBuilder();
 
@@ -114,7 +128,8 @@ public:
 
 public:
   fn set_layout(VkPipelineLayout layout) -> VkGfxPipelineBuilder&;
-  fn add_module(VkShaderStageFlags stage, VkShaderModule shader) -> VkGfxPipelineBuilder&;
+  fn add_module(VkShaderStageFlagBits stage, VkShaderModule shader,
+                const char* entrypoint = nullptr) -> VkGfxPipelineBuilder&;
   fn set_topology(VkPrimitiveTopology topology) -> VkGfxPipelineBuilder&;
   fn set_poly_mode(VkPolygonMode mode, f32 width = 1.f) -> VkGfxPipelineBuilder&;
   fn set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) -> VkGfxPipelineBuilder&;
@@ -125,7 +140,7 @@ public:
   fn disable_depth_test() -> VkGfxPipelineBuilder&;
 
 private:
-  std::array<VkPipelineShaderStageCreateInfo, 5> _shader_stages;
+  std::array<ShaderEntry, STAGE_COUNT> _shader_stages;
   VkPipelineInputAssemblyStateCreateInfo _input_assembly;
   VkPipelineRasterizationStateCreateInfo _rasterizer;
   VkPipelineColorBlendAttachmentState _blend_attachment;
@@ -136,14 +151,23 @@ private:
   VkFormat _color_format;
 };
 
-fn vk_create_compute_pipeline(VkContext_Impl& vk, VkPipelineLayout layout, VkShaderModule shader)
-  -> VkExpect<VkPipeline>;
-fn vk_destroy_pipeline(VkContext_Impl& vk, VkPipeline pip) -> void;
+fn vk_create_compute_pipeline(VkContext_Impl& vk, VkPipelineLayout layout, VkShaderModule shader,
+                              const char* entrypoint = nullptr) -> VkExpect<VkPipeline>;
+fn vk_destroy_pipeline(VkContext_Impl& vk, VkPipeline pip) noexcept -> void;
+
+// Same as VmaMemoryUsage
+enum VkMemoryUsage {
+  KA_VK_MEM_USAGE_GPU_ONLY = 1,
+  KA_VK_MEM_USAGE_CPU_ONLY = 2,
+  KA_VK_MEM_USAGE_CPU_TO_GPU = 3,
+  KA_VK_MEM_USAGE_GPU_TO_CPU = 4,
+  KA_VK_MEM_USAGE_CPU_COPY = 5,
+};
 
 struct VkBufferArgs {
   size_t size;
   VkBufferUsageFlags usage;
-  VkMemoryPropertyFlags mem_usage;
+  VkMemoryUsage mem_usage;
 };
 
 struct VkAllocBuff_Impl;
@@ -158,13 +182,13 @@ public:
 public:
   VkAllocBuff(create_t, VkAllocBuff_Impl&& data);
 
-  static fn create(VkContext_Impl& ctx, const VkBufferArgs& args) -> VkExpect<VkAllocBuff>;
-  fn destroy(VkContext_Impl& ctx) -> void;
+public:
+  static fn allocate(VkContext_Impl& ctx, const VkBufferArgs& args) -> VkExpect<VkAllocBuff>;
 
 public:
   fn mapped_data() -> void*;
-  fn size() -> usize;
-  fn addr() -> VkDeviceAddress;
+  fn size() -> VkDeviceSize;
+  fn addr(VkContext_Impl& vk) -> VkDeviceAddress;
   fn buffer() -> VkBuffer;
 
 public:
@@ -175,6 +199,8 @@ public:
 private:
   opaque_type _data;
 };
+
+fn vk_dealloc_buffer(VkContext_Impl& vk, VkAllocBuff_Impl& buff) noexcept -> void;
 
 struct VkImageArgs {
   VkExtent3D extent;
@@ -193,11 +219,11 @@ public:
 public:
   VkAllocImage(create_t, VkAllocImage_Impl&& data);
 
-  static fn create(VkContext_Impl& ctx, const VkImageArgs& args) -> VkExpect<VkAllocImage>;
-  fn destroy(VkContext_Impl& ctx) -> void;
+public:
+  static fn allocate(VkContext_Impl& ctx, const VkImageArgs& args) -> VkExpect<VkAllocImage>;
 
 public:
-  fn extent() const -> VkExtent2D;
+  fn extent() const -> VkExtent3D;
   fn format() const -> VkFormat;
   fn view() const -> VkImageView;
   fn image() const -> VkImage;
@@ -211,9 +237,11 @@ private:
   opaque_type _data;
 };
 
+fn vk_dealloc_image(VkContext_Impl& vk, VkAllocImage_Impl& image) noexcept -> void;
+
 struct VkSurfaceArgs {
 public:
-  using UpdateSurfExtFn = TrivFn<void(VkExtent2D*), 2 * sizeof(void*), 8>;
+  using UpdateSurfExtFn = TrivFn<VkExtent2D(), 2 * sizeof(void*), 8>;
   using CreateSurfFn = TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*),
                               2 * sizeof(void*), 8>;
 
@@ -229,6 +257,8 @@ struct VkContextArgs {
   const char* app_name;
   u32 app_ver;
 };
+
+fn vk_rebuild_swapchain(VkContext_Impl& vk, VkExtent2D extent) -> VkExpect<void>;
 
 class VkContext {
 public:
@@ -255,7 +285,9 @@ public:
   static fn destroy(VkContext_Impl* ctx) noexcept -> void;
 
 public:
-  fn rebuild_swapchain(VkExtent2D extent) -> VkExpect<void>;
+  fn rebuild_swapchain(VkExtent2D extent) -> VkExpect<void> {
+    return vk_rebuild_swapchain(*_vk.get(), extent);
+  }
 
   fn new_frame() -> VkExpect<void>;
   fn end_frame() -> VkExpect<void>;
@@ -281,6 +313,8 @@ private:
   fn _submit_cmd(UserCmdFn func) -> VkExpect<void>;
 
 public:
+  VkContext_Impl& get() { return *_vk.get(); }
+
   operator VkContext_Impl&() { return *_vk.get(); }
 
 private:
@@ -363,17 +397,12 @@ fn vk_init_imgui(VkContext_Impl& vk, F&& imgui_initer) -> VkExpect<void> {
   return {};
 }
 
-struct VkImGuiDrawData {
-  ImDrawData* draw_data;
-  VkPipeline pipeline;
-};
-
-inline fn vk_draw_imgui(void* user, VkCommandBuffer cmd) {
-  const auto& imgui_data = *static_cast<VkImGuiDrawData*>(user);
-  ImGui_ImplVulkan_RenderDrawData(imgui_data.draw_data, cmd, imgui_data.pipeline);
+inline fn vk_draw_imgui(VkCommandBuffer cmd, ImDrawData* draw_data,
+                        VkPipeline pipeline = VK_NULL_HANDLE) {
+  ImGui_ImplVulkan_RenderDrawData(draw_data, cmd, pipeline);
 }
 
-inline fn vk_shutown_imgui() -> void {
+inline fn vk_shutdown_imgui() -> void {
   ImGui_ImplVulkan_Shutdown();
 }
 #endif

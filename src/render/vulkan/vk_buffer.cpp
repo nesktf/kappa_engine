@@ -22,7 +22,7 @@ fn vk_create_vma_alloc(VkInstance vk, VkDevice device, VkPhysicalDevice physical
   return {in_place, vmalloc};
 }
 
-fn vk_alloc_image(ka_VkImage& image, VkDevice device, VmaAllocator vma, VkExtent3D extent,
+fn vk_alloc_image(VkAllocImage_Impl& image, VkDevice device, VmaAllocator vma, VkExtent3D extent,
                   VkFormat format) -> VkExpect<void> {
   VkImageUsageFlags draw_usage{};
   draw_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -56,59 +56,51 @@ fn vk_dealloc_image(VmaAllocator vma, VkImage image, VmaAllocation alloc) -> voi
   vmaDestroyImage(vma, image, alloc);
 }
 
-} // namespace kappa::render
-
-VkResult ka_vk_alloc_image(ka_VkContext vk, ka_VkImage* image, ka_VkImageArgs const* args) {
-  ka_assert(image);
-  ka_assert(vk);
-  ka_assert(args);
-
-  const auto device = vk->device.device();
-  const auto vmalloc = vk->vmalloc;
-  std::memset(image, 0x00, sizeof(*image));
-  return kappa::render::vk_alloc_image(*image, device, vmalloc, args->extent, args->format)
-    .error_or(kappa::render::VkError(VK_SUCCESS))
-    .code();
+VkAllocImage::VkAllocImage(create_t, VkAllocImage_Impl&& data) {
+  _data.construct(std::move(data));
 }
 
-void ka_vk_dealloc_image(ka_VkContext vk, ka_VkImage* image) {
-  if (!vk || !image) {
+fn VkAllocImage::allocate(VkContext_Impl& vk, const VkImageArgs& args) -> VkExpect<VkAllocImage> {
+  const auto device = vk.device.device();
+  const auto vmalloc = vk.vmalloc;
+  VkAllocImage_Impl image;
+  std::memset(&image, 0x00, sizeof(image));
+  return kappa::render::vk_alloc_image(image, device, vmalloc, args.extent, args.format)
+    .transform([&]() -> VkAllocImage { return {create_t(), std::move(image)}; });
+}
+
+fn vk_dealloc_image(VkContext_Impl& vk, VkAllocImage_Impl& image) noexcept -> void {
+  if (image.image == VK_NULL_HANDLE) {
     return;
   }
-  vkDestroyImageView(vk->device.device(), image->view, vkalloc);
-  kappa::render::vk_dealloc_image(vk->vmalloc, image->image, image->alloc);
+  vk_dealloc_image(vk.vmalloc, image.image, image.alloc);
+  image.image = VK_NULL_HANDLE;
 }
 
-void ka_vk_image_get_extent(ka_VkImage const* image, VkExtent3D* extent) {
-  (*extent) = image->extent;
+fn VkAllocImage::extent() const -> VkExtent3D {
+  return _data->extent;
 }
 
-void ka_vk_image_get_format(ka_VkImage const* image, VkFormat* format) {
-  (*format) = image->format;
+fn VkAllocImage::format() const -> VkFormat {
+  return _data->format;
 }
 
-void ka_vk_image_get_target(ka_VkImage const* image, ka_VkTarget* target) {
-  (*target) = (ka_VkTarget)image;
+fn VkAllocImage::view() const -> VkImageView {
+  return _data->view;
 }
 
-void ka_vk_image_get_view(ka_VkImage const* image, VkImageView* view) {
-  (*view) = image->view;
+fn VkAllocImage::image() const -> VkImage {
+  return _data->image;
 }
 
-void ka_vk_image_get_handle(ka_VkImage const* image, VkImage* handle) {
-  (*handle) = image->image;
-}
-
-namespace kappa::render {
-
-fn vk_alloc_buffer(ka_VkBuffer& buffer, VmaAllocator vma, usize size, VkBufferUsageFlags usage,
-                   VkMemoryPropertyFlags mem_usage) -> VkExpect<void> {
+fn vk_alloc_buffer(VkAllocBuff_Impl& buffer, VmaAllocator vma, usize size,
+                   VkBufferUsageFlags usage, VmaMemoryUsage mem_usage) -> VkExpect<void> {
   auto buffer_info = vkmk_zero<VkBufferCreateInfo>();
   buffer_info.size = size;
   buffer_info.usage = usage;
 
   VmaAllocationCreateInfo alloc_info{};
-  alloc_info.usage = (VmaMemoryUsage)mem_usage;
+  alloc_info.usage = mem_usage;
   alloc_info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
   KA_VK_UNEX(
@@ -117,50 +109,47 @@ fn vk_alloc_buffer(ka_VkBuffer& buffer, VmaAllocator vma, usize size, VkBufferUs
   return {};
 }
 
+VkAllocBuff::VkAllocBuff(create_t, VkAllocBuff_Impl&& data) {
+  _data.construct(std::move(data));
+}
+
+fn VkAllocBuff::allocate(VkContext_Impl& vk, const VkBufferArgs& args) -> VkExpect<VkAllocBuff> {
+  const auto vmalloc = vk.vmalloc;
+  VkAllocBuff_Impl buffer;
+  std::memset(&buffer, 0x00, sizeof(buffer));
+  return kappa::render::vk_alloc_buffer(buffer, vmalloc, args.size, args.usage,
+                                        (VmaMemoryUsage)args.mem_usage)
+    .transform([&]() -> VkAllocBuff { return {create_t(), std::move(buffer)}; });
+}
+
 fn vk_dealloc_buffer(VmaAllocator vma, VkBuffer buffer, VmaAllocation alloc) -> void {
   vmaDestroyBuffer(vma, buffer, alloc);
 }
 
-} // namespace kappa::render
-
-VkResult ka_vk_alloc_buffer(ka_VkContext vk, ka_VkBuffer* buffer, ka_VkBufferArgs const* args) {
-  ka_assert(vk);
-  ka_assert(buffer);
-  ka_assert(args);
-
-  const auto vmalloc = vk->vmalloc;
-  std::memset(buffer, 0x00, sizeof(*buffer));
-  return kappa::render::vk_alloc_buffer(*buffer, vmalloc, args->size, args->usage, args->mem_usage)
-    .error_or(kappa::render::VkError(VK_SUCCESS))
-    .code();
-}
-
-void ka_vk_dealloc_buffer(ka_VkContext vk, ka_VkBuffer* buffer) {
-  if (!buffer) {
+fn vk_dealloc_buffer(VkContext_Impl& vk, VkAllocBuff_Impl& buff) noexcept -> void {
+  if (buff.buffer == VK_NULL_HANDLE) {
     return;
   }
-  kappa::render::vk_dealloc_buffer(vk->vmalloc, buffer->buffer, buffer->alloc);
+  vk_dealloc_buffer(vk.vmalloc, buff.buffer, buff.alloc);
+  buff.buffer = VK_NULL_HANDLE;
 }
 
-void ka_vk_buffer_get_mapped_data(ka_VkBuffer const* buffer, void** data) {
-  (*data) = buffer->info.pMappedData;
+fn VkAllocBuff::mapped_data() -> void* {
+  return _data->info.pMappedData;
 }
 
-void ka_vk_buffer_get_size(ka_VkBuffer const* buffer, size_t* size) {
-  (*size) = (size_t)buffer->info.size;
+fn VkAllocBuff::size() -> VkDeviceSize {
+  return _data->info.size;
 }
 
-void ka_vk_buffer_get_addr(ka_VkBuffer const* buffer, ka_VkContext vk, VkDeviceAddress* addr) {
-  const auto device = vk->device.device();
-  auto address_info = kappa::render::vkmk_zero<VkBufferDeviceAddressInfo>();
-  address_info.buffer = buffer->buffer;
-  (*addr) = vkGetBufferDeviceAddress(device, &address_info);
+fn VkAllocBuff::addr(VkContext_Impl& vk) -> VkDeviceAddress {
+  auto address_info = vkmk_zero<VkBufferDeviceAddressInfo>();
+  address_info.buffer = _data->buffer;
+  return vkGetBufferDeviceAddress(vk.device.device(), &address_info);
 }
 
-void ka_vk_buffer_get_handle(ka_VkBuffer const* buffer, VkBuffer* handle) {
-  (*handle) = buffer->buffer;
+fn VkAllocBuff::buffer() -> VkBuffer {
+  return _data->buffer;
 }
 
-void ka_vk_buffer_transfer(ka_VkContext vk, ka_VkBuffer const* src, VkDeviceSize src_offset,
-                           VkDeviceSize src_size, ka_VkBuffer* dst, VkDeviceSize dst_offset,
-                           VkDeviceSize dst_size) {}
+} // namespace kappa::render

@@ -10,6 +10,19 @@ namespace kappa::render {
 
 class GLFWContext {
 public:
+  struct ImGuiIniter {
+  public:
+    ImGuiIniter(GLFWwindow* win) : _win(win) {}
+
+  public:
+    void operator()();
+    void destroy();
+
+  private:
+    GLFWwindow* _win;
+  };
+
+public:
   GLFWContext(GLFWwindow* win);
 
 public:
@@ -20,7 +33,9 @@ public:
   static fn fb_resize_fn(GLFWwindow* win, int w, int h) -> void;
 
 public:
-  fn bind_vulkan(const char* app_name, u32 app_ver) -> VulkanContext;
+  fn bind_vulkan(const char* app_name, u32 app_ver) -> VkContext;
+
+  fn make_imgui_initer() -> ImGuiIniter;
 
   fn start_imgui_frame() -> void;
 
@@ -30,7 +45,7 @@ public:
 
 private:
   GLFWwindow* _win;
-  ka_VulkanContext _vk;
+  VkContext_Impl* _vk;
 };
 
 namespace meta {

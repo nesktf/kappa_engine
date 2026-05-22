@@ -338,7 +338,7 @@ fn VkContext::create(const VkContextArgs& args) -> VkMsgExpect<VkContext> {
 
   new (ctx) VkContext_Impl(vk, messenger, *vmalloc, surface, *std::move(device),
                            *std::move(swapchain), *std::move(framedata), std::move(imdraw),
-                           std::move(render_target), *std::move(descpool), std::move(delqueue));
+                           *std::move(descpool), std::move(delqueue));
 
   swapchain_err.disengage();
   ctx_err.disengage();
@@ -357,12 +357,12 @@ fn VkContext::destroy(VkContext_Impl* ctx) noexcept -> void {
   std::allocator<VkContext_Impl>().deallocate(ctx, 1);
 }
 
-fn VkContext::rebuild_swapchain(VkExtent2D extent) -> VkExpect<void> {
-  const auto swargs = make_swapchain_args(_vk->device, _vk->surface, extent);
-  return VulkanSwapchain::create(swargs, _vk->swapchain.swapchain())
-    .transform([this](VulkanSwapchain&& swapchain) {
-      _vk->swapchain.destroy(_vk->device.device());
-      _vk->swapchain = std::move(swapchain);
+fn vk_rebuild_swapchain(VkContext_Impl& vk, VkExtent2D extent) -> VkExpect<void> {
+  const auto swargs = make_swapchain_args(vk.device, vk.surface, extent);
+  return VulkanSwapchain::create(swargs, vk.swapchain.swapchain())
+    .transform([&](VulkanSwapchain&& swapchain) {
+      vk.swapchain.destroy(vk.device.device());
+      vk.swapchain = std::move(swapchain);
     });
 }
 

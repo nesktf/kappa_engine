@@ -1,14 +1,12 @@
 #include "./render/glfw.hpp"
+#include "./render/vulkan/vk.hpp"
 
+#include "./util/filesystem.hpp"
 #include "./util/logger.hpp"
-#include "render/vulkan/vk.hpp"
-#include "render/vulkan/vk_util.hpp"
-#include "util/filesystem.hpp"
 
 #include <imgui.h>
 
 #include <ranmath/ran.hpp>
-#include <vulkan/vulkan_core.h>
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -78,15 +76,22 @@ fn run_engine() -> void {
     glfw.destroy();
   };
   auto vk = glfw.bind_vulkan(KA_APP_NAME, KA_APP_VERSION);
+  auto imgui = glfw.make_imgui_initer();
+  render::vk_init_imgui(vk, imgui);
+  const DeferFn imgui_defer = [&]() {
+    render::vk_shutdown_imgui();
+    imgui.destroy();
+    ImGui::DestroyContext();
+  };
 
   // Draw image target
   const render::VkImageArgs target_args{
     .extent = {WINDOW_WIDTH, WINDOW_HEIGHT, 1},
     .format = VK_FORMAT_R16G16B16A16_SFLOAT,
   };
-  auto target = render::VkAllocImage::create(vk, target_args).value();
+  auto target = render::VkAllocImage::allocate(vk, target_args).value();
   const DeferFn target_defer = [&]() {
-    target.destroy(vk);
+    render::vk_dealloc_image(vk, target);
   };
 
   // Compute effects
@@ -115,14 +120,11 @@ fn run_engine() -> void {
     };
 
     const auto src_gradient = load_entire_file(KA_RES_DIR "/shaders/gradient_color.comp.spv");
-    shader_gradient = render::vk_create_shader(vk, VK_SHADER_STAGE_COMPUTE_BIT,
-                                               {src_gradient.data(), src_gradient.size()})
-                        .value();
+    shader_gradient =
+      render::vk_create_shader(vk, {src_gradient.data(), src_gradient.size()}).value();
 
     const auto src_sky = load_entire_file(KA_RES_DIR "/shaders/sky.comp.spv");
-    shader_sky =
-      render::vk_create_shader(vk, VK_SHADER_STAGE_COMPUTE_BIT, {src_sky.data(), src_sky.size()})
-        .value();
+    shader_sky = render::vk_create_shader(vk, {src_sky.data(), src_sky.size()}).value();
 
     render::VkDescLayoutBuilder desc_layout_builder;
     image_desc_layout = desc_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
@@ -169,14 +171,10 @@ fn run_engine() -> void {
     };
 
     const auto vert_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.vert.spv");
-    triangle_vert =
-      render::vk_create_shader(vk, VK_SHADER_STAGE_VERTEX_BIT, {vert_src.data(), vert_src.size()})
-        .value();
+    triangle_vert = render::vk_create_shader(vk, {vert_src.data(), vert_src.size()}).value();
 
     const auto frag_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.frag.spv");
-    triangle_frag = render::vk_create_shader(vk, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                             {frag_src.data(), frag_src.size()})
-                      .value();
+    triangle_frag = render::vk_create_shader(vk, {frag_src.data(), frag_src.size()}).value();
 
     render::VkPipelineLayoutBuilder layout_builder;
     triangle_layout = layout_builder.build(vk).value();
@@ -202,12 +200,11 @@ fn run_engine() -> void {
     .size = vb_size,
     .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-    // GPU only
-    .mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
   };
-  auto vb = render::VkAllocBuff::create(vk, vb_args).value();
+  auto vb = render::VkAllocBuff::allocate(vk, vb_args).value();
   const DeferFn vb_defer = [&]() {
-    vb.destroy(vk);
+    render::vk_dealloc_buffer(vk, vb);
   };
 
   // Mesh index buffer
@@ -216,12 +213,11 @@ fn run_engine() -> void {
     .size = vb_size,
     .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-    // GPU only
-    .mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
   };
-  auto ib = render::VkAllocBuff::create(vk, ib_args).value();
+  auto ib = render::VkAllocBuff::allocate(vk, ib_args).value();
   const DeferFn ib_defer = [&]() {
-    ib.destroy(vk);
+    render::vk_dealloc_buffer(vk, ib);
   };
 
   // Copy using staging buffer
@@ -229,12 +225,11 @@ fn run_engine() -> void {
     const render::VkBufferArgs staging_args{
       .size = vb_size + ib_size,
       .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      // CPU only
-      .mem_usage = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+      .mem_usage = render::KA_VK_MEM_USAGE_CPU_ONLY,
     };
-    auto staging = render::VkAllocBuff::create(vk, staging_args).value();
+    auto staging = render::VkAllocBuff::allocate(vk, staging_args).value();
     const DeferFn staging_defer = [&]() {
-      staging.destroy(vk);
+      render::vk_dealloc_buffer(vk, staging);
     };
     void* data = staging.mapped_data();
     std::memcpy(data, rect_verts.data(), vb_size);
@@ -269,14 +264,10 @@ fn run_engine() -> void {
     };
 
     const auto vert_src = load_entire_file(KA_RES_DIR "/shaders/colored_mesh.vert.spv");
-    mesh_vert =
-      render::vk_create_shader(vk, VK_SHADER_STAGE_VERTEX_BIT, {vert_src.data(), vert_src.size()})
-        .value();
+    mesh_vert = render::vk_create_shader(vk, {vert_src.data(), vert_src.size()}).value();
 
     const auto frag_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.frag.spv");
-    mesh_frag = render::vk_create_shader(vk, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                         {frag_src.data(), frag_src.size()})
-                  .value();
+    mesh_frag = render::vk_create_shader(vk, {frag_src.data(), frag_src.size()}).value();
 
     render::VkPipelineLayoutBuilder layout_builder;
     mesh_layout =
@@ -302,7 +293,7 @@ fn run_engine() -> void {
 
   // Draw functions
   s32 compute_idx = 0;
-  const fn draw_imgui = [&]() {
+  const fn draw_imgui = [&](VkCommandBuffer cmd) {
     glfw.start_imgui_frame();
     ImGui::NewFrame();
 
@@ -319,9 +310,13 @@ fn run_engine() -> void {
     ImGui::End();
 
     ImGui::Render();
+    render::vk_draw_imgui(cmd, ImGui::GetDrawData());
   };
 
-  const auto draw_extent = target.extent();
+  const auto draw_extent = [&]() -> VkExtent2D {
+    auto ext = target.extent();
+    return {ext.width, ext.height};
+  }();
   const fn draw_compute = [&](VkCommandBuffer cmd) -> void {
     auto& data = compute_data[compute_idx];
     const auto pipeline = compute_pipelines[compute_idx];
@@ -378,7 +373,7 @@ fn run_engine() -> void {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_pipeline);
       GFXConstants push_constants;
       push_constants.world_mat = transform;
-      push_constants.vertex_buffer = vb.addr();
+      push_constants.vertex_buffer = vb.addr(vk);
       vkCmdPushConstants(cmd, mesh_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push_constants),
                          &push_constants);
       vkCmdBindIndexBuffer(cmd, ib.buffer(), 0, VK_INDEX_TYPE_UINT32);
@@ -405,13 +400,13 @@ fn run_engine() -> void {
                                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     // 4. Do the copy
-    render::vkcmd_transfer_image(cmd, target.image(), frame.swapchain_image, target.extent(),
+    render::vkcmd_transfer_image(cmd, target.image(), frame.swapchain_image, draw_extent,
                                  frame.swapchain_extent);
 
     // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_imgui();
+    draw_imgui(cmd);
 
     // 6. Prepare swapchain image for presenting
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,

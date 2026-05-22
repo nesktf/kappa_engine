@@ -1,6 +1,6 @@
 #include "./vk_swapchain.hpp"
+
 #include "./vk_util.hpp"
-#include "render/vulkan/vk_private.hpp"
 
 #include <algorithm>
 
