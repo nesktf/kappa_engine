@@ -7,6 +7,7 @@
 #include <imgui.h>
 
 #include <ranmath/ran.hpp>
+#include <vulkan/vulkan_core.h>
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -136,8 +137,9 @@ fn run_engine() -> void {
     img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     img_info.imageView = target.view();
     VkWriteDescriptorSet draw_image_write{};
-    draw_image_write.dstBinding = 0;
+    draw_image_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     draw_image_write.dstSet = image_desc;
+    draw_image_write.dstBinding = 0;
     draw_image_write.descriptorCount = 1;
     draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     draw_image_write.pImageInfo = &img_info;
@@ -184,6 +186,7 @@ fn run_engine() -> void {
                           .add_module(VK_SHADER_STAGE_VERTEX_BIT, triangle_vert)
                           .add_module(VK_SHADER_STAGE_FRAGMENT_BIT, triangle_frag)
                           .set_poly_mode(VK_POLYGON_MODE_FILL)
+                          .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
                           .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
                           .set_color_format(target.format())
                           .set_depth_format(VK_FORMAT_UNDEFINED)
@@ -211,8 +214,7 @@ fn run_engine() -> void {
   static constexpr auto ib_size = sizeof(rect_indices);
   const render::VkBufferArgs ib_args{
     .size = vb_size,
-    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
     .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
   };
   auto ib = render::VkAllocBuff::allocate(vk, ib_args).value();
@@ -293,7 +295,8 @@ fn run_engine() -> void {
 
   // Draw functions
   s32 compute_idx = 0;
-  const fn draw_imgui = [&](VkCommandBuffer cmd) {
+  const fn draw_imgui = [&](VkCommandBuffer cmd, VkImageView swapchain_view,
+                            VkExtent2D swapchain_extent) {
     glfw.start_imgui_frame();
     ImGui::NewFrame();
 
@@ -310,7 +313,14 @@ fn run_engine() -> void {
     ImGui::End();
 
     ImGui::Render();
+
+    const auto color_attachment =
+      render::vkmk_attach_info(swapchain_view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const auto render_info =
+      render::vkmk_render_info(swapchain_extent, &color_attachment, nullptr);
+    vkCmdBeginRendering(cmd, &render_info);
     render::vk_draw_imgui(cmd, ImGui::GetDrawData());
+    vkCmdEndRendering(cmd);
   };
 
   const auto draw_extent = [&]() -> VkExtent2D {
@@ -381,7 +391,7 @@ fn run_engine() -> void {
     }
     vkCmdEndRendering(cmd);
   };
-  const fn draw_things = [&](const render::VkContext::FrameContext& frame) -> void {
+  fn draw_things = [&](const render::VkContext::FrameContext& frame) -> void {
     const auto cmd = frame.cmd;
 
     // 1. Draw using compute pipeline (we use a general layout)
@@ -395,6 +405,8 @@ fn run_engine() -> void {
     draw_geometry(cmd);
 
     // 3. Prepare swapchain for copying
+    layout = render::vkcmd_transition_image(cmd, target.image(), layout,
+                                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkImageLayout sw_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -406,7 +418,7 @@ fn run_engine() -> void {
     // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_imgui(cmd);
+    draw_imgui(cmd, frame.swapchain_view, frame.swapchain_extent);
 
     // 6. Prepare swapchain image for presenting
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
@@ -430,6 +442,7 @@ fn run_engine() -> void {
   };
 
   render::render_loop<60>(glfw, OverloadFn{on_fixed_update, on_render});
+  vk.device_wait();
 }
 
 } // namespace

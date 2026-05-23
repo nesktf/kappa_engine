@@ -73,6 +73,7 @@ fn vk_dealloc_image(VkContext_Impl& vk, VkAllocImage_Impl& image) noexcept -> vo
   if (image.image == VK_NULL_HANDLE) {
     return;
   }
+  vkDestroyImageView(vk.device.device(), image.view, vkalloc);
   vk_dealloc_image(vk.vmalloc, image.image, image.alloc);
   image.image = VK_NULL_HANDLE;
 }

@@ -380,8 +380,12 @@ fn VkContext::update_sets(Span<const VkWriteDescriptorSet> writes,
                          copies.empty() ? nullptr : copies.data());
 }
 
+fn VkContext::device_wait() -> void {
+  _vk->device.wait_idle();
+}
+
 fn VkContext::new_frame() -> VkExpect<void> {
-  auto& frame = _vk->framedata.next_frame();
+  auto& frame = _vk->framedata.curr_frame();
   const auto cmd = frame.cmdbuf;
   const auto device = _vk->device.device();
   const auto swapchain = _vk->swapchain.swapchain();
@@ -443,6 +447,7 @@ fn VkContext::end_frame() -> VkExpect<void> {
   VkResult ret = VK_SUCCESS;
   ret = vkQueuePresentKHR(present_queue, &present_info);
   ka_assert(ret == VK_SUCCESS || ret == VK_SUBOPTIMAL_KHR);
+  _vk->framedata.next_frame();
   return ret == VK_SUCCESS ? VkExpect<void>{} : VkExpect<void>{unexpect, ret};
 }
 
@@ -475,11 +480,13 @@ fn VkContext::_submit_cmd(UserCmdFn func) -> VkExpect<void> {
   auto& frame = _vk->framedata.curr_frame();
   const auto swapchain_extent = _vk->swapchain.extent();
   const auto swapchain_image = _vk->swapchain.images()[frame.swapchain_idx];
+  const auto swapchain_view = _vk->swapchain.image_views()[frame.swapchain_idx];
   const auto cmd = frame.cmdbuf;
 
   const VkContext::FrameContext framedata{
     .cmd = cmd,
     .swapchain_image = swapchain_image,
+    .swapchain_view = swapchain_view,
     .swapchain_extent = swapchain_extent,
   };
   func(framedata);

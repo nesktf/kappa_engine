@@ -335,6 +335,13 @@ fn vk_destroy_pipeline_layout(VkContext_Impl& vk, VkPipelineLayout layout) noexc
   vkDestroyPipelineLayout(vk.device.device(), layout, vkalloc);
 }
 
+fn vk_destroy_pipeline(VkContext_Impl& vk, VkPipeline pipeline) noexcept -> void {
+  if (pipeline == VK_NULL_HANDLE) {
+    return;
+  }
+  vkDestroyPipeline(vk.device.device(), pipeline, vkalloc);
+}
+
 fn vk_create_compute_pipeline(VkContext_Impl& vk, VkPipelineLayout layout, VkShaderModule shader,
                               const char* entrypoint) -> VkExpect<VkPipeline> {
   const auto stage_info = vkmk_pipeline_stage_info(VK_SHADER_STAGE_COMPUTE_BIT, shader,

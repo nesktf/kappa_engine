@@ -265,6 +265,7 @@ public:
   struct FrameContext {
     VkCommandBuffer cmd;
     VkImage swapchain_image;
+    VkImageView swapchain_view;
     VkExtent2D swapchain_extent;
   };
 
@@ -291,6 +292,8 @@ public:
 
   fn new_frame() -> VkExpect<void>;
   fn end_frame() -> VkExpect<void>;
+
+  fn device_wait() -> void;
 
   fn alloc_desc(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
   fn update_sets(Span<const VkWriteDescriptorSet> writes, Span<const VkCopyDescriptorSet> copies)
