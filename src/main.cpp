@@ -94,6 +94,9 @@ fn run_engine() -> void {
     .app_ver = KA_APP_VERSION,
   };
   auto vk = render::VkContext::create(vk_args).value();
+  const DeferFn vk_defer = [&]() {
+    render::vk_destroy_context(vk);
+  };
 
   auto imgui = glfw.make_imgui_initer();
   render::vk_init_imgui(vk, imgui);

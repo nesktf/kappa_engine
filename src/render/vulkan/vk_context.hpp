@@ -28,19 +28,13 @@ struct VkContextArgs {
 };
 
 class VkContext {
-public:
-  struct Deleter {
-    void operator()(VkContext_Impl* vk) noexcept { VkContext::destroy(vk); }
-  };
-
 private:
   struct create_t {};
 
 public:
-  VkContext(create_t, VkContext_Impl* ctx) noexcept : _vk(ctx) {}
+  VkContext(create_t, VkContext_Impl* vk) noexcept : _vk(vk) {}
 
   static fn create(const VkContextArgs& args) -> VkMsgExpect<VkContext>;
-  static fn destroy(VkContext_Impl* vk) noexcept -> void;
 
 public:
   fn device() -> VkDevice;
@@ -48,13 +42,15 @@ public:
   fn allocator() -> VkMemAllocator;
 
 public:
-  VkContext_Impl& get() { return *_vk.get(); }
+  VkContext_Impl& get() { return *_vk; }
 
-  operator VkContext_Impl&() { return *_vk.get(); }
+  operator VkContext_Impl&() { return *_vk; }
 
 private:
-  std::unique_ptr<VkContext_Impl, Deleter> _vk;
+  VkContext_Impl* _vk;
 };
+
+fn vk_destroy_context(VkContext_Impl& vk) noexcept -> void;
 
 fn vk_rebuild_swapchain(VkContext_Impl& vk, VkExtent2D extent) -> VkExpect<void>;
 

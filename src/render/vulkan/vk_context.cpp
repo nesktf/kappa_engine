@@ -334,12 +334,9 @@ fn VkContext::create(const VkContextArgs& args) -> VkMsgExpect<VkContext> {
 #undef KA_VK_UNEX_CODE_RET
 }
 
-fn VkContext::destroy(VkContext_Impl* ctx) noexcept -> void {
-  if (!ctx) {
-    return;
-  }
-  std::destroy_at(ctx);
-  std::allocator<VkContext_Impl>().deallocate(ctx, 1);
+fn vk_destroy_context(VkContext_Impl& ctx) noexcept -> void {
+  std::destroy_at(&ctx);
+  std::allocator<VkContext_Impl>().deallocate(&ctx, 1);
 }
 
 fn VkContext::device() -> VkDevice {
