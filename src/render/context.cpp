@@ -241,7 +241,6 @@ fn init_meshes(VkContext& vk, VkDelQueue& delqueue, VkAllocImage& target,
 } // namespace
 
 fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
-
   VkExtent2D surface_extent{};
   auto extent_updater = glfw.make_vk_extent_updater();
   extent_updater(&surface_extent);
@@ -351,7 +350,7 @@ fn draw_imgui(GLFWContext& glfw, RenderContext::ComputeRenderData& compute, VkCo
   vkCmdEndRendering(cmd);
 }
 
-fn draw_compute(RenderContext::ComputeRenderData& compute, VkExtent2D draw_extent,
+fn draw_compute(const RenderContext::ComputeRenderData& compute, VkExtent2D draw_extent,
                 VkCommandBuffer cmd) -> void {
   auto& data = compute.data[compute.effect_idx];
   const auto pipeline = compute.pipelines[compute.effect_idx];
@@ -362,8 +361,8 @@ fn draw_compute(RenderContext::ComputeRenderData& compute, VkExtent2D draw_exten
   vkCmdDispatch(cmd, std::ceil(draw_extent.width / 16.f), std::ceil(draw_extent.height / 16.f), 1);
 }
 
-fn draw_geometry(VkContext& vk, RenderContext::MeshRenderData& mesh, VkImageView target_view,
-                 VkExtent2D draw_extent, VkCommandBuffer cmd) -> void {
+fn draw_geometry(const RenderContext::MeshRenderData& mesh, VkDevice device,
+                 VkImageView target_view, VkExtent2D draw_extent, VkCommandBuffer cmd) -> void {
   const auto color_attachment =
     render::vkmk_attach_info(target_view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto render_info = render::vkmk_render_info(draw_extent, &color_attachment, nullptr);
@@ -394,7 +393,7 @@ fn draw_geometry(VkContext& vk, RenderContext::MeshRenderData& mesh, VkImageView
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh.mesh_pipeline);
     RenderContext::MeshConstants push_constants;
     push_constants.world_mat = mesh.quad_transform;
-    push_constants.vertex_buffer = mesh.vertex_buffer->addr(vk);
+    push_constants.vertex_buffer = mesh.vertex_buffer->addr(device);
     vkCmdPushConstants(cmd, mesh.mesh_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(push_constants), &push_constants);
     vkCmdBindIndexBuffer(cmd, mesh.index_buffer->buffer(), 0, VK_INDEX_TYPE_UINT32);
@@ -423,7 +422,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 2. Draw using graphics pipelines (we use a color attachment layout)
     layout = render::vkcmd_transition_image(cmd, _target.image(), layout,
                                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_geometry(_vk, _mesh, _target.view(), draw_extent, cmd);
+    draw_geometry(_mesh, _vk.device(), _target.view(), draw_extent, cmd);
 
     // 3. Prepare swapchain for copying
     layout = render::vkcmd_transition_image(cmd, _target.image(), layout,

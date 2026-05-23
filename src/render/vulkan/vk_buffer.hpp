@@ -35,10 +35,10 @@ public:
   static fn allocate(VkContext_Impl& ctx, const VkBufferArgs& args) -> VkExpect<VkAllocBuff>;
 
 public:
-  fn mapped_data() -> void*;
-  fn size() -> VkDeviceSize;
-  fn addr(VkContext_Impl& vk) -> VkDeviceAddress;
-  fn buffer() -> VkBuffer;
+  fn mapped_data() const -> void*;
+  fn size() const -> VkDeviceSize;
+  fn addr(VkDevice device) const -> VkDeviceAddress;
+  fn buffer() const -> VkBuffer;
 
 public:
   operator VkAllocBuff_Impl&() { return *_data.get(); }

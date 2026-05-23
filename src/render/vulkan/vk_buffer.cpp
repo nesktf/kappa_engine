@@ -135,21 +135,21 @@ fn vk_dealloc_buffer(VkContext_Impl& vk, VkAllocBuff_Impl& buff) noexcept -> voi
   buff.buffer = VK_NULL_HANDLE;
 }
 
-fn VkAllocBuff::mapped_data() -> void* {
+fn VkAllocBuff::mapped_data() const -> void* {
   return _data->info.pMappedData;
 }
 
-fn VkAllocBuff::size() -> VkDeviceSize {
+fn VkAllocBuff::size() const -> VkDeviceSize {
   return _data->info.size;
 }
 
-fn VkAllocBuff::addr(VkContext_Impl& vk) -> VkDeviceAddress {
+fn VkAllocBuff::addr(VkDevice device) const -> VkDeviceAddress {
   auto address_info = vkmk_zero<VkBufferDeviceAddressInfo>();
   address_info.buffer = _data->buffer;
-  return vkGetBufferDeviceAddress(vk.device.device(), &address_info);
+  return vkGetBufferDeviceAddress(device, &address_info);
 }
 
-fn VkAllocBuff::buffer() -> VkBuffer {
+fn VkAllocBuff::buffer() const -> VkBuffer {
   return _data->buffer;
 }
 
