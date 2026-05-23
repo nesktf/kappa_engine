@@ -1,6 +1,8 @@
 #pragma once
 
-#include "./vulkan/vk_context.hpp"
+#include "./vulkan/vk_common.hpp"
+
+#include "../util/ptr.hpp"
 
 #include <GLFW/glfw3.h>
 
