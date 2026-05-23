@@ -15,7 +15,7 @@ fn make_vk_defer(VkContext& vk) {
   };
 }
 
-fn make_imgui_defer(GLFWContext::ImGuiIniter& imgui) {
+fn make_imgui_defer(GLFWContext::ImGuiHandler& imgui) {
   return [&]() {
     render::vk_shutdown_imgui();
     imgui.destroy();
@@ -242,7 +242,7 @@ fn init_meshes(VkContext& vk, VkDelQueue& delqueue, VkAllocImage& target,
 
 fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
   VkExtent2D surface_extent{};
-  auto extent_updater = glfw.make_vk_extent_updater();
+  fn extent_updater = glfw.make_vk_extent_updater();
   extent_updater(&surface_extent);
   const render::VkSurfaceArgs vk_surface{
     .extensions = render::GLFWContext::get_surface_extensions(),
@@ -261,9 +261,17 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
   }
   DeferFn vk_defer = make_vk_defer(*vk);
 
-  auto imgui = glfw.make_imgui_initer();
-  render::vk_init_imgui(*vk, imgui);
-  DeferFn imgui_defer = make_imgui_defer(imgui);
+  fn glfw_imgui = glfw.make_imgui_handler();
+  fn imgui_initer = [&]() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
+    glfw_imgui.init();
+  };
+  render::vk_init_imgui(*vk, imgui_initer);
+  DeferFn imgui_defer = make_imgui_defer(glfw_imgui);
 
   VkDelQueue delqueue;
   DeferFn delqueue_defer = make_delqueue_defer(*vk, delqueue);
@@ -296,9 +304,8 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
   vk_defer.disengage();
   return {in_place,
           create_t(),
-          glfw,
           *std::move(vk),
-          std::move(imgui),
+          std::move(glfw_imgui),
           std::move(delqueue),
           std::move(target),
           std::move(desc_alloc),
@@ -306,26 +313,26 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
           std::move(mesh)};
 }
 
-RenderContext::RenderContext(create_t, GLFWContext& glfw, VkContext&& vk,
-                             GLFWContext::ImGuiIniter&& imgui, VkDelQueue&& delqueue,
-                             VkAllocImage&& target, VkDescAlloc&& desc_alloc,
-                             ComputeRenderData&& compute, MeshRenderData&& mesh) :
-    _glfw(glfw), _vk(std::move(vk)), _imgui(std::move(imgui)), _delqueue(std::move(delqueue)),
+RenderContext::RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
+                             VkDelQueue&& delqueue, VkAllocImage&& target,
+                             VkDescAlloc&& desc_alloc, ComputeRenderData&& compute,
+                             MeshRenderData&& mesh) :
+    _vk(std::move(vk)), _glfw_imgui(std::move(glfw_imgui)), _delqueue(std::move(delqueue)),
     _target(std::move(target)), _desc_alloc(std::move(desc_alloc)), _compute(std::move(compute)),
     _mesh(std::move(mesh)) {}
 
 fn RenderContext::destroy() -> void {
   make_delqueue_defer(_vk, _delqueue)();
-  make_imgui_defer(_imgui)();
+  make_imgui_defer(_glfw_imgui)();
   make_vk_defer(_vk)();
 }
 
 namespace {
 
-fn draw_imgui(GLFWContext& glfw, RenderContext::ComputeRenderData& compute, VkCommandBuffer cmd,
-              VkImageView swapchain_view, VkExtent2D swapchain_extent) {
+fn draw_imgui(GLFWContext::ImGuiHandler& glfw_imgui, RenderContext::ComputeRenderData& compute,
+              VkCommandBuffer cmd, VkImageView swapchain_view, VkExtent2D swapchain_extent) {
   static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
-  glfw.start_imgui_frame();
+  glfw_imgui.new_frame();
   ImGui::NewFrame();
 
   ImGui::ShowDemoWindow();
@@ -438,7 +445,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_imgui(*_glfw, _compute, cmd, frame.swapchain_view, frame.swapchain_extent);
+    draw_imgui(_glfw_imgui, _compute, cmd, frame.swapchain_view, frame.swapchain_extent);
 
     // 6. Prepare swapchain image for presenting
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,

@@ -11,13 +11,17 @@
 namespace kappa::render {
 
 class GLFWContext {
+private:
+  struct create_t {};
+
 public:
-  struct ImGuiIniter {
+  class ImGuiHandler {
   public:
-    ImGuiIniter(GLFWwindow* win) : _win(win) {}
+    ImGuiHandler(create_t, GLFWwindow* win) noexcept : _win(win) {}
 
   public:
-    void operator()();
+    void init();
+    void new_frame();
     void destroy();
 
   private:
@@ -25,7 +29,7 @@ public:
   };
 
 public:
-  GLFWContext(GLFWwindow* win);
+  GLFWContext(create_t, GLFWwindow* win) noexcept : _win(win) {}
 
 public:
   static fn create(u32 width, u32 height) -> GLFWContext;
@@ -57,10 +61,7 @@ public:
     return {glfw_exts_ptr, glfw_ext_count};
   }
 
-public:
-  fn make_imgui_initer() -> ImGuiIniter;
-
-  fn start_imgui_frame() -> void;
+  fn make_imgui_handler() -> ImGuiHandler { return {create_t(), _win}; }
 
 public:
   fn poll_events() -> void;

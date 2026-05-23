@@ -57,7 +57,7 @@ public:
   };
 
 public:
-  RenderContext(create_t, GLFWContext& glfw, VkContext&& vk, GLFWContext::ImGuiIniter&& imgui,
+  RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
                 VkDelQueue&& delqueue, VkAllocImage&& target, VkDescAlloc&& desc_alloc,
                 ComputeRenderData&& compute, MeshRenderData&& mesh);
 
@@ -70,9 +70,8 @@ public:
   fn on_fixed_update(u32 ups) -> void;
 
 private:
-  Ref<GLFWContext> _glfw;
   VkContext _vk;
-  GLFWContext::ImGuiIniter _imgui;
+  GLFWContext::ImGuiHandler _glfw_imgui;
   VkDelQueue _delqueue;
   VkAllocImage _target;
   VkDescAlloc _desc_alloc;

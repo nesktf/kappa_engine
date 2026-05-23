@@ -5,8 +5,6 @@
 
 namespace kappa::render {
 
-GLFWContext::GLFWContext(GLFWwindow* win) : _win(win) {}
-
 fn GLFWContext::create(u32 width, u32 height) -> GLFWContext {
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   auto res = glfwInit();
@@ -15,7 +13,7 @@ fn GLFWContext::create(u32 width, u32 height) -> GLFWContext {
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   GLFWwindow* win = glfwCreateWindow(width, height, "test", nullptr, nullptr);
   ka_assert(win, "Failed to create GLFW window");
-  return {win};
+  return {create_t(), win};
 }
 
 fn GLFWContext::fb_resize_fn(GLFWwindow* win, int w, int h) -> void {
@@ -31,25 +29,15 @@ fn GLFWContext::destroy() -> void {
   glfwTerminate();
 }
 
-fn GLFWContext::ImGuiIniter::operator()() -> void {
-  IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
-  ImGuiIO& io = ImGui::GetIO();
-  io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-  io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
-
+fn GLFWContext::ImGuiHandler::init() -> void {
   ImGui_ImplGlfw_InitForVulkan(_win, true);
 }
 
-fn GLFWContext::ImGuiIniter::destroy() -> void {
+fn GLFWContext::ImGuiHandler::destroy() -> void {
   ImGui_ImplGlfw_Shutdown();
 }
 
-fn GLFWContext::make_imgui_initer() -> ImGuiIniter {
-  return ImGuiIniter{_win};
-}
-
-fn GLFWContext::start_imgui_frame() -> void {
+fn GLFWContext::ImGuiHandler::new_frame() -> void {
   ImGui_ImplGlfw_NewFrame();
 }
 
