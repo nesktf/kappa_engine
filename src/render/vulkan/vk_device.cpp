@@ -1,5 +1,6 @@
 #include "./vk_device.hpp"
 
+#include "./vk_private.hpp"
 #include "./vk_util.hpp"
 
 #include <unordered_set>
@@ -15,9 +16,9 @@ constexpr auto base_device_extensions = std::to_array<const char*>({
 
 } // namespace
 
-VulkanDevice::VulkanDevice(create_t, VkDevice device, VkPhysicalDevice physical_device,
-                           QueueIndices queues, Vec<VkSurfaceFormatKHR>&& surface_formats,
-                           Vec<VkPresentModeKHR>&& surface_present_modes) :
+VkContextDevice::VkContextDevice(create_t, VkDevice device, VkPhysicalDevice physical_device,
+                                 QueueIndices queues, Vec<VkSurfaceFormatKHR>&& surface_formats,
+                                 Vec<VkPresentModeKHR>&& surface_present_modes) :
     _device(device), _physical_device(physical_device), _queues(queues),
     _surface_formats(std::move(surface_formats)),
     _surface_present_modes(std::move(surface_present_modes)) {
@@ -27,7 +28,7 @@ VulkanDevice::VulkanDevice(create_t, VkDevice device, VkPhysicalDevice physical_
   ka_assert(!_surface_present_modes.empty());
 }
 
-fn VulkanDevice::create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanDevice> {
+fn VkContextDevice::create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VkContextDevice> {
   ka_assert(vk != VK_NULL_HANDLE);
   ka_assert(surface != VK_NULL_HANDLE);
 
@@ -217,29 +218,29 @@ fn VulkanDevice::create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanD
           std::move(swapchain_present_modes)};
 }
 
-fn VulkanDevice::add_to_delqueue(VulkanDelQueue& queue) -> void {
+fn VkContextDevice::add_to_delqueue(VkDelQueue& queue) -> void {
   queue.enqueue(_device);
 }
 
-fn VulkanDevice::wait_idle() -> void {
+fn VkContextDevice::wait_idle() -> void {
   vkDeviceWaitIdle(_device);
 }
 
-fn VulkanDevice::graphics_queue(u32 idx) const -> VkQueue {
+fn VkContextDevice::graphics_queue(u32 idx) const -> VkQueue {
   VkQueue queue{};
   vkGetDeviceQueue(_device, _queues.graphics, idx, &queue);
   ka_assert(queue != VK_NULL_HANDLE);
   return queue;
 }
 
-fn VulkanDevice::present_queue(u32 idx) const -> VkQueue {
+fn VkContextDevice::present_queue(u32 idx) const -> VkQueue {
   VkQueue queue{};
   vkGetDeviceQueue(_device, _queues.present, idx, &queue);
   ka_assert(queue != VK_NULL_HANDLE);
   return queue;
 }
 
-fn VulkanDevice::transfer_queue(u32 idx) const -> VkQueue {
+fn VkContextDevice::transfer_queue(u32 idx) const -> VkQueue {
   VkQueue queue{};
   vkGetDeviceQueue(_device, _queues.transfer, idx, &queue);
   ka_assert(queue != VK_NULL_HANDLE);

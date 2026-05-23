@@ -1,17 +1,13 @@
 #pragma once
 
-#include "./vk_private.hpp"
-
-#include "./vk_pipeline.hpp"
 #include "./vk_util.hpp"
 
 #include "../../util/array.hpp"
-#include "../../util/buffer.hpp"
 #include "../../util/ptr.hpp"
 
 namespace kappa::render {
 
-struct VulkanSwapchainArgs {
+struct VkSwapchainArgs {
   VkDevice device;
   VkPhysicalDevice physical_device;
   VkSurfaceKHR surface;
@@ -21,17 +17,17 @@ struct VulkanSwapchainArgs {
   u32 graphics_queue, present_queue;
 };
 
-class VulkanSwapchain {
+class VkSwapchain {
 private:
   struct create_t {};
 
 public:
-  VulkanSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat format, VkExtent2D extent,
-                  UniqueArray<VkImage>&& images, UniqueArray<VkImageView>&& image_views);
+  VkSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat format, VkExtent2D extent,
+              UniqueArray<VkImage>&& images, UniqueArray<VkImageView>&& image_views);
 
 public:
-  static fn create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_swapchain = VK_NULL_HANDLE)
-    -> VkExpect<VulkanSwapchain>;
+  static fn create(const VkSwapchainArgs& args, VkSwapchainKHR old_swapchain = VK_NULL_HANDLE)
+    -> VkExpect<VkSwapchain>;
 
 public:
   fn destroy(VkDevice device) -> void;
@@ -57,10 +53,9 @@ private:
   UniqueArray<VkImageView> _image_views;
 };
 
-class VulkanFrameData {
+class VkFrameData {
 private:
   struct create_t {};
-  struct TempFrameData;
 
 public:
   struct FrameData {
@@ -68,29 +63,23 @@ public:
     VkCommandBuffer cmdbuf;
     VkFence render_fen;
     VkSemaphore swapchain_sem, render_sem;
-    VulkanDescPool pool;
-    VulkanDelQueue delqueue;
     u32 swapchain_idx;
   };
 
 public:
-  VulkanFrameData(create_t, TempFrameData* frames, VkDevice device);
-  ~VulkanFrameData();
-  KA_DO_MOVE(VulkanFrameData);
-  KA_NO_COPY(VulkanFrameData);
+  VkFrameData(create_t, std::array<FrameData, MAX_FRAMES_IN_FLIGHT>&& frames, VkDevice device);
 
 public:
-  static fn create(VkDevice device, u32 graphics_queue, const VulkanDescPoolArgs& descpool_args)
-    -> VkExpect<VulkanFrameData>;
+  static fn create(VkDevice device, u32 graphics_queue) -> VkExpect<VkFrameData>;
 
 public:
-  fn add_to_delqueue(VulkanDelQueue& queue) -> void;
+  fn add_to_delqueue(VkDelQueue& queue) -> void;
   fn next_frame() -> FrameData&;
   fn curr_frame() -> FrameData&;
   fn frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
 private:
-  TypeBufferForArray<FrameData, MAX_FRAMES_IN_FLIGHT> _frames;
+  std::array<FrameData, MAX_FRAMES_IN_FLIGHT> _frames;
   VkDevice _device;
   u64 _curr_frame;
 };

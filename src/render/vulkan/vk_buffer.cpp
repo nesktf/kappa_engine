@@ -1,7 +1,7 @@
 #define VMA_IMPLEMENTATION
-#include "./vk_buffer.hpp"
+#include "./vk_private.hpp"
 
-#include "./vk_context.hpp"
+#include "./vk_buffer.hpp"
 #include "./vk_util.hpp"
 
 namespace kappa::render {

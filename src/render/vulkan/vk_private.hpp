@@ -32,7 +32,10 @@
     return {unexpect, ::fmt::format(_fmt __VA_OPT__(, ) __VA_ARGS__), _vkret}; \
   }
 
-#include "./vk.hpp"
+#include "./vk_buffer.hpp"
+#include "./vk_device.hpp"
+#include "./vk_swapchain.hpp"
+#include "./vk_util.hpp"
 
 #include "../../util/logger.hpp"
 
@@ -48,15 +51,65 @@ constexpr VkAllocationCallbacks* vkalloc = nullptr;
 
 namespace kappa::render {
 
-class VulkanDelQueue;
-class VulkanDevice;
-class VulkanSwapchain;
-class VulkanFrameData;
-
 constexpr auto validation_layers = std::to_array<const char*>({
   "VK_LAYER_KHRONOS_validation",
 });
 
-constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
+struct VkAllocImage_Impl {
+  VkImage image;
+  VkImageView view;
+  VmaAllocation alloc;
+  VkExtent3D extent;
+  VkFormat format;
+};
+
+static_assert(VkAllocImage::opaque_type::check_params(), "Invalid VkAllocImage opaque params");
+
+fn vk_create_vma_alloc(VkInstance vk, VkDevice device, VkPhysicalDevice physical_device)
+  -> VkExpect<VmaAllocator>;
+
+fn vk_alloc_image(VkAllocImage_Impl& image, VkDevice device, VmaAllocator vma, VkExtent3D extent,
+                  VkFormat format) -> VkExpect<void>;
+fn vk_dealloc_image(VmaAllocator vma, VkImage image, VmaAllocation alloc) -> void;
+
+struct VkAllocBuff_Impl {
+  VkBuffer buffer;
+  VmaAllocation alloc;
+  VmaAllocationInfo info;
+};
+
+static_assert(VkAllocBuff::opaque_type::check_params(), "Invalid VkAllocBuff opaque params");
+
+fn vk_alloc_buffer(VkAllocBuff_Impl& buffer, VmaAllocator vma, usize size,
+                   VkBufferUsageFlags usage, VkMemoryPropertyFlags mem_usage) -> VkExpect<void>;
+fn vk_dealloc_buffer(VmaAllocator vma, VkBuffer buffer, VmaAllocation alloc) -> void;
+
+struct VkContext_Impl {
+public:
+  struct ImDrawData {
+    VkFence fence;
+    VkCommandPool cmdpool;
+    VkCommandBuffer cmdbuf;
+  };
+
+public:
+  VkContext_Impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vmalloc_,
+                 VkSurfaceKHR surface_, VkContextDevice&& device_, VkSwapchain&& swapchain_,
+                 VkFrameData&& framedata_, ImDrawData&& imdrawdata_, VkDelQueue&& delqueue_);
+  ~VkContext_Impl();
+  KA_NO_MOVE(VkContext_Impl);
+  KA_NO_COPY(VkContext_Impl);
+
+public:
+  VkInstance vk;
+  VkDebugUtilsMessengerEXT messenger;
+  VmaAllocator vmalloc;
+  VkSurfaceKHR surface;
+  ImDrawData imdrawdata;
+  VkContextDevice device;
+  VkSwapchain swapchain;
+  VkFrameData framedata;
+  VkDelQueue delqueue;
+};
 
 } // namespace kappa::render

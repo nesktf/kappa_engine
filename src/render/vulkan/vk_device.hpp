@@ -1,13 +1,13 @@
 #pragma once
 
-#include "./vk_private.hpp"
+#include "./vk_util.hpp"
 
 #include "../../util/array.hpp"
 #include "../../util/ptr.hpp"
 
 namespace kappa::render {
 
-class VulkanDevice {
+class VkContextDevice {
 private:
   struct create_t {};
 
@@ -17,15 +17,15 @@ public:
   };
 
 public:
-  VulkanDevice(create_t, VkDevice device, VkPhysicalDevice physical_device, QueueIndices queues,
-               Vec<VkSurfaceFormatKHR>&& surface_formats,
-               Vec<VkPresentModeKHR>&& surface_present_modes);
+  VkContextDevice(create_t, VkDevice device, VkPhysicalDevice physical_device, QueueIndices queues,
+                  Vec<VkSurfaceFormatKHR>&& surface_formats,
+                  Vec<VkPresentModeKHR>&& surface_present_modes);
 
 public:
-  static fn create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VulkanDevice>;
+  static fn create(VkInstance vk, VkSurfaceKHR surface) -> VkExpect<VkContextDevice>;
 
 public:
-  fn add_to_delqueue(VulkanDelQueue& queue) -> void;
+  fn add_to_delqueue(VkDelQueue& queue) -> void;
 
   fn wait_idle() -> void;
 

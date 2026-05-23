@@ -1,13 +1,15 @@
+#include "./render/vulkan/vk_buffer.hpp"
+#include "./render/vulkan/vk_context.hpp"
+#include "./render/vulkan/vk_imgui.hpp"
+#include "./render/vulkan/vk_pipeline.hpp"
+#include "./render/vulkan/vk_util.hpp"
+
 #include "./render/glfw.hpp"
-#include "./render/vulkan/vk.hpp"
 
 #include "./util/filesystem.hpp"
 #include "./util/logger.hpp"
 
-#include <imgui.h>
-
 #include <ranmath/ran.hpp>
-#include <vulkan/vulkan_core.h>
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -85,15 +87,29 @@ fn run_engine() -> void {
     ImGui::DestroyContext();
   };
 
+  render::VkDelQueue delqueue;
+  const DeferFn delqueue_defer = [&]() {
+    vkDeviceWaitIdle(vk.device());
+    delqueue.flush();
+  };
+
+  const auto desc_pool_sizes = std::to_array<render::VkDescPoolRatio>({
+    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
+  });
+  const render::VkDescAllocArgs alloc_args{
+    .max_sets = 10,
+    .ratios = desc_pool_sizes,
+  };
+  auto desc_alloc = render::VkDescAlloc::create(vk.device(), alloc_args).value();
+  desc_alloc.add_to_delqueue(delqueue);
+
   // Draw image target
   const render::VkImageArgs target_args{
     .extent = {WINDOW_WIDTH, WINDOW_HEIGHT, 1},
     .format = VK_FORMAT_R16G16B16A16_SFLOAT,
   };
   auto target = render::VkAllocImage::allocate(vk, target_args).value();
-  const DeferFn target_defer = [&]() {
-    render::vk_dealloc_image(vk, target);
-  };
+  delqueue.enqueue(target, vk.device(), vk.allocator());
 
   // Compute effects
   static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
@@ -107,12 +123,6 @@ fn run_engine() -> void {
   VkDescriptorSet image_desc = VK_NULL_HANDLE;
   VkPipelineLayout compute_layout = VK_NULL_HANDLE;
   VkPipeline compute_pipelines[2] = {0};
-  const DeferFn compute_defer = [&]() {
-    render::vk_destroy_desc_layout(vk, image_desc_layout);
-    render::vk_destroy_pipeline_layout(vk, compute_layout);
-    render::vk_destroy_pipeline(vk, compute_pipelines[0]);
-    render::vk_destroy_pipeline(vk, compute_pipelines[1]);
-  };
   {
     VkShaderModule shader_gradient = VK_NULL_HANDLE, shader_sky = VK_NULL_HANDLE;
     const DeferFn shader_defer = [&]() {
@@ -131,8 +141,9 @@ fn run_engine() -> void {
     image_desc_layout = desc_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
                           .build(vk, VK_SHADER_STAGE_COMPUTE_BIT)
                           .value();
+    delqueue.enqueue(image_desc_layout, vk.device());
 
-    image_desc = vk.alloc_desc(image_desc_layout).value();
+    desc_alloc.alloc_sets(image_desc_layout, &image_desc, 1).value();
     VkDescriptorImageInfo img_info{};
     img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     img_info.imageView = target.view();
@@ -143,28 +154,27 @@ fn run_engine() -> void {
     draw_image_write.descriptorCount = 1;
     draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     draw_image_write.pImageInfo = &img_info;
-    vk.update_sets({&draw_image_write, 1}, {});
+    vkUpdateDescriptorSets(vk.device(), 1, &draw_image_write, 0, nullptr);
 
     render::VkPipelineLayoutBuilder layout_builder;
     compute_layout = layout_builder.add_layout(image_desc_layout)
                        .add_push_range(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(ComputeConstants), 0)
                        .build(vk)
                        .value();
+    delqueue.enqueue(compute_layout, vk.device());
 
     compute_pipelines[0] =
       render::vk_create_compute_pipeline(vk, compute_layout, shader_gradient).value();
+    delqueue.enqueue(compute_pipelines[0], vk.device());
 
     compute_pipelines[1] =
       render::vk_create_compute_pipeline(vk, compute_layout, shader_sky).value();
+    delqueue.enqueue(compute_pipelines[1], vk.device());
   }
 
   // Triangle pipeline
   VkPipelineLayout triangle_layout = VK_NULL_HANDLE;
   VkPipeline triangle_pipeline = VK_NULL_HANDLE;
-  const DeferFn triangle_defer = [&]() {
-    render::vk_destroy_pipeline_layout(vk, triangle_layout);
-    render::vk_destroy_pipeline(vk, triangle_pipeline);
-  };
   {
     VkShaderModule triangle_frag = VK_NULL_HANDLE, triangle_vert = VK_NULL_HANDLE;
     const DeferFn shader_defer = [&]() {
@@ -180,6 +190,7 @@ fn run_engine() -> void {
 
     render::VkPipelineLayoutBuilder layout_builder;
     triangle_layout = layout_builder.build(vk).value();
+    delqueue.enqueue(triangle_layout, vk.device());
 
     render::VkGfxPipelineBuilder pipeline_builder;
     triangle_pipeline = pipeline_builder.set_layout(triangle_layout)
@@ -195,6 +206,7 @@ fn run_engine() -> void {
                           .disable_blending()
                           .build(vk)
                           .value();
+    delqueue.enqueue(triangle_pipeline, vk.device());
   }
 
   // Mesh vertex buffer
@@ -206,9 +218,7 @@ fn run_engine() -> void {
     .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
   };
   auto vb = render::VkAllocBuff::allocate(vk, vb_args).value();
-  const DeferFn vb_defer = [&]() {
-    render::vk_dealloc_buffer(vk, vb);
-  };
+  delqueue.enqueue(vb, vk.allocator());
 
   // Mesh index buffer
   static constexpr auto ib_size = sizeof(rect_indices);
@@ -218,9 +228,7 @@ fn run_engine() -> void {
     .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
   };
   auto ib = render::VkAllocBuff::allocate(vk, ib_args).value();
-  const DeferFn ib_defer = [&]() {
-    render::vk_dealloc_buffer(vk, ib);
-  };
+  delqueue.enqueue(ib, vk.allocator());
 
   // Copy using staging buffer
   {
@@ -236,7 +244,7 @@ fn run_engine() -> void {
     void* data = staging.mapped_data();
     std::memcpy(data, rect_verts.data(), vb_size);
     std::memcpy(((u8*)data) + vb_size, rect_indices.data(), ib_size);
-    vk.submit_immediate([&](VkCommandBuffer cmd) -> void {
+    render::vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
       VkBufferCopy vertex_copy{};
       vertex_copy.dstOffset = 0;
       vertex_copy.srcOffset = 0;
@@ -254,10 +262,6 @@ fn run_engine() -> void {
   // Mesh pipeline
   VkPipelineLayout mesh_layout = VK_NULL_HANDLE;
   VkPipeline mesh_pipeline = VK_NULL_HANDLE;
-  const DeferFn mesh_defer = [&]() {
-    render::vk_destroy_pipeline_layout(vk, mesh_layout);
-    render::vk_destroy_pipeline(vk, mesh_pipeline);
-  };
   {
     VkShaderModule mesh_vert = VK_NULL_HANDLE, mesh_frag = VK_NULL_HANDLE;
     const DeferFn shader_defer = [&]() {
@@ -276,6 +280,7 @@ fn run_engine() -> void {
       layout_builder.add_push_range(VK_SHADER_STAGE_VERTEX_BIT, sizeof(GFXConstants), 0)
         .build(vk)
         .value();
+    delqueue.enqueue(mesh_layout, vk.device());
 
     render::VkGfxPipelineBuilder pipeline_builder;
     mesh_pipeline = pipeline_builder.set_layout(mesh_layout)
@@ -291,6 +296,7 @@ fn run_engine() -> void {
                       .disable_blending()
                       .build(vk)
                       .value();
+    delqueue.enqueue(mesh_pipeline, vk.device());
   }
 
   // Draw functions
@@ -391,7 +397,7 @@ fn run_engine() -> void {
     }
     vkCmdEndRendering(cmd);
   };
-  fn draw_things = [&](const render::VkContext::FrameContext& frame) -> void {
+  fn draw_things = [&](const render::VkFrameContext& frame) -> void {
     const auto cmd = frame.cmd;
 
     // 1. Draw using compute pipeline (we use a general layout)
@@ -429,9 +435,7 @@ fn run_engine() -> void {
     KA_UNUSED(dt);
     KA_UNUSED(alpha);
 
-    vk.new_frame().value();
-    vk.submit_cmd(draw_things).value();
-    vk.end_frame().value();
+    render::vk_draw_frame(vk, draw_things).value();
     ++curr_frame;
   };
 
@@ -442,7 +446,6 @@ fn run_engine() -> void {
   };
 
   render::render_loop<60>(glfw, OverloadFn{on_fixed_update, on_render});
-  vk.device_wait();
 }
 
 } // namespace

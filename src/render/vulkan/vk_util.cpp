@@ -1,44 +1,8 @@
 #include "./vk_util.hpp"
 
-#include "./vk_buffer.hpp"
 #include "./vk_private.hpp"
 
 namespace kappa::render {
-
-fn vk_error_string(VkResult res) noexcept -> const char* {
-#define VKSTR(code) \
-  case code:        \
-    return #code;
-
-  switch (res) {
-    VKSTR(VK_NOT_READY);
-    VKSTR(VK_TIMEOUT);
-    VKSTR(VK_EVENT_SET);
-    VKSTR(VK_EVENT_RESET);
-    VKSTR(VK_INCOMPLETE);
-    VKSTR(VK_ERROR_OUT_OF_HOST_MEMORY);
-    VKSTR(VK_ERROR_OUT_OF_DEVICE_MEMORY);
-    VKSTR(VK_ERROR_INITIALIZATION_FAILED);
-    VKSTR(VK_ERROR_DEVICE_LOST);
-    VKSTR(VK_ERROR_MEMORY_MAP_FAILED);
-    VKSTR(VK_ERROR_LAYER_NOT_PRESENT);
-    VKSTR(VK_ERROR_EXTENSION_NOT_PRESENT);
-    VKSTR(VK_ERROR_FEATURE_NOT_PRESENT);
-    VKSTR(VK_ERROR_INCOMPATIBLE_DRIVER);
-    VKSTR(VK_ERROR_TOO_MANY_OBJECTS);
-    VKSTR(VK_ERROR_FORMAT_NOT_SUPPORTED);
-    VKSTR(VK_ERROR_SURFACE_LOST_KHR);
-    VKSTR(VK_ERROR_NATIVE_WINDOW_IN_USE_KHR);
-    VKSTR(VK_SUBOPTIMAL_KHR);
-    VKSTR(VK_ERROR_OUT_OF_DATE_KHR);
-    VKSTR(VK_ERROR_INCOMPATIBLE_DISPLAY_KHR);
-    VKSTR(VK_ERROR_VALIDATION_FAILED_EXT);
-    VKSTR(VK_ERROR_INVALID_SHADER_NV);
-    default:
-      return "UNKNOWN_ERROR";
-  }
-#undef VKSTR
-};
 
 namespace {
 
@@ -51,9 +15,9 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
   }
 }
 
-fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
-#define STR(_type)                   \
-  case VulkanDelQueue::TYPE_##_type: \
+fn handle_name(VkDelQueue::HandleType type) -> const char* {
+#define STR(_type)               \
+  case VkDelQueue::TYPE_##_type: \
     return #_type
   switch (type) {
     STR(DELETER);
@@ -79,11 +43,9 @@ fn handle_name(VulkanDelQueue::HandleType type) -> const char* {
 #undef STR
 }
 
-using VulkanHandle = VulkanDelQueue::VulkanHandle;
-
-fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHandle other_parent,
-                  VulkanHandle handle) -> void {
-  using enum VulkanDelQueue::HandleType;
+fn destroy_handle(VkDelQueue::HandleType type, VkHandle parent, VkHandle other_parent,
+                  VkHandle handle) -> void {
+  using enum VkDelQueue::HandleType;
   KA_VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
   switch (type) {
     case TYPE_IMAGE: {
@@ -141,7 +103,7 @@ fn destroy_handle(VulkanDelQueue::HandleType type, VulkanHandle parent, VulkanHa
 
 } // namespace
 
-fn VulkanDelQueue::flush() -> void {
+fn VkDelQueue::flush() -> void {
   for (auto it = _queue.rbegin(); it != _queue.rend(); ++it) {
     auto& deldata = *it;
     if (deldata.type == TYPE_DELETER) {
@@ -154,22 +116,21 @@ fn VulkanDelQueue::flush() -> void {
   _queue.clear();
 }
 
-fn VulkanDelQueue::enqueue(const VkAllocImage_Impl& image, VmaAllocator vma) -> void {
-  enqueue_handle((VulkanHandle)image.image, (VulkanHandle)image.alloc, TYPE_IMAGE,
-                 (VulkanHandle)vma);
+fn VkDelQueue::enqueue(VkAllocImage_Impl& image, VkDevice device, VkMemAllocator vma) -> void {
+  enqueue(image.view, device);
+  enqueue_handle((VkHandle)image.image, (VkHandle)image.alloc, TYPE_IMAGE, (VkHandle)vma);
 }
 
-fn VulkanDelQueue::enqueue(const VkAllocBuff_Impl& buffer, VmaAllocator vma) -> void {
-  enqueue_handle((VulkanHandle)buffer.buffer, (VulkanHandle)buffer.alloc, TYPE_BUFFER,
-                 (VulkanHandle)vma);
+fn VkDelQueue::enqueue(VkAllocBuff_Impl& buffer, VkMemAllocator vma) -> void {
+  enqueue_handle((VkHandle)buffer.buffer, (VkHandle)buffer.alloc, TYPE_BUFFER, (VkHandle)vma);
 }
 
-fn VulkanDelQueue::enqueue_deleter(DelFn func) -> void {
+fn VkDelQueue::enqueue_deleter(DelFn func) -> void {
   _queue.emplace_back(std::move(func));
 }
 
-fn VulkanDelQueue::enqueue_handle(VulkanHandle handle, VulkanHandle parent, HandleType type,
-                                  VulkanHandle other_parent) -> void {
+fn VkDelQueue::enqueue_handle(VkHandle handle, VkHandle parent, HandleType type,
+                              VkHandle other_parent) -> void {
   if (handle == VK_NULL_HANDLE) {
     return;
   }

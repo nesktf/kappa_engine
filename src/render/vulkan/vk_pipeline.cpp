@@ -1,18 +1,17 @@
 #include "./vk_pipeline.hpp"
 
-#include "./vk_context.hpp"
+#include "./vk_private.hpp"
 #include "./vk_util.hpp"
 
 namespace kappa::render {
 
-VulkanDescPool::VulkanDescPool(create_t, VkDevice device, VkDescriptorPool pool) :
+VkDescAlloc::VkDescAlloc(create_t, VkDevice device, VkDescriptorPool pool) :
     _device(device), _pool(pool) {
   ka_assert(_device != VK_NULL_HANDLE);
   ka_assert(_pool != VK_NULL_HANDLE);
 }
 
-fn VulkanDescPool::create(VkDevice device, const VulkanDescPoolArgs& args)
-  -> VkExpect<VulkanDescPool> {
+fn VkDescAlloc::create(VkDevice device, const VkDescAllocArgs& args) -> VkExpect<VkDescAlloc> {
   const auto& [max_sets, ratios] = args;
   Vec<VkDescriptorPoolSize> pool_sizes;
   pool_sizes.reserve(ratios.size());
@@ -35,11 +34,11 @@ fn VulkanDescPool::create(VkDevice device, const VulkanDescPoolArgs& args)
   return {in_place, create_t(), device, pool};
 }
 
-fn VulkanDescPool::add_to_delqueue(VulkanDelQueue& queue) -> void {
+fn VkDescAlloc::add_to_delqueue(VkDelQueue& queue) -> void {
   queue.enqueue(_pool, _device);
 }
 
-fn VulkanDescPool::alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count)
+fn VkDescAlloc::alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count)
   -> VkExpect<void> {
   auto alloc_info = vkmk_zero<VkDescriptorSetAllocateInfo>();
   alloc_info.descriptorPool = _pool;
@@ -51,7 +50,7 @@ fn VulkanDescPool::alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* set
   return {};
 }
 
-fn VulkanDescPool::clear() -> void {
+fn VkDescAlloc::clear() -> void {
   vkResetDescriptorPool(_device, _pool, 0);
 }
 

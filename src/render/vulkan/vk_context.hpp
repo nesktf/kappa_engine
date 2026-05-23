@@ -1,95 +1,87 @@
 #pragma once
 
-#include "./vk_private.hpp"
+#include "../../util/function.hpp"
+#include "../../util/ptr.hpp"
 
-#include "./vk_buffer.hpp"
-#include "./vk_device.hpp"
-#include "./vk_pipeline.hpp"
-#include "./vk_swapchain.hpp"
-#include "./vk_util.hpp"
+#include "./vk_common.hpp"
 
 namespace kappa::render {
 
-struct VkContext_Impl {
+struct VkSurfaceArgs {
 public:
-  struct ImDrawData {
-    VkFence fence;
-    VkCommandPool cmdpool;
-    VkCommandBuffer cmdbuf;
+  using UpdateSurfExtFn = TrivFn<VkExtent2D(), 2 * sizeof(void*), 8>;
+  using CreateSurfFn = TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*),
+                              2 * sizeof(void*), 8>;
+
+public:
+  Span<const char*> extensions;
+  CreateSurfFn create;
+  UpdateSurfExtFn update_extent;
+  VkExtent2D swapchain_extent;
+};
+
+struct VkContextArgs {
+  Optional<VkSurfaceArgs> surface;
+  const char* app_name;
+  u32 app_ver;
+};
+
+class VkContext {
+public:
+  struct Deleter {
+    void operator()(VkContext_Impl* vk) noexcept { VkContext::destroy(vk); }
   };
 
-public:
-  VkContext_Impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vmalloc_,
-                 VkSurfaceKHR surface_, kappa::render::VulkanDevice&& device_,
-                 kappa::render::VulkanSwapchain&& swapchain_,
-                 kappa::render::VulkanFrameData&& framedata_, ImDrawData&& imdrawdata_,
-                 kappa::render::VulkanDescPool&& descpool_,
-                 kappa::render::VulkanDelQueue&& delqueue_);
-  ~VkContext_Impl();
-  KA_NO_MOVE(VkContext_Impl);
-  KA_NO_COPY(VkContext_Impl);
+private:
+  struct create_t {};
 
 public:
-  VkInstance vk;
-  VkDebugUtilsMessengerEXT messenger;
-  VmaAllocator vmalloc;
-  VkSurfaceKHR surface;
-  ImDrawData imdrawdata;
-  kappa::render::VulkanDevice device;
-  kappa::render::VulkanSwapchain swapchain;
-  kappa::render::VulkanFrameData framedata;
-  kappa::render::VulkanDescPool descpool;
-  kappa::render::VulkanDelQueue delqueue;
+  VkContext(create_t, VkContext_Impl* ctx) noexcept : _vk(ctx) {}
+
+  static fn create(const VkContextArgs& args) -> VkMsgExpect<VkContext>;
+  static fn destroy(VkContext_Impl* vk) noexcept -> void;
+
+public:
+  fn device() -> VkDevice;
+  fn physical_device() -> VkPhysicalDevice;
+  fn allocator() -> VkMemAllocator;
+
+public:
+  VkContext_Impl& get() { return *_vk.get(); }
+
+  operator VkContext_Impl&() { return *_vk.get(); }
+
+private:
+  std::unique_ptr<VkContext_Impl, Deleter> _vk;
 };
+
+fn vk_rebuild_swapchain(VkContext_Impl& vk, VkExtent2D extent) -> VkExpect<void>;
+
+struct VkFrameContext {
+  VkCommandBuffer cmd;
+  VkImage swapchain_image;
+  VkImageView swapchain_view;
+  VkExtent2D swapchain_extent;
+};
+
+using VkFrameFn = FnRef<void(const VkFrameContext&)>;
+
+fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkExpect<void>;
+
+template<typename Fn>
+requires(std::invocable<std::remove_cvref_t<Fn>, VkFrameContext>)
+fn vk_draw_frame(VkContext_Impl& vk, Fn&& func) -> VkExpect<void> {
+  return vk_draw_frame_fn(vk, VkFrameFn{func});
+}
+
+using VkImmediateFn = FnRef<void(VkCommandBuffer)>;
+
+fn vk_submit_immediate_fn(VkContext_Impl& vk, VkImmediateFn func) -> VkExpect<void>;
+
+template<typename Fn>
+requires(std::invocable<std::remove_cvref_t<Fn>, VkCommandBuffer>)
+fn vk_submit_immediate(VkContext_Impl& vk, Fn&& func) -> VkExpect<void> {
+  return vk_submit_immediate_fn(vk, VkImmediateFn{func});
+}
 
 } // namespace kappa::render
-
-#if 0
-namespace kappa::render {
-
-constexpr usize EFFECT_COUNT = 2;
-
-struct GPUMeshBuffers {
-  VulkanBuffer index_buffer;
-  VulkanBuffer vertex_buffer;
-  VkDeviceAddress vertex_buffer_addr;
-  u32 index_count;
-};
-
-struct VulkanContext_Impl {
-public:
-  struct ImDrawData {
-    VkFence fence;
-    VkCommandPool cmdpool;
-    VkCommandBuffer cmdbuf;
-  };
-
-  // temp
-  struct DrawThing {
-    VulkanImage image;
-    VkExtent2D extent;
-    VulkanDescPool desc_pool;
-    VkDescriptorSet image_desc;
-    VkDescriptorSetLayout image_desc_layout;
-    std::array<ComputeEffect, EFFECT_COUNT> background_effects;
-    s32 effect_idx;
-    VkPipeline triangle_pipeline;
-    VkPipelineLayout triangle_layout;
-    GPUMeshBuffers mesh_buffers;
-    VkPipeline mesh_pipeline;
-    VkPipelineLayout mesh_layout;
-  };
-
-public:
-  VulkanContext_Impl() = default; // Manually initialized
-  ~VulkanContext_Impl() = default;
-  KA_NO_MOVE(VulkanContext_Impl);
-  KA_NO_COPY(VulkanContext_Impl);
-
-public:
-};
-
-fn vk_get_graphics_queue(VulkanContext_Impl& ctx) -> VkQueue;
-
-} // namespace kappa::render
-#endif

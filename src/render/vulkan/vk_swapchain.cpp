@@ -1,14 +1,14 @@
 #include "./vk_swapchain.hpp"
 
+#include "./vk_private.hpp"
 #include "./vk_util.hpp"
 
 #include <algorithm>
 
 namespace kappa::render {
 
-VulkanSwapchain::VulkanSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat format,
-                                 VkExtent2D extent, UniqueArray<VkImage>&& images,
-                                 UniqueArray<VkImageView>&& image_views) :
+VkSwapchain::VkSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat format, VkExtent2D extent,
+                         UniqueArray<VkImage>&& images, UniqueArray<VkImageView>&& image_views) :
     _swapchain(swapchain), _format(format), _extent(extent), _images(std::move(images)),
     _image_views(std::move(image_views)) {
   ka_assert(_swapchain != VK_NULL_HANDLE);
@@ -16,8 +16,8 @@ VulkanSwapchain::VulkanSwapchain(create_t, VkSwapchainKHR swapchain, VkFormat fo
   ka_assert(!_image_views.empty());
 }
 
-fn VulkanSwapchain::create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_swapchain)
-  -> VkExpect<VulkanSwapchain> {
+fn VkSwapchain::create(const VkSwapchainArgs& args, VkSwapchainKHR old_swapchain)
+  -> VkExpect<VkSwapchain> {
   ka_assert(args.device != VK_NULL_HANDLE);
   ka_assert(args.physical_device != VK_NULL_HANDLE);
   ka_assert(args.surface != VK_NULL_HANDLE);
@@ -144,7 +144,7 @@ fn VulkanSwapchain::create(const VulkanSwapchainArgs& args, VkSwapchainKHR old_s
           std::move(image_views)};
 }
 
-fn VulkanSwapchain::destroy(VkDevice device) -> void {
+fn VkSwapchain::destroy(VkDevice device) -> void {
   for (usize i = 0; i < _images.size(); ++i) {
     vkDestroyImageView(device, _image_views[i], vkalloc);
   }
@@ -153,58 +153,13 @@ fn VulkanSwapchain::destroy(VkDevice device) -> void {
   _image_views.reset();
 }
 
-struct VulkanFrameData::TempFrameData {
-  VkCommandPool cmdpool;
-  VkCommandBuffer cmdbuf;
-  VkFence render_fen;
-  VkSemaphore swapchain_sem, render_sem;
-  Optional<VulkanDescPool> pool;
-};
+VkFrameData::VkFrameData(create_t, std::array<FrameData, MAX_FRAMES_IN_FLIGHT>&& frames,
+                         VkDevice device) :
+    _frames(std::move(frames)), _device(device), _curr_frame((u64)-1) {}
 
-// NOTE: Be prepared for an unholy mess of manual construction and destruction
-VulkanFrameData::VulkanFrameData(create_t, TempFrameData* frames, VkDevice device) :
-    _device(device), _curr_frame(0) {
-  ka_assert(frames);
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    ka_assert(frames[i].cmdpool != VK_NULL_HANDLE);
-    ka_assert(frames[i].cmdbuf != VK_NULL_HANDLE);
-    ka_assert(frames[i].render_fen != VK_NULL_HANDLE);
-    ka_assert(frames[i].swapchain_sem != VK_NULL_HANDLE);
-    ka_assert(frames[i].render_sem != VK_NULL_HANDLE);
-    ka_assert(frames[i].pool.has_value());
-    _frames.construct_offset(i, frames[i].cmdpool, frames[i].cmdbuf, frames[i].render_fen,
-                             frames[i].swapchain_sem, frames[i].render_sem,
-                             *std::move(frames[i].pool), VulkanDelQueue(), (u32)-1);
-  }
-  static_assert(std::is_trivially_destructible_v<TempFrameData>);
-}
+fn VkFrameData::create(VkDevice device, u32 graphics_queue) -> VkExpect<VkFrameData> {
 
-VulkanFrameData::VulkanFrameData(VulkanFrameData&& other) noexcept :
-    _device(other._device), _curr_frame(other._curr_frame) {
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    _frames.construct_offset(i, std::move(other._frames[i]));
-  }
-}
-
-VulkanFrameData& VulkanFrameData::operator=(VulkanFrameData&& other) noexcept {
-  _device = other._device;
-  _curr_frame = other._curr_frame;
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    _frames[i] = std::move(other._frames[i]);
-  }
-  return *this;
-}
-
-VulkanFrameData::~VulkanFrameData() {
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    _frames.destroy_offset(i);
-  }
-}
-
-fn VulkanFrameData::create(VkDevice device, u32 graphics_queue,
-                           const VulkanDescPoolArgs& descpool_args) -> VkExpect<VulkanFrameData> {
-
-  TempFrameData vkdata[MAX_FRAMES_IN_FLIGHT]{};
+  std::array<FrameData, MAX_FRAMES_IN_FLIGHT> vkdata{};
   s32 curr_frame = 0;
 
   DeferFn on_error = [&]() {
@@ -221,9 +176,6 @@ fn VulkanFrameData::create(VkDevice device, u32 graphics_queue,
       }
       if (data.swapchain_sem != VK_NULL_HANDLE) {
         vkDestroySemaphore(device, data.swapchain_sem, vkalloc);
-      }
-      if (data.pool) {
-        vkDestroyDescriptorPool(device, data.pool->pool_handle(), vkalloc);
       }
     }
   };
@@ -250,39 +202,32 @@ fn VulkanFrameData::create(VkDevice device, u32 graphics_queue,
     KA_VK_UNEX(vkCreateFence(device, &fence_create_info, vkalloc, &data.render_fen));
     KA_VK_UNEX(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.swapchain_sem));
     KA_VK_UNEX(vkCreateSemaphore(device, &semaphore_create_info, vkalloc, &data.render_sem));
-
-    auto pool = VulkanDescPool::create(device, descpool_args);
-    if (!pool) {
-      return {unexpect, pool.error()};
-    }
-    data.pool.emplace(std::move(*pool));
   }
 
   on_error.disengage();
-  return {in_place, create_t(), vkdata, device};
+  return {in_place, create_t(), std::move(vkdata), device};
 }
 
-fn VulkanFrameData::add_to_delqueue(VulkanDelQueue& queue) -> void {
+fn VkFrameData::add_to_delqueue(VkDelQueue& queue) -> void {
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
     auto& frame = _frames[i];
     queue.enqueue(frame.cmdpool, _device);
     queue.enqueue(frame.render_fen, _device);
     queue.enqueue(frame.swapchain_sem, _device);
     queue.enqueue(frame.render_sem, _device);
-    frame.pool.add_to_delqueue(queue);
   }
 }
 
-fn VulkanFrameData::next_frame() -> FrameData& {
+fn VkFrameData::next_frame() -> FrameData& {
   return _frames[_curr_frame++ % MAX_FRAMES_IN_FLIGHT];
 }
 
-fn VulkanFrameData::curr_frame() -> FrameData& {
+fn VkFrameData::curr_frame() -> FrameData& {
   return _frames[_curr_frame % MAX_FRAMES_IN_FLIGHT];
 }
 
-fn VulkanFrameData::frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT> {
-  return {_frames.get(), MAX_FRAMES_IN_FLIGHT};
+fn VkFrameData::frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT> {
+  return {_frames};
 }
 
 } // namespace kappa::render
