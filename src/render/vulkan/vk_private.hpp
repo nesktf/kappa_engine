@@ -33,6 +33,7 @@
   }
 
 #include "./vk_buffer.hpp"
+#include "./vk_context.hpp"
 #include "./vk_device.hpp"
 #include "./vk_swapchain.hpp"
 #include "./vk_util.hpp"
@@ -95,7 +96,8 @@ public:
 public:
   VkContext_Impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenger_, VmaAllocator vmalloc_,
                  VkSurfaceKHR surface_, VkContextDevice&& device_, VkSwapchain&& swapchain_,
-                 VkFrameData&& framedata_, ImDrawData&& imdrawdata_, VkDelQueue&& delqueue_);
+                 VkFrameData&& framedata_, ImDrawData&& imdrawdata_, VkDelQueue&& delqueue_,
+                 Optional<VkUpdateSurfExtFn>&& update_surf_);
   ~VkContext_Impl();
   KA_NO_MOVE(VkContext_Impl);
   KA_NO_COPY(VkContext_Impl);
@@ -110,6 +112,7 @@ public:
   VkSwapchain swapchain;
   VkFrameData framedata;
   VkDelQueue delqueue;
+  Optional<VkUpdateSurfExtFn> update_surf;
 };
 
 } // namespace kappa::render

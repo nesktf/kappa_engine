@@ -221,11 +221,12 @@ VkContext_Impl::VkContext_Impl(VkInstance vk_, VkDebugUtilsMessengerEXT messenge
                                VmaAllocator vmalloc_, VkSurfaceKHR surface_,
                                VkContextDevice&& device_, VkSwapchain&& swapchain_,
                                VkFrameData&& framedata_, ImDrawData&& imdrawdata_,
-                               VkDelQueue&& delqueue_) :
+                               VkDelQueue&& delqueue_,
+                               Optional<VkUpdateSurfExtFn>&& update_surf_) :
     vk(vk_), messenger(messenger_), vmalloc(vmalloc_), surface(surface_),
     imdrawdata(std::move(imdrawdata_)), device(std::move(device_)),
     swapchain(std::move(swapchain_)), framedata(std::move(framedata_)),
-    delqueue(std::move(delqueue_)) {}
+    delqueue(std::move(delqueue_)), update_surf(std::move(update_surf_)) {}
 
 VkContext_Impl::~VkContext_Impl() {
   device.wait_idle();
@@ -320,9 +321,9 @@ fn VkContext::create(const VkContextArgs& args) -> VkMsgExpect<VkContext> {
   delqueue.enqueue(imdraw.cmdpool, device->device());
   delqueue.enqueue(imdraw.fence, device->device());
 
-  new (ctx)
-    VkContext_Impl(vk, messenger, *vmalloc, surface, *std::move(device), *std::move(swapchain),
-                   *std::move(framedata), std::move(imdraw), std::move(delqueue));
+  new (ctx) VkContext_Impl(vk, messenger, *vmalloc, surface, *std::move(device),
+                           *std::move(swapchain), *std::move(framedata), std::move(imdraw),
+                           std::move(delqueue), std::move(surface_data.update_extent));
 
   swapchain_err.disengage();
   ctx_err.disengage();
@@ -362,16 +363,23 @@ fn vk_rebuild_swapchain(VkContext_Impl& vk, VkExtent2D extent) -> VkExpect<void>
     });
 }
 
-fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkExpect<void> {
+fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkMsgExpect<void> {
   auto& frame = vk.framedata.curr_frame();
   const auto cmd = frame.cmdbuf;
   const auto device = vk.device.device();
   const auto graphics_queue = vk.device.graphics_queue();
   const auto present_queue = vk.device.present_queue();
-  const auto swapchain = vk.swapchain.swapchain();
-  const auto swapchain_extent = vk.swapchain.extent();
-  const auto swapchain_image = vk.swapchain.images()[frame.swapchain_idx];
-  const auto swapchain_view = vk.swapchain.image_views()[frame.swapchain_idx];
+  auto swapchain = vk.swapchain.swapchain();
+
+  const fn rebuild_swapchain = [&]() -> VkMsgExpect<void> {
+    VkExtent2D new_extent{};
+    (*vk.update_surf)(&new_extent);
+    if (auto res = vk_rebuild_swapchain(vk, new_extent); !res) {
+      return {unexpect, "Failed to rebuild swapchain", res.error().code()};
+    }
+    swapchain = vk.swapchain.swapchain();
+    return {};
+  };
 
   // Wait for the previous rendering commands to finish
   KA_VK_ASSERT(vkWaitForFences(device, 1, &frame.render_fen, true, 1000000000));
@@ -381,7 +389,18 @@ fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkExpect<void> {
   VkResult ret = VK_SUCCESS;
   ret = vkAcquireNextImageKHR(device, swapchain, 1000000000, frame.swapchain_sem, nullptr,
                               &frame.swapchain_idx);
-  ka_assert(ret == VK_SUCCESS || ret == VK_SUBOPTIMAL_KHR);
+  if (ret == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (vk.update_surf) {
+      if (auto res = rebuild_swapchain(); !res) {
+        return res;
+      }
+    }
+  } else if (ret != VK_SUCCESS && ret != VK_SUBOPTIMAL_KHR) {
+    return {unexpect, "Failed to acquire swapchain image", ret};
+  }
+  const auto swapchain_image = vk.swapchain.images()[frame.swapchain_idx];
+  const auto swapchain_view = vk.swapchain.image_views()[frame.swapchain_idx];
+  const auto swapchain_extent = vk.swapchain.extent();
 
   //  Initialize command buffer
   KA_VK_ASSERT(vkResetCommandBuffer(cmd, 0));
@@ -423,9 +442,14 @@ fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkExpect<void> {
   present_info.waitSemaphoreCount = 1;
 
   ret = vkQueuePresentKHR(present_queue, &present_info);
-  ka_assert(ret == VK_SUCCESS || ret == VK_SUBOPTIMAL_KHR);
   vk.framedata.next_frame();
-  return ret == VK_SUCCESS ? VkExpect<void>{} : VkExpect<void>{unexpect, ret};
+  if (ret == VK_ERROR_OUT_OF_DATE_KHR || ret == VK_SUBOPTIMAL_KHR) {
+    return vk.update_surf ? rebuild_swapchain()
+                          : VkMsgExpect<void>{unexpect, "Swapchain out of date", ret};
+  } else if (ret != VK_SUCCESS) {
+    return {unexpect, "Failed to present swapchain image", ret};
+  }
+  return {};
 }
 
 fn vk_submit_immediate_fn(VkContext_Impl& vk, VkImmediateFn func) -> VkExpect<void> {

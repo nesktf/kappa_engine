@@ -1,22 +1,23 @@
 #pragma once
 
+#include "./vk_common.hpp"
+
 #include "../../util/function.hpp"
 #include "../../util/ptr.hpp"
 
-#include "./vk_common.hpp"
-
 namespace kappa::render {
 
-struct VkSurfaceArgs {
-public:
-  using UpdateSurfExtFn = TrivFn<VkExtent2D(), 2 * sizeof(void*), 8>;
-  using CreateSurfFn = TrivFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*),
-                              2 * sizeof(void*), 8>;
+template<typename Signature>
+using VkInplaceFn = TrivFn<Signature, 2 * sizeof(void*), 8>;
 
-public:
+using VkUpdateSurfExtFn = VkInplaceFn<void(VkExtent2D*)>;
+using VkCreateSurfFn =
+  VkInplaceFn<VkResult(VkInstance, VkSurfaceKHR*, const VkAllocationCallbacks*)>;
+
+struct VkSurfaceArgs {
   Span<const char*> extensions;
-  CreateSurfFn create;
-  UpdateSurfExtFn update_extent;
+  VkCreateSurfFn create;
+  Optional<VkUpdateSurfExtFn> update_extent;
   VkExtent2D swapchain_extent;
 };
 
@@ -66,11 +67,11 @@ struct VkFrameContext {
 
 using VkFrameFn = FnRef<void(const VkFrameContext&)>;
 
-fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkExpect<void>;
+fn vk_draw_frame_fn(VkContext_Impl& vk, VkFrameFn func) -> VkMsgExpect<void>;
 
 template<typename Fn>
 requires(std::invocable<std::remove_cvref_t<Fn>, VkFrameContext>)
-fn vk_draw_frame(VkContext_Impl& vk, Fn&& func) -> VkExpect<void> {
+fn vk_draw_frame(VkContext_Impl& vk, Fn&& func) -> VkMsgExpect<void> {
   return vk_draw_frame_fn(vk, VkFrameFn{func});
 }
 

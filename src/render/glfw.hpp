@@ -33,19 +33,40 @@ public:
   static fn fb_resize_fn(GLFWwindow* win, int w, int h) -> void;
 
 public:
-  fn bind_vulkan(const char* app_name, u32 app_ver) -> VkContext;
+  fn make_vk_extent_updater() -> fn {
+    return [win = _win](VkExtent2D* ext) -> void {
+      int w, h;
+      glfwGetFramebufferSize(win, &w, &h);
+      ext->width = (u32)w;
+      ext->height = (u32)h;
+    };
+  }
 
+  fn make_vk_surface_creator() -> fn {
+    return [win = _win](VkInstance vk, VkSurfaceKHR* surface,
+                        const VkAllocationCallbacks* vkalloc) -> VkResult {
+      return glfwCreateWindowSurface(vk, win, vkalloc, surface);
+    };
+  }
+
+  static fn get_surface_extensions() -> Span<const char*> {
+    u32 glfw_ext_count = 0;
+    const char** glfw_exts_ptr = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
+    return {glfw_exts_ptr, glfw_ext_count};
+  }
+
+public:
   fn make_imgui_initer() -> ImGuiIniter;
 
   fn start_imgui_frame() -> void;
 
+public:
   fn poll_events() -> void;
 
   fn should_close() -> bool;
 
 private:
   GLFWwindow* _win;
-  VkContext_Impl* _vk;
 };
 
 namespace meta {

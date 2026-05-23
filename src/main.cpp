@@ -78,7 +78,23 @@ fn run_engine() -> void {
   const DeferFn glfw_defer = [&]() {
     glfw.destroy();
   };
-  auto vk = glfw.bind_vulkan(KA_APP_NAME, KA_APP_VERSION);
+
+  VkExtent2D surface_extent{};
+  auto extent_updater = glfw.make_vk_extent_updater();
+  extent_updater(&surface_extent);
+  const render::VkSurfaceArgs vk_surface{
+    .extensions = render::GLFWContext::get_surface_extensions(),
+    .create = glfw.make_vk_surface_creator(),
+    .update_extent = {in_place, extent_updater},
+    .swapchain_extent = surface_extent,
+  };
+  const render::VkContextArgs vk_args{
+    .surface = {in_place, std::move(vk_surface)},
+    .app_name = KA_APP_NAME,
+    .app_ver = KA_APP_VERSION,
+  };
+  auto vk = render::VkContext::create(vk_args).value();
+
   auto imgui = glfw.make_imgui_initer();
   render::vk_init_imgui(vk, imgui);
   const DeferFn imgui_defer = [&]() {
