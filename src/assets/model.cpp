@@ -12,7 +12,7 @@ namespace {
 
 template<typename T>
 constexpr void zeroinit(T* ptr, usize sz) {
-  std::memset(ptr, 0x00, sizeof(T) * sz);
+  std::memset((void*)ptr, 0x00, sizeof(T) * sz);
 };
 
 template<typename T>
@@ -782,7 +782,7 @@ AssExpect<Model3DData> Model3DLoader::load() {
 
 Model3DData::ModelInternal::~ModelInternal() {
 #define DEALLOC(ptr, sz) \
-  if (ptr)               \
+  if (ptr && sz)         \
   alloc.dealloc(ptr, sz)
 
   for (usize i = 0; i < MAX_MESH_COLORS; ++i) {

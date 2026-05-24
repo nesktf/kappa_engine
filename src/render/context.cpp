@@ -1,6 +1,7 @@
 #include "./context.hpp"
 
 #include "../util/filesystem.hpp"
+#include "../util/logger.hpp"
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -117,6 +118,37 @@ constexpr auto rect_verts = std::to_array<RenderContext::Vertex>({
 });
 constexpr auto rect_indices = std::to_array<u32>({0, 1, 2, 2, 1, 3});
 
+fn copy_buffers(VkContext& vk, VkAllocBuff& vb, const void* vb_data, VkDeviceSize vb_size,
+                VkAllocBuff& ib, const void* ib_data, VkDeviceSize ib_size) -> void {
+  const render::VkBufferArgs staging_args{
+    .size = vb_size + ib_size,
+    .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    .mem_usage = render::KA_VK_MEM_USAGE_CPU_ONLY,
+  };
+  auto staging = render::VkAllocBuff::allocate(vk, staging_args).value();
+  const DeferFn staging_defer = [&]() {
+    render::vk_dealloc_buffer(vk, staging);
+  };
+
+  void* data = staging.mapped_data();
+  std::memcpy(data, vb_data, vb_size);
+  std::memcpy(((u8*)data) + vb_size, ib_data, ib_size);
+
+  render::vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
+    VkBufferCopy vertex_copy{};
+    vertex_copy.dstOffset = 0;
+    vertex_copy.srcOffset = 0;
+    vertex_copy.size = vb_size;
+    vkCmdCopyBuffer(cmd, staging.buffer(), vb.buffer(), 1, &vertex_copy);
+
+    VkBufferCopy index_copy{};
+    index_copy.dstOffset = 0;
+    index_copy.srcOffset = vb_size;
+    index_copy.size = ib_size;
+    vkCmdCopyBuffer(cmd, staging.buffer(), ib.buffer(), 1, &index_copy);
+  });
+}
+
 fn init_meshes(VkContext& vk, VkDelQueue& delqueue, VkAllocImage& target,
                RenderContext::MeshRenderData& mesh) -> void {
   VkShaderModule triangle_frag = VK_NULL_HANDLE, triangle_vert = VK_NULL_HANDLE,
@@ -175,39 +207,14 @@ fn init_meshes(VkContext& vk, VkDelQueue& delqueue, VkAllocImage& target,
     // Mesh index buffer
     static constexpr auto ib_size = sizeof(rect_indices);
     const render::VkBufferArgs ib_args{
-      .size = vb_size,
+      .size = ib_size,
       .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
     };
     auto ib = render::VkAllocBuff::allocate(vk, ib_args).value();
     delqueue.enqueue(ib, vk.allocator());
 
-    // Copy using staging buffer
-    const render::VkBufferArgs staging_args{
-      .size = vb_size + ib_size,
-      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      .mem_usage = render::KA_VK_MEM_USAGE_CPU_ONLY,
-    };
-    auto staging = render::VkAllocBuff::allocate(vk, staging_args).value();
-    const DeferFn staging_defer = [&]() {
-      render::vk_dealloc_buffer(vk, staging);
-    };
-    void* data = staging.mapped_data();
-    std::memcpy(data, rect_verts.data(), vb_size);
-    std::memcpy(((u8*)data) + vb_size, rect_indices.data(), ib_size);
-    render::vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
-      VkBufferCopy vertex_copy{};
-      vertex_copy.dstOffset = 0;
-      vertex_copy.srcOffset = 0;
-      vertex_copy.size = vb_size;
-      vkCmdCopyBuffer(cmd, staging.buffer(), vb.buffer(), 1, &vertex_copy);
-
-      VkBufferCopy index_copy{};
-      index_copy.dstOffset = 0;
-      index_copy.srcOffset = vb_size;
-      index_copy.size = ib_size;
-      vkCmdCopyBuffer(cmd, staging.buffer(), ib.buffer(), 1, &index_copy);
-    });
+    copy_buffers(vk, vb, rect_verts.data(), vb_size, ib, rect_indices.data(), ib_size);
     mesh.vertex_buffer.construct(std::move(vb));
     mesh.index_buffer.construct(std::move(ib));
 
@@ -330,7 +337,8 @@ fn RenderContext::destroy() -> void {
 namespace {
 
 fn draw_imgui(GLFWContext::ImGuiHandler& glfw_imgui, RenderContext::ComputeRenderData& compute,
-              VkCommandBuffer cmd, VkImageView swapchain_view, VkExtent2D swapchain_extent) {
+              Vec<RenderContext::MeshAsset>& meshes, VkCommandBuffer cmd,
+              VkImageView swapchain_view, VkExtent2D swapchain_extent) {
   static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
   glfw_imgui.new_frame();
   ImGui::NewFrame();
@@ -344,6 +352,13 @@ fn draw_imgui(GLFWContext::ImGuiHandler& glfw_imgui, RenderContext::ComputeRende
     ImGui::InputFloat4("data2", compute.data[compute.effect_idx].data2.data());
     ImGui::InputFloat4("data3", compute.data[compute.effect_idx].data3.data());
     ImGui::InputFloat4("data4", compute.data[compute.effect_idx].data4.data());
+  }
+  ImGui::End();
+
+  if (ImGui::Begin("meshes")) {
+    for (const auto& mesh : meshes) {
+      ImGui::Text("Mesh: %s", mesh.name.data());
+    }
   }
   ImGui::End();
 
@@ -368,8 +383,9 @@ fn draw_compute(const RenderContext::ComputeRenderData& compute, VkExtent2D draw
   vkCmdDispatch(cmd, std::ceil(draw_extent.width / 16.f), std::ceil(draw_extent.height / 16.f), 1);
 }
 
-fn draw_geometry(const RenderContext::MeshRenderData& mesh, VkDevice device,
-                 VkImageView target_view, VkExtent2D draw_extent, VkCommandBuffer cmd) -> void {
+fn draw_geometry(const RenderContext::MeshRenderData& mesh, Vec<RenderContext::MeshAsset>& meshes,
+                 VkDevice device, VkImageView target_view, VkExtent2D draw_extent,
+                 VkCommandBuffer cmd) -> void {
   const auto color_attachment =
     render::vkmk_attach_info(target_view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto render_info = render::vkmk_render_info(draw_extent, &color_attachment, nullptr);
@@ -391,12 +407,13 @@ fn draw_geometry(const RenderContext::MeshRenderData& mesh, VkDevice device,
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
   vkCmdBeginRendering(cmd, &render_info);
-  {
-    // Draw triangle
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh.triangle_pipeline);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
 
-    // Draw mesh
+  // Draw triangle
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh.triangle_pipeline);
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+
+  // Draw quad mesh
+  {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, mesh.mesh_pipeline);
     RenderContext::MeshConstants push_constants;
     push_constants.world_mat = mesh.quad_transform;
@@ -406,6 +423,19 @@ fn draw_geometry(const RenderContext::MeshRenderData& mesh, VkDevice device,
     vkCmdBindIndexBuffer(cmd, mesh.index_buffer->buffer(), 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cmd, (u32)rect_indices.size(), 1, 0, 0, 0);
   }
+
+  // Draw other meshes
+  for (const auto& model_mesh : meshes) {
+    RenderContext::MeshConstants push_constants;
+    push_constants.world_mat = model_mesh.transform;
+    push_constants.vertex_buffer = model_mesh.vertex_buffer.addr(device);
+    vkCmdPushConstants(cmd, mesh.mesh_layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       sizeof(push_constants), &push_constants);
+    vkCmdBindIndexBuffer(cmd, model_mesh.index_buffer.buffer(), model_mesh.index_start,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(cmd, model_mesh.index_count, 1, 0, 0, 0);
+  }
+
   vkCmdEndRendering(cmd);
 }
 
@@ -429,7 +459,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 2. Draw using graphics pipelines (we use a color attachment layout)
     layout = render::vkcmd_transition_image(cmd, _target.image(), layout,
                                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_geometry(_mesh, _vk.device(), _target.view(), draw_extent, cmd);
+    draw_geometry(_mesh, _meshes, _vk.device(), _target.view(), draw_extent, cmd);
 
     // 3. Prepare swapchain for copying
     layout = render::vkcmd_transition_image(cmd, _target.image(), layout,
@@ -445,7 +475,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_imgui(_glfw_imgui, _compute, cmd, frame.swapchain_view, frame.swapchain_extent);
+    draw_imgui(_glfw_imgui, _compute, _meshes, cmd, frame.swapchain_view, frame.swapchain_extent);
 
     // 6. Prepare swapchain image for presenting
     sw_layout = render::vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
@@ -457,6 +487,53 @@ fn RenderContext::on_fixed_update(u32 ups) -> void {
   KA_UNUSED(ups);
   static constexpr auto delta = ran::pi<f32> / 60.f;
   _mesh.quad_transform = ran::rotate(_mesh.quad_transform, delta, ran::Vec3f32(0.f, 0.f, 1.f));
+}
+
+namespace {
+
+fn soa_to_aos(Span<const ran::Vec3f32> pos, Span<const ran::Vec2f32> uvs)
+  -> UniqueArray<RenderContext::Vertex> {
+  const usize count = pos.size();
+  ka_assert(uvs.size() == count);
+  auto out = make_array<RenderContext::Vertex>(uninitialized, count);
+  for (usize i = 0; i < count; ++i) {
+    out[i].color = ran::Vec4f32(.25f, .25f, .25f, 1.f); // make something up
+    out[i].uv_x = uvs[i].x;
+    out[i].uv_y = uvs[i].y;
+    out[i].pos = pos[i];
+  }
+  return out;
+}
+
+} // namespace
+
+fn RenderContext::add_mesh(const MeshData& mesh, std::string_view name) -> void {
+  log_debug(" Adding mesh: {}", name);
+  // Vertex buffer
+  const auto vertices = soa_to_aos(mesh.positions, mesh.uvs);
+  const auto vb_size = vertices.size() * sizeof(vertices[0]);
+  const render::VkBufferArgs vb_args{
+    .size = vb_size,
+    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
+  };
+  auto vb = render::VkAllocBuff::allocate(_vk, vb_args).value();
+  _delqueue.enqueue(vb, _vk.allocator());
+
+  // Index buffer
+  const auto ib_size = mesh.indices.size_bytes();
+  const render::VkBufferArgs ib_args{
+    .size = ib_size,
+    .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+    .mem_usage = render::KA_VK_MEM_USAGE_GPU_ONLY,
+  };
+  auto ib = render::VkAllocBuff::allocate(_vk, ib_args).value();
+  _delqueue.enqueue(ib, _vk.allocator());
+
+  copy_buffers(_vk, vb, vertices.data(), vb_size, ib, mesh.indices.data(), ib_size);
+  _meshes.emplace_back(ran::Mat4f32::identity(), std::move(vb), std::move(ib), 0,
+                       (u32)mesh.indices.size(), name);
 }
 
 } // namespace kappa::render

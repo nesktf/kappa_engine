@@ -7,6 +7,7 @@
 #include "./render/vulkan/vk_util.hpp"
 
 #include "./glfw.hpp"
+#include "assets/ass_common.hpp"
 
 #include <ranmath/ran.hpp>
 
@@ -56,6 +57,23 @@ public:
     ran::Mat4f32 quad_transform;
   };
 
+  struct MeshData {
+    Span<const u32> indices;
+    Span<const ran::Vec3f32> positions;
+    Span<const ran::Vec3f32> normals;
+    Span<const ran::Vec2f32> uvs;
+    Span<const ran::Vec3f32> tangents;
+    Span<const ran::Vec3f32> bitangents;
+  };
+
+  struct MeshAsset {
+    ran::Mat4f32 transform;
+    VkAllocBuff vertex_buffer;
+    VkAllocBuff index_buffer;
+    u32 index_start, index_count;
+    std::string_view name;
+  };
+
 public:
   RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
                 VkDelQueue&& delqueue, VkAllocImage&& target, VkDescAlloc&& desc_alloc,
@@ -64,6 +82,9 @@ public:
 public:
   static fn create(GLFWContext& glfw) -> VkMsgExpect<RenderContext>;
   fn destroy() -> void;
+
+public:
+  fn add_mesh(const MeshData& mesh, std::string_view name) -> void;
 
 public:
   fn on_render(f64 dt, f64 alpha) -> void;
@@ -77,6 +98,7 @@ private:
   VkDescAlloc _desc_alloc;
   ComputeRenderData _compute;
   MeshRenderData _mesh;
+  Vec<MeshAsset> _meshes;
 };
 
 } // namespace kappa::render
