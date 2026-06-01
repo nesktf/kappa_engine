@@ -349,6 +349,16 @@ fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
   return info;
 }
 
+fn vkmk_depth_attach_info(VkImageView view, VkImageLayout layout) -> VkRenderingAttachmentInfo {
+  auto info = vkmk_zero<VkRenderingAttachmentInfo>();
+  info.imageView = view;
+  info.imageLayout = layout;
+  info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  info.clearValue.depthStencil.depth = 0.f;
+  return info;
+}
+
 fn vkmk_pipeline_stage_info(VkShaderStageFlagBits usage, VkShaderModule shader,
                             const char* entrypoint) -> VkPipelineShaderStageCreateInfo {
   auto info = vkmk_zero<VkPipelineShaderStageCreateInfo>();

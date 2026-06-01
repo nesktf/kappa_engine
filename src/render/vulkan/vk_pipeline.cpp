@@ -218,6 +218,33 @@ fn VkGfxPipelineBuilder::disable_blending() -> VkGfxPipelineBuilder& {
   return *this;
 }
 
+fn VkGfxPipelineBuilder::enable_blending_additive() -> VkGfxPipelineBuilder& {
+  _blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  _blend_attachment.blendEnable = VK_TRUE;
+  _blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  _blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+  _blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+  _blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  _blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  _blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+  return *this;
+}
+
+fn VkGfxPipelineBuilder::enable_blending_alphablend() -> VkGfxPipelineBuilder& {
+
+  _blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                     VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  _blend_attachment.blendEnable = VK_TRUE;
+  _blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  _blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  _blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+  _blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  _blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  _blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+  return *this;
+}
+
 fn VkGfxPipelineBuilder::disable_depth_test() -> VkGfxPipelineBuilder& {
   _depth_stencil.depthTestEnable = VK_FALSE;
   _depth_stencil.depthWriteEnable = VK_FALSE;
@@ -226,6 +253,20 @@ fn VkGfxPipelineBuilder::disable_depth_test() -> VkGfxPipelineBuilder& {
   _depth_stencil.stencilTestEnable = VK_FALSE;
   std::memset(&_depth_stencil.front, 0x00, sizeof(_depth_stencil.front));
   std::memset(&_depth_stencil.back, 0x00, sizeof(_depth_stencil.back));
+  _depth_stencil.minDepthBounds = 0.f;
+  _depth_stencil.maxDepthBounds = 1.f;
+  return *this;
+}
+
+fn VkGfxPipelineBuilder::enable_depth_test(VkDepthWriteEnable enable_write, VkCompareOp op)
+  -> VkGfxPipelineBuilder& {
+  _depth_stencil.depthTestEnable = VK_TRUE;
+  _depth_stencil.depthWriteEnable = (VkBool32)enable_write;
+  _depth_stencil.depthCompareOp = op;
+  _depth_stencil.depthBoundsTestEnable = VK_FALSE;
+  _depth_stencil.stencilTestEnable = VK_FALSE;
+  _depth_stencil.front = {};
+  _depth_stencil.back = {};
   _depth_stencil.minDepthBounds = 0.f;
   _depth_stencil.maxDepthBounds = 1.f;
   return *this;

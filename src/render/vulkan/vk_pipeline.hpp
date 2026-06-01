@@ -81,6 +81,11 @@ private:
 
 fn vk_destroy_pipeline_layout(VkContext_Impl& vk, VkPipelineLayout layout) noexcept -> void;
 
+enum VkDepthWriteEnable {
+  KA_VK_DEPTH_WRITE_DISABLE = 0,
+  KA_VK_DEPTH_WRITE_ENABLE,
+};
+
 class VkGfxPipelineBuilder {
 public:
   struct ShaderEntry {
@@ -114,8 +119,13 @@ public:
   fn set_color_format(VkFormat format) -> VkGfxPipelineBuilder&;
   fn set_depth_format(VkFormat format) -> VkGfxPipelineBuilder&;
   fn disable_multisampling() -> VkGfxPipelineBuilder&;
+
   fn disable_blending() -> VkGfxPipelineBuilder&;
+  fn enable_blending_additive() -> VkGfxPipelineBuilder&;
+  fn enable_blending_alphablend() -> VkGfxPipelineBuilder&;
+
   fn disable_depth_test() -> VkGfxPipelineBuilder&;
+  fn enable_depth_test(VkDepthWriteEnable enable_write, VkCompareOp op) -> VkGfxPipelineBuilder&;
 
 private:
   std::array<ShaderEntry, STAGE_COUNT> _shader_stages;

@@ -4,6 +4,7 @@
 
 #include "../../util/array.hpp"
 #include "../../util/function.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define KA_VK_STRUCT(_typename, _sType)                                  \
   template<>                                                             \
@@ -208,6 +209,8 @@ fn vkmk_image_subresource_range(VkImageAspectFlags mask) -> VkImageSubresourceRa
 
 fn vkmk_attach_info(VkImageView view, VkClearValue* clear, VkImageLayout layout)
   -> VkRenderingAttachmentInfo;
+
+fn vkmk_depth_attach_info(VkImageView view, VkImageLayout layout) -> VkRenderingAttachmentInfo;
 
 fn vkmk_render_info(VkExtent2D render_extent, const VkRenderingAttachmentInfo* color_attachment,
                     const VkRenderingAttachmentInfo* depth_attachment) -> VkRenderingInfo;
