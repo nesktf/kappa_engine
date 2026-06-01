@@ -6,8 +6,9 @@ find_package(PkgConfig REQUIRED)
 set(RES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/res)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -O0 -g2 -ggdb -Wno-psabi")
-set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -O3 -Wno-psabi")
+set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -Wall -Wextra -Wpedantic -Wno-psabi -std=c++20")
+set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g2 -ggdb")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 set(BUILD_SHARED_LIBS OFF)
 
 project(kappa CXX C)
@@ -18,7 +19,7 @@ set(LIB_LINK)
 
 # libfmt
 find_package(fmt)
-list(APPEND LIB_INCLUDE ${FMT_INCLUDE_DIRES})
+list(APPEND LIB_INCLUDE ${FMT_INCLUDE_DIRS})
 list(APPEND LIB_LINK fmt::fmt)
 
 # vulkan
@@ -55,6 +56,7 @@ list(APPEND LIB_LINK chimatools)
 set(ASSIMP_NO_EXPORT ON)
 set(ASSIMP_INSTALL OFF)
 set(ASSIMP_BUILD_TESTS OFF)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF)
 add_subdirectory("lib/assimp")
 list(APPEND LIB_LINK assimp)
 
