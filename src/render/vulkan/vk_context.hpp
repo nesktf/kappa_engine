@@ -37,9 +37,9 @@ public:
   static fn create(const VkContextArgs& args) -> VkMsgExpect<VkContext>;
 
 public:
-  fn device() -> VkDevice;
-  fn physical_device() -> VkPhysicalDevice;
-  fn allocator() -> VkMemAllocator;
+  fn device() const -> VkDevice;
+  fn physical_device() const -> VkPhysicalDevice;
+  fn allocator() const -> VkMemAllocator;
 
 public:
   VkContext_Impl& get() { return *_vk; }

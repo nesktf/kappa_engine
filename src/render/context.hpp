@@ -2,7 +2,6 @@
 
 #include "./render/vulkan/vk_buffer.hpp"
 #include "./render/vulkan/vk_context.hpp"
-#include "./render/vulkan/vk_imgui.hpp"
 #include "./render/vulkan/vk_pipeline.hpp"
 #include "./render/vulkan/vk_util.hpp"
 
@@ -15,9 +14,6 @@
 namespace kappa::render {
 
 class RenderContext {
-private:
-  struct create_t {};
-
 public:
   struct ComputeConstants {
     ran::Vec4f32 data1;
@@ -62,9 +58,17 @@ public:
   };
 
 public:
-  RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
-                VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc, DrawTarget&& target,
-                ComputeRenderData&& compute);
+  struct Self {
+    VkContext vk;
+    GLFWContext::ImGuiHandler glfw_imgui;
+    VkDelQueue delqueue;
+    VkDynDescAlloc desc_alloc;
+    DrawTarget target;
+    ComputeRenderData compute;
+    Vec<MeshAsset> meshes;
+  };
+
+  KA_SELF_FORWARD(RenderContext);
 
 public:
   static fn create(GLFWContext& glfw) -> VkMsgExpect<RenderContext>;
@@ -76,15 +80,6 @@ public:
 public:
   fn on_render(f64 dt, f64 alpha) -> void;
   fn on_fixed_update(u32 ups) -> void;
-
-private:
-  VkContext _vk;
-  GLFWContext::ImGuiHandler _glfw_imgui;
-  VkDelQueue _delqueue;
-  VkDynDescAlloc _desc_alloc;
-  DrawTarget _target;
-  ComputeRenderData _compute;
-  Vec<MeshAsset> _meshes;
 };
 
 } // namespace kappa::render

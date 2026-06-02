@@ -339,15 +339,15 @@ fn vk_destroy_context(VkContext_Impl& ctx) noexcept -> void {
   std::allocator<VkContext_Impl>().deallocate(&ctx, 1);
 }
 
-fn VkContext::device() -> VkDevice {
+fn VkContext::device() const -> VkDevice {
   return _vk->device.device();
 }
 
-fn VkContext::physical_device() -> VkPhysicalDevice {
+fn VkContext::physical_device() const -> VkPhysicalDevice {
   return _vk->device.physical_device();
 }
 
-fn VkContext::allocator() -> VkMemAllocator {
+fn VkContext::allocator() const -> VkMemAllocator {
   return (VkMemAllocator)_vk->vmalloc;
 }
 
