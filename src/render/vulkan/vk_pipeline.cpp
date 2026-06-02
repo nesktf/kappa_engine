@@ -2,17 +2,12 @@
 
 #include "./vk_private.hpp"
 #include "./vk_util.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
-VkDescAlloc::VkDescAlloc(create_t, VkDevice device, VkDescriptorPool pool) :
-    _device(device), _pool(pool) {
-  ka_assert(_device != VK_NULL_HANDLE);
-  ka_assert(_pool != VK_NULL_HANDLE);
-}
-
-fn VkDescAlloc::create(VkDevice device, const VkDescAllocArgs& args) -> VkExpect<VkDescAlloc> {
-  const auto& [max_sets, ratios] = args;
+fn VkDescAlloc::create(VkDevice device, u32 max_sets, Span<const VkDescPoolRatio> ratios)
+  -> VkExpect<VkDescAlloc> {
   Vec<VkDescriptorPoolSize> pool_sizes;
   pool_sizes.reserve(ratios.size());
   for (const auto& [type, ratio] : ratios) {
@@ -34,24 +29,143 @@ fn VkDescAlloc::create(VkDevice device, const VkDescAllocArgs& args) -> VkExpect
   return {in_place, create_t(), device, pool};
 }
 
-fn VkDescAlloc::add_to_delqueue(VkDelQueue& queue) -> void {
-  queue.enqueue(_pool, _device);
+fn VkDescAlloc::destroy() -> void {
+  vkDestroyDescriptorPool(self.device, self.pool, vkalloc);
 }
 
-fn VkDescAlloc::alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count)
-  -> VkExpect<void> {
+fn VkDescAlloc::allocate(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet> {
+  ka_assert(layout != VK_NULL_HANDLE);
   auto alloc_info = vkmk_zero<VkDescriptorSetAllocateInfo>();
-  alloc_info.descriptorPool = _pool;
-  alloc_info.descriptorSetCount = count;
+  alloc_info.descriptorPool = self.pool;
+  alloc_info.descriptorSetCount = 1;
   alloc_info.pSetLayouts = &layout;
 
-  KA_VK_UNEX(vkAllocateDescriptorSets(_device, &alloc_info, sets));
-
-  return {};
+  VkDescriptorSet set;
+  KA_VK_UNEX(vkAllocateDescriptorSets(self.device, &alloc_info, &set));
+  return {in_place, set};
 }
 
 fn VkDescAlloc::clear() -> void {
-  vkResetDescriptorPool(_device, _pool, 0);
+  vkResetDescriptorPool(self.device, self.pool, 0);
+}
+
+namespace {
+
+constexpr u32 MAX_SETS_PER_POOL = 4092;
+constexpr f32 POOL_MULTIPLIER = 1.5f;
+
+fn dyn_desc_create_pool(VkDevice device, u32 set_count, Span<const VkDescPoolRatio> ratios)
+  -> VkExpect<VkDescriptorPool> {
+  ka_assert(device != VK_NULL_HANDLE);
+
+  Vec<VkDescriptorPoolSize> pool_sizes;
+  pool_sizes.reserve(ratios.size());
+  for (const auto& [type, ratio] : ratios) {
+    VkDescriptorPoolSize size{};
+    size.type = type;
+    size.descriptorCount = (u32)(ratio * set_count);
+    pool_sizes.push_back(size);
+  }
+
+  auto pool_info = vkmk_zero<VkDescriptorPoolCreateInfo>();
+  pool_info.maxSets = set_count;
+  pool_info.poolSizeCount = (u32)pool_sizes.size();
+  pool_info.pPoolSizes = pool_sizes.data();
+  VkDescriptorPool new_pool;
+  KA_VK_UNEX(vkCreateDescriptorPool(device, &pool_info, vkalloc, &new_pool));
+  return {in_place, new_pool};
+}
+
+fn dyn_desc_get_pool(VkDynDescAlloc::Self& self) -> VkExpect<VkDescriptorPool> {
+  VkDescriptorPool pool = VK_NULL_HANDLE;
+  if (!self.avail.empty()) {
+    pool = self.avail.back();
+    self.avail.pop_back();
+  } else {
+    auto new_pool = dyn_desc_create_pool(self.device, self.sets_per_pool,
+                                         {self.ratios.data(), self.ratios.size()});
+    if (!new_pool) {
+      return {unexpect, new_pool.error()};
+    }
+    pool = *new_pool;
+    self.sets_per_pool = std::min((u32)(self.sets_per_pool * POOL_MULTIPLIER), MAX_SETS_PER_POOL);
+  }
+  return {in_place, pool};
+}
+
+} // namespace
+
+fn VkDynDescAlloc::create(VkDevice device, u32 initial_sets, Span<const VkDescPoolRatio> ratios)
+  -> VkExpect<VkDynDescAlloc> {
+  ka_assert(device != VK_NULL_HANDLE);
+
+  Vec<VkDescPoolRatio> pool_ratios(ratios.begin(), ratios.end());
+  Vec<VkDescriptorPool> full;
+  Vec<VkDescriptorPool> avail;
+  avail.reserve(1);
+  u32 sets_per_pool = (u32)(initial_sets * POOL_MULTIPLIER);
+
+  auto new_pool = dyn_desc_create_pool(device, initial_sets, ratios);
+  if (!new_pool) {
+    return {unexpect, new_pool.error()};
+  }
+  avail.push_back(*new_pool);
+  return {
+    in_place,        create_t(), std::move(pool_ratios), std::move(avail),
+    std::move(full), device,     sets_per_pool,
+  };
+}
+
+fn VkDynDescAlloc::allocate(VkDescriptorSetLayout layout, void* pNext)
+  -> VkExpect<VkDescriptorSet> {
+  ka_assert(layout != VK_NULL_HANDLE);
+
+  auto pool = dyn_desc_get_pool(self);
+  if (!pool) {
+    return {unexpect, pool.error()};
+  }
+
+  auto alloc_info = vkmk_zero<VkDescriptorSetAllocateInfo>(pNext);
+  alloc_info.descriptorPool = *pool;
+  alloc_info.descriptorSetCount = 1;
+  alloc_info.pSetLayouts = &layout;
+
+  VkDescriptorSet set;
+  auto res = vkAllocateDescriptorSets(self.device, &alloc_info, &set);
+  if (res == VK_ERROR_OUT_OF_POOL_MEMORY || res == VK_ERROR_FRAGMENTED_POOL) {
+    self.full.push_back(*pool);
+    pool = dyn_desc_get_pool(self);
+    if (!pool) {
+      return {unexpect, pool.error()};
+    }
+
+    KA_VK_UNEX(vkAllocateDescriptorSets(self.device, &alloc_info, &set));
+  }
+  self.avail.push_back(*pool);
+
+  return {in_place, set};
+}
+
+fn VkDynDescAlloc::clear() -> void {
+  for (auto& pool : self.avail) {
+    KA_VK_LOG(verbose, "Deleting DESCPOOL {}", fmt::ptr(pool));
+    vkResetDescriptorPool(self.device, pool, 0);
+  }
+  for (auto& pool : self.full) {
+    KA_VK_LOG(verbose, "Deleting DESCPOOL {}", fmt::ptr(pool));
+    vkResetDescriptorPool(self.device, pool, 0);
+    self.avail.push_back(pool);
+  }
+  self.full.clear();
+}
+
+fn VkDynDescAlloc::destroy() -> void {
+  for (auto& pool : self.avail) {
+    vkDestroyDescriptorPool(self.device, pool, vkalloc);
+  }
+  for (auto& pool : self.full) {
+    vkDestroyDescriptorPool(self.device, pool, vkalloc);
+  }
 }
 
 VkGfxPipelineBuilder::VkGfxPipelineBuilder() {

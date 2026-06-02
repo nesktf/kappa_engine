@@ -58,11 +58,12 @@ public:
     VkAllocImage color;
     VkAllocImage depth;
     VkExtent2D extent;
+    f32 scale;
   };
 
 public:
   RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
-                VkDelQueue&& delqueue, VkDescAlloc&& desc_alloc, DrawTarget&& target,
+                VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc, DrawTarget&& target,
                 ComputeRenderData&& compute);
 
 public:
@@ -80,7 +81,7 @@ private:
   VkContext _vk;
   GLFWContext::ImGuiHandler _glfw_imgui;
   VkDelQueue _delqueue;
-  VkDescAlloc _desc_alloc;
+  VkDynDescAlloc _desc_alloc;
   DrawTarget _target;
   ComputeRenderData _compute;
   Vec<MeshAsset> _meshes;

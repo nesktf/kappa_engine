@@ -32,8 +32,8 @@ fn make_delqueue_defer(VkContext& vk, VkDelQueue& delqueue) {
   };
 }
 
-fn init_compute(VkContext& vk, VkDelQueue& delqueue, VkDescAlloc& desc_alloc, VkAllocImage& target,
-                RenderContext::ComputeRenderData& compute) -> void {
+fn init_compute(VkContext& vk, VkDelQueue& delqueue, VkDynDescAlloc& desc_alloc,
+                VkAllocImage& target, RenderContext::ComputeRenderData& compute) -> void {
   VkShaderModule shader_gradient = VK_NULL_HANDLE, shader_sky = VK_NULL_HANDLE;
   const DeferFn shader_defer = [&]() {
     vk_destroy_shader(vk, shader_gradient);
@@ -52,7 +52,7 @@ fn init_compute(VkContext& vk, VkDelQueue& delqueue, VkDescAlloc& desc_alloc, Vk
                                 .value();
   delqueue.enqueue(compute.image_desc_layout, vk.device());
 
-  desc_alloc.alloc_sets(compute.image_desc_layout, &compute.image_desc, 1).value();
+  compute.image_desc = desc_alloc.allocate(compute.image_desc_layout).value();
   VkDescriptorImageInfo img_info{};
   img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   img_info.imageView = target.view();
@@ -98,7 +98,7 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
   };
   auto depth = VkAllocImage::allocate(vk, depth_target_args).value();
   delqueue.enqueue(depth, vk.device(), vk.allocator());
-  return {std::move(color), std::move(depth), surface_extent};
+  return {std::move(color), std::move(depth), surface_extent, 1.f};
 }
 
 } // namespace
@@ -142,12 +142,8 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
   static constexpr auto desc_pool_sizes = std::to_array<VkDescPoolRatio>({
     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
   });
-  static constexpr VkDescAllocArgs alloc_args{
-    .max_sets = 10,
-    .ratios = desc_pool_sizes,
-  };
-  auto desc_alloc = VkDescAlloc::create(vk->device(), alloc_args).value();
-  desc_alloc.add_to_delqueue(delqueue);
+  static constexpr u32 initial_sets = 10;
+  auto desc_alloc = VkDynDescAlloc::create(vk->device(), initial_sets, desc_pool_sizes).value();
 
   auto target = init_draw_target(*vk, delqueue, surface_extent);
 
@@ -170,13 +166,14 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
 }
 
 RenderContext::RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
-                             VkDelQueue&& delqueue, VkDescAlloc&& desc_alloc, DrawTarget&& target,
-                             ComputeRenderData&& compute) :
+                             VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc,
+                             DrawTarget&& target, ComputeRenderData&& compute) :
     _vk(std::move(vk)), _glfw_imgui(std::move(glfw_imgui)), _delqueue(std::move(delqueue)),
     _desc_alloc(std::move(desc_alloc)), _target(std::move(target)), _compute(std::move(compute)) {}
 
 fn RenderContext::destroy() -> void {
   make_delqueue_defer(_vk, _delqueue)();
+  _desc_alloc.destroy();
   make_imgui_defer(_glfw_imgui)();
   make_vk_defer(_vk)();
 }
@@ -198,7 +195,8 @@ struct Vertex {
 
 fn draw_imgui(GLFWContext::ImGuiHandler& glfw_imgui, RenderContext::ComputeRenderData& compute,
               Vec<RenderContext::MeshAsset>& meshes, VkCommandBuffer cmd,
-              VkImageView swapchain_view, VkExtent2D swapchain_extent) {
+              VkImageView swapchain_view, VkExtent2D swapchain_extent,
+              RenderContext::DrawTarget& target) {
   static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
   glfw_imgui.new_frame();
   ImGui::NewFrame();
@@ -212,6 +210,13 @@ fn draw_imgui(GLFWContext::ImGuiHandler& glfw_imgui, RenderContext::ComputeRende
     ImGui::InputFloat4("data2", compute.data[compute.effect_idx].data2.data());
     ImGui::InputFloat4("data3", compute.data[compute.effect_idx].data3.data());
     ImGui::InputFloat4("data4", compute.data[compute.effect_idx].data4.data());
+  }
+  ImGui::End();
+
+  if (ImGui::Begin("render options")) {
+    ImGui::InputFloat("Render scale", &target.scale, .3f, 1.f);
+    ImGui::Text("Render Extent: (%u x %u)", target.extent.width, target.extent.height);
+    ImGui::Text("Swapchain Extent: (%u x %u)", swapchain_extent.width, swapchain_extent.height);
   }
   ImGui::End();
 
@@ -286,6 +291,13 @@ fn draw_geometry(Span<const RenderContext::MeshAsset> meshes, VkDevice device,
   vkCmdEndRendering(cmd);
 }
 
+fn update_draw_target_extent(RenderContext::DrawTarget& target, VkExtent2D swapchain_extent)
+  -> void {
+  const auto [actual_w, actual_h, _] = target.color.extent();
+  target.extent.width = (u32)(std::min(swapchain_extent.width, actual_w) * target.scale);
+  target.extent.height = (u32)(std::min(swapchain_extent.height, actual_h) * target.scale);
+}
+
 } // namespace
 
 fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
@@ -293,6 +305,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
   KA_UNUSED(alpha);
   vk_draw_frame(_vk, [&](const VkFrameContext& frame) -> void {
     const auto cmd = frame.cmd;
+    update_draw_target_extent(_target, frame.swapchain_extent);
 
     // 1. Draw using compute pipeline (we use a general layout)
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED; // Don't care about the older layout
@@ -318,7 +331,8 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
     sw_layout = vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_imgui(_glfw_imgui, _compute, _meshes, cmd, frame.swapchain_view, frame.swapchain_extent);
+    draw_imgui(_glfw_imgui, _compute, _meshes, cmd, frame.swapchain_view, frame.swapchain_extent,
+               _target);
 
     // 6. Prepare swapchain image for presenting
     sw_layout = vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,

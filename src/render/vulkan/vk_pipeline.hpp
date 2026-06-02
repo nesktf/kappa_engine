@@ -6,43 +6,6 @@
 
 namespace kappa::render {
 
-struct VkDescPoolRatio {
-  VkDescriptorType type;
-  f32 ratio;
-};
-
-struct VkDescAllocArgs {
-  u32 max_sets;
-  Span<const VkDescPoolRatio> ratios;
-};
-
-class VkDescAlloc {
-private:
-  struct create_t {};
-
-public:
-  VkDescAlloc(create_t, VkDevice device, VkDescriptorPool pool);
-
-public:
-  static fn create(VkDevice device, const VkDescAllocArgs& args) -> VkExpect<VkDescAlloc>;
-
-public:
-  fn add_to_delqueue(VkDelQueue& queue) -> void;
-
-  fn alloc_sets(VkDescriptorSetLayout layout, VkDescriptorSet* sets, u32 count) -> VkExpect<void>;
-
-  fn clear() -> void;
-
-  fn pool_handle() -> VkDescriptorPool { return _pool; }
-
-private:
-  VkDevice _device;
-  VkDescriptorPool _pool;
-};
-
-fn vk_create_shader(VkContext_Impl& vk, Span<const u8> src) -> VkExpect<VkShaderModule>;
-fn vk_destroy_shader(VkContext_Impl& vk, VkShaderModule shader) noexcept -> void;
-
 class VkDescLayoutBuilder {
 public:
   VkDescLayoutBuilder();
@@ -60,6 +23,55 @@ private:
 };
 
 fn vk_destroy_desc_layout(VkContext_Impl& vk, VkDescriptorSetLayout layout) noexcept -> void;
+
+struct VkDescPoolRatio {
+  VkDescriptorType type;
+  f32 ratio;
+};
+
+class VkDescAlloc {
+public:
+  struct Self {
+    VkDevice device;
+    VkDescriptorPool pool;
+  };
+
+  KA_SELF_FORWARD(VkDescAlloc);
+
+public:
+  static fn create(VkDevice device, u32 max_sets, Span<const VkDescPoolRatio> ratios)
+    -> VkExpect<VkDescAlloc>;
+
+public:
+  fn allocate(VkDescriptorSetLayout layout) -> VkExpect<VkDescriptorSet>;
+  fn clear() -> void;
+  fn destroy() -> void;
+};
+
+class VkDynDescAlloc {
+public:
+  struct Self {
+    Vec<VkDescPoolRatio> ratios;
+    Vec<VkDescriptorPool> avail;
+    Vec<VkDescriptorPool> full;
+    VkDevice device;
+    u32 sets_per_pool;
+  };
+
+  KA_SELF_FORWARD(VkDynDescAlloc);
+
+public:
+  static fn create(VkDevice device, u32 initial_sets, Span<const VkDescPoolRatio> ratios)
+    -> VkExpect<VkDynDescAlloc>;
+
+public:
+  fn allocate(VkDescriptorSetLayout layout, void* pNext = nullptr) -> VkExpect<VkDescriptorSet>;
+  fn clear() -> void;
+  fn destroy() -> void;
+};
+
+fn vk_create_shader(VkContext_Impl& vk, Span<const u8> src) -> VkExpect<VkShaderModule>;
+fn vk_destroy_shader(VkContext_Impl& vk, VkShaderModule shader) noexcept -> void;
 
 class VkPipelineLayoutBuilder {
 public:

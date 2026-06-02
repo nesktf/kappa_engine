@@ -103,6 +103,17 @@
   _typename(const _typename&) = delete; \
   _typename& operator=(const _typename&) = delete
 
+#define KA_SELF_FORWARD(_typename)                                                             \
+private:                                                                                       \
+  struct create_t {};                                                                          \
+  Self self;                                                                                   \
+                                                                                               \
+public:                                                                                        \
+  template<typename... SelfArgs>                                                               \
+  _typename(create_t,                                                                          \
+            SelfArgs&&... args) noexcept(std::is_nothrow_constructible_v<Self, SelfArgs...>) : \
+      self(std::forward<SelfArgs>(args)...) {}
+
 #define KA_C_API
 
 #define KA_VER_MAJ 0
