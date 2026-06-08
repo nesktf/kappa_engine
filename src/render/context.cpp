@@ -87,15 +87,19 @@ fn init_compute(VkContext& vk, VkDelQueue& delqueue, VkDynDescAlloc& desc_alloc,
 
 fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_extent)
   -> RenderContext::DrawTarget {
+  static constexpr auto base_usage =
+    VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
   const VkImageArgs color_target_args{
     .extent = {surface_extent.width, surface_extent.height, 1},
     .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+    .usage = base_usage | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
   };
   auto color = VkAllocImage::allocate(vk, color_target_args).value();
   delqueue.enqueue(color, vk.device(), vk.allocator());
   const VkImageArgs depth_target_args{
     .extent = {surface_extent.width, surface_extent.height, 1},
     .format = VK_FORMAT_D32_SFLOAT,
+    .usage = base_usage | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
   };
   auto depth = VkAllocImage::allocate(vk, depth_target_args).value();
   delqueue.enqueue(depth, vk.device(), vk.allocator());

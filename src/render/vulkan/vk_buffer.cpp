@@ -23,12 +23,7 @@ fn vk_create_vma_alloc(VkInstance vk, VkDevice device, VkPhysicalDevice physical
 }
 
 fn vk_alloc_image(VkAllocImage_Impl& image, VkDevice device, VmaAllocator vma, VkExtent3D extent,
-                  VkFormat format) -> VkExpect<void> {
-  VkImageUsageFlags draw_usage{};
-  draw_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  draw_usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  draw_usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-  draw_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+                  VkFormat format, VkImageUsageFlags draw_usage) -> VkExpect<void> {
   const auto rimg_info = vkmk_image_info(format, draw_usage, extent);
 
   // Allocate the image data
@@ -41,7 +36,11 @@ fn vk_alloc_image(VkAllocImage_Impl& image, VkDevice device, VmaAllocator vma, V
   };
 
   // Build image view
-  const auto rview_info = vkmk_imageview_info(format, image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+  const auto aspect_bit =
+    (draw_usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)           ? VK_IMAGE_ASPECT_COLOR_BIT
+    : (draw_usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                                 : 0;
+  const auto rview_info = vkmk_imageview_info(format, image.image, aspect_bit);
   KA_VK_UNEX(vkCreateImageView(device, &rview_info, vkalloc, &image.view));
 
   image.extent.width = extent.width;
@@ -65,7 +64,8 @@ fn VkAllocImage::allocate(VkContext_Impl& vk, const VkImageArgs& args) -> VkExpe
   const auto vmalloc = vk.vmalloc;
   VkAllocImage_Impl image;
   std::memset(&image, 0x00, sizeof(image));
-  return kappa::render::vk_alloc_image(image, device, vmalloc, args.extent, args.format)
+  return kappa::render::vk_alloc_image(image, device, vmalloc, args.extent, args.format,
+                                       args.usage)
     .transform([&]() -> VkAllocImage { return {create_t(), std::move(image)}; });
 }
 

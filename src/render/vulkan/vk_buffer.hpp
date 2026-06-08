@@ -54,6 +54,7 @@ fn vk_dealloc_buffer(VkContext_Impl& vk, VkAllocBuff_Impl& buff) noexcept -> voi
 struct VkImageArgs {
   VkExtent3D extent;
   VkFormat format;
+  VkImageUsageFlags usage;
 };
 
 class VkAllocImage {
