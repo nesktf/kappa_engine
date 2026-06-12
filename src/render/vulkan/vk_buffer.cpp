@@ -1,3 +1,4 @@
+#include <vulkan/vulkan_core.h>
 #define VMA_IMPLEMENTATION
 #include "./vk_private.hpp"
 
@@ -23,8 +24,12 @@ fn vk_create_vma_alloc(VkInstance vk, VkDevice device, VkPhysicalDevice physical
 }
 
 fn vk_alloc_image(VkAllocImage_Impl& image, VkDevice device, VmaAllocator vma, VkExtent3D extent,
-                  VkFormat format, VkImageUsageFlags draw_usage) -> VkExpect<void> {
-  const auto rimg_info = vkmk_image_info(format, draw_usage, extent);
+                  VkFormat format, VkImageUsageFlags draw_usage, bool enable_mips)
+  -> VkExpect<void> {
+  auto rimg_info = vkmk_image_info(format, draw_usage, extent);
+  if (enable_mips) {
+    rimg_info.mipLevels = (u32)(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
+  }
 
   // Allocate the image data
   VmaAllocationCreateInfo rimg_allocinfo{};
@@ -37,7 +42,8 @@ fn vk_alloc_image(VkAllocImage_Impl& image, VkDevice device, VmaAllocator vma, V
 
   // Build image view
   const auto aspect_bit =
-    (draw_usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)           ? VK_IMAGE_ASPECT_COLOR_BIT
+    (draw_usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) || (draw_usage & VK_IMAGE_USAGE_SAMPLED_BIT)
+      ? VK_IMAGE_ASPECT_COLOR_BIT
     : (draw_usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) ? VK_IMAGE_ASPECT_DEPTH_BIT
                                                                  : 0;
   const auto rview_info = vkmk_imageview_info(format, image.image, aspect_bit);
@@ -65,7 +71,7 @@ fn VkAllocImage::allocate(VkContext_Impl& vk, const VkImageArgs& args) -> VkExpe
   VkAllocImage_Impl image;
   std::memset(&image, 0x00, sizeof(image));
   return kappa::render::vk_alloc_image(image, device, vmalloc, args.extent, args.format,
-                                       args.usage)
+                                       args.usage, (bool)args.mipmaps)
     .transform([&]() -> VkAllocImage { return {create_t(), std::move(image)}; });
 }
 
@@ -151,6 +157,15 @@ fn VkAllocBuff::addr(VkDevice device) const -> VkDeviceAddress {
 
 fn VkAllocBuff::buffer() const -> VkBuffer {
   return _data->buffer;
+}
+
+fn vk_create_sampler(VkDevice device, VkFilter mag, VkFilter min) -> VkExpect<VkSampler> {
+  auto sampl = vkmk_zero<VkSamplerCreateInfo>();
+  sampl.magFilter = mag;
+  sampl.minFilter = min;
+  VkSampler sampler;
+  KA_VK_UNEX(vkCreateSampler(device, &sampl, vkalloc, &sampler))
+  return {in_place, sampler};
 }
 
 } // namespace kappa::render

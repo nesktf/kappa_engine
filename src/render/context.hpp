@@ -17,6 +17,16 @@ namespace kappa::render {
 
 class RenderContext {
 public:
+  using Image = u32;
+  using Sampler = u32;
+  static constexpr Image DEFAULT_IMAGE = (Image)0;
+
+  struct ImageData {
+    Vec<VkAllocImage> images;
+    VkSampler sampler_nearest, sampler_linear;
+    VkDescriptorSetLayout image_layout;
+  };
+
   struct ComputeConstants {
     ran::Vec4f32 data1;
     ran::Vec4f32 data2;
@@ -77,6 +87,7 @@ public:
     u32 frame_count;
     ComputeRenderData compute;
     Vec<MeshAsset> meshes;
+    ImageData images;
     VkDescriptorSetLayout scene_layout;
   };
 

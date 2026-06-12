@@ -65,6 +65,7 @@ KA_VK_STRUCT(VkGraphicsPipelineCreateInfo, GRAPHICS_PIPELINE_CREATE_INFO);
 KA_VK_STRUCT(VkPipelineDynamicStateCreateInfo, PIPELINE_DYNAMIC_STATE_CREATE_INFO);
 KA_VK_STRUCT(VkBufferCreateInfo, BUFFER_CREATE_INFO);
 KA_VK_STRUCT(VkBufferDeviceAddressInfo, BUFFER_DEVICE_ADDRESS_INFO);
+KA_VK_STRUCT(VkSamplerCreateInfo, SAMPLER_CREATE_INFO);
 
 template<typename T>
 requires(VkStructTraits<T>::is_specialized)
@@ -90,6 +91,7 @@ public:
   enum HandleType {
     TYPE_DELETER,
     TYPE_IMAGE,
+    TYPE_SAMPLER,
     TYPE_BUFFER,
     TYPE_IMAGE_VIEW,
     TYPE_SURFACE,
@@ -138,6 +140,10 @@ public:
 
   fn enqueue(VkAllocImage_Impl& image, VkDevice device, VkMemAllocator alloc) -> void;
   fn enqueue(VkAllocBuff_Impl& buffer, VkMemAllocator alloc) -> void;
+
+  fn enqueue(VkSampler sampler, VkDevice device) -> void {
+    enqueue_handle((VkHandle)sampler, (VkHandle)device, TYPE_SAMPLER);
+  }
 
   fn enqueue(VkMemAllocator alloc, VkDevice device) -> void {
     enqueue_handle((VkHandle)alloc, (VkHandle)device, TYPE_VMALLOC);

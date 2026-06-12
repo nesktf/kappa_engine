@@ -51,10 +51,16 @@ private:
 
 fn vk_dealloc_buffer(VkContext_Impl& vk, VkAllocBuff_Impl& buff) noexcept -> void;
 
+enum VkImageMipsFlag {
+  KA_VK_DISABLE_MIPMAPS = 0,
+  KA_VK_ENABLE_MIPMAPS = 1,
+};
+
 struct VkImageArgs {
   VkExtent3D extent;
   VkFormat format;
   VkImageUsageFlags usage;
+  VkImageMipsFlag mipmaps;
 };
 
 class VkAllocImage {
@@ -86,5 +92,7 @@ private:
 };
 
 fn vk_dealloc_image(VkContext_Impl& vk, VkAllocImage_Impl& image) noexcept -> void;
+
+fn vk_create_sampler(VkDevice device, VkFilter mag, VkFilter min) -> VkExpect<VkSampler>;
 
 } // namespace kappa::render

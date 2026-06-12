@@ -37,6 +37,7 @@ fn handle_name(VkDelQueue::HandleType type) -> const char* {
     STR(PIPLAYOUT);
     STR(PIPELINE);
     STR(SHADER);
+    STR(SAMPLER);
     default:
       return "UNKNOWN";
   }
@@ -53,6 +54,9 @@ fn destroy_handle(VkDelQueue::HandleType type, VkHandle parent, VkHandle other_p
     } break;
     case TYPE_BUFFER: {
       vk_dealloc_buffer((VmaAllocator)other_parent, (VkBuffer)handle, (VmaAllocation)parent);
+    } break;
+    case TYPE_SAMPLER: {
+      vkDestroySampler((VkDevice)parent, (VkSampler)handle, vkalloc);
     } break;
     case TYPE_IMAGE_VIEW: {
       vkDestroyImageView((VkDevice)parent, (VkImageView)handle, vkalloc);

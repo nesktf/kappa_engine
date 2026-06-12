@@ -4,8 +4,11 @@
 
 #include "../util/filesystem.hpp"
 #include "../util/logger.hpp"
+#include "vulkan/vk_buffer.hpp"
 #include "vulkan/vk_common.hpp"
 #include "vulkan/vk_pipeline.hpp"
+#include "vulkan/vk_util.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -88,6 +91,7 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
     .extent = {surface_extent.width, surface_extent.height, 1},
     .format = VK_FORMAT_R16G16B16A16_SFLOAT,
     .usage = base_usage | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+    .mipmaps = KA_VK_DISABLE_MIPMAPS,
   };
   auto color = VkAllocImage::allocate(vk, color_target_args).value();
   delqueue.enqueue(color, vk.device(), vk.allocator());
@@ -95,10 +99,102 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
     .extent = {surface_extent.width, surface_extent.height, 1},
     .format = VK_FORMAT_D32_SFLOAT,
     .usage = base_usage | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+    .mipmaps = KA_VK_DISABLE_MIPMAPS,
   };
   auto depth = VkAllocImage::allocate(vk, depth_target_args).value();
   delqueue.enqueue(depth, vk.device(), vk.allocator());
   return {std::move(color), std::move(depth), surface_extent, 1.f};
+}
+
+fn create_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat format,
+                VkImageUsageFlags flags, VkImageMipsFlag mips) -> VkExpect<VkAllocImage> {
+  const usize data_size = size.depth * size.width * size.height * 4;
+  const VkImageArgs image_args{
+    .extent = size,
+    .format = format,
+    .usage = flags | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+    .mipmaps = mips,
+  };
+  auto imag = VkAllocImage::allocate(vk, image_args);
+  if (!imag) {
+    return imag;
+  }
+  DeferFn on_err = [&]() {
+    vk_dealloc_image(vk, *imag);
+  };
+
+  if (data) {
+    const VkBufferArgs upload_args{
+      .size = data_size,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      .mem_usage = KA_VK_MEM_USAGE_CPU_TO_GPU,
+    };
+    auto upload_buff = VkAllocBuff::allocate(vk, upload_args);
+    if (!upload_buff) {
+      return {unexpect, upload_buff.error()};
+    }
+    std::memcpy(upload_buff->mapped_data(), data, data_size);
+    const DeferFn buff_defer = [&]() {
+      vk_dealloc_buffer(vk, *upload_buff);
+    };
+    vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
+      auto layout = VK_IMAGE_LAYOUT_UNDEFINED;
+      layout =
+        vkcmd_transition_image(cmd, imag->image(), layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      VkBufferImageCopy region{};
+      region.bufferOffset = 0;
+      region.bufferRowLength = 0;
+      region.bufferImageHeight = 0;
+
+      region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.imageSubresource.mipLevel = 0;
+      region.imageSubresource.baseArrayLayer = 0;
+      region.imageSubresource.layerCount = 1;
+      region.imageExtent = size;
+
+      vkCmdCopyBufferToImage(cmd, upload_buff->buffer(), imag->image(),
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+      layout = vkcmd_transition_image(cmd, imag->image(), layout,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }).value();
+  }
+  on_err.disengage();
+  return imag;
+}
+
+constexpr auto default_texture = []() {
+  constexpr u32 magenta = 0xFFFF00FF;
+  constexpr u32 black = 0xFF000000;
+  std::array<u32, 16 * 16> pixels;
+  for (u32 x = 0; x < 16; x++) {
+    for (u32 y = 0; y < 16; y++) {
+      pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
+    }
+  }
+  return pixels;
+}();
+
+fn init_images(VkContext& vk, VkDelQueue& delqueue, RenderContext::ImageData& images) -> void {
+  auto image =
+    create_image(vk, default_texture.data(), VkExtent3D(16, 16, 1), VK_FORMAT_R8G8B8A8_UNORM,
+                 VK_IMAGE_USAGE_SAMPLED_BIT, KA_VK_DISABLE_MIPMAPS)
+      .value();
+  delqueue.enqueue(image, vk.device(), vk.allocator());
+  images.images.emplace_back(std::move(image));
+  images.sampler_nearest =
+    vk_create_sampler(vk.device(), VK_FILTER_NEAREST, VK_FILTER_NEAREST).value();
+  delqueue.enqueue(images.sampler_nearest, vk.device());
+  images.sampler_linear =
+    vk_create_sampler(vk.device(), VK_FILTER_LINEAR, VK_FILTER_LINEAR).value();
+  delqueue.enqueue(images.sampler_linear, vk.device());
+  {
+    VkDescLayoutBuilder builder;
+    images.image_layout = builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                            .build(vk, VK_SHADER_STAGE_FRAGMENT_BIT)
+                            .value();
+    delqueue.enqueue(images.image_layout, vk.device());
+  }
 }
 
 } // namespace
@@ -179,6 +275,9 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
   }
   delqueue.enqueue(scene_layout, vk->device());
 
+  ImageData images;
+  init_images(*vk, delqueue, images);
+
   return {
     in_place,
     create_t(),
@@ -191,13 +290,14 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
     frame_count,
     std::move(compute),
     std::move(meshes),
+    std::move(images),
     scene_layout,
   };
 }
 
 fn RenderContext::destroy() -> void {
   for (auto& frame : self.frames) {
-    frame.delqueue.flush();
+    make_delqueue_defer(self.vk, frame.delqueue)();
     frame.desc_alloc.destroy();
   }
   make_delqueue_defer(self.vk, self.delqueue)();
@@ -209,7 +309,9 @@ fn RenderContext::destroy() -> void {
 namespace {
 
 struct MeshConstants {
-  ran::Mat4f32 world_mat;
+  ran::Mat4f32 world;
+  ran::Mat4f32 proj;
+  ran::Mat4f32 view;
   VkDeviceAddress vertex_buffer;
 };
 
@@ -275,6 +377,7 @@ fn draw_compute(const RenderContext::Self& self, VkCommandBuffer cmd) -> void {
                 std::ceil(self.target.extent.height / 16.f), 1);
 }
 
+#if 0
 struct SceneData {
   ran::Mat4f32 view;
   ran::Mat4f32 proj;
@@ -283,9 +386,11 @@ struct SceneData {
   ran::Vec4f32 sunlight_dir;
   ran::Vec4f32 sunlight_color;
 };
+#endif
 
-fn draw_geometry(RenderContext::Self& self, RenderContext::FrameData& frame, VkCommandBuffer cmd)
-  -> void {
+fn draw_geometry(RenderContext::Self& self, RenderContext::FrameData& frame,
+                 VkExtent2D draw_extent, VkCommandBuffer cmd) -> void {
+#if 0
   const VkBufferArgs buff_args{
     .size = sizeof(SceneData),
     .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -301,6 +406,7 @@ fn draw_geometry(RenderContext::Self& self, RenderContext::FrameData& frame, VkC
   VkDescWriter writer(self.vk.device());
   writer.write_buffer(0, buff.buffer(), sizeof(SceneData), 0, KA_VK_DESC_BUFF_TYPE_UNIFORM);
   writer.update_set(global_desc);
+#endif
 
   const auto color_attachment =
     vkmk_attach_info(self.target.color.view(), nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -330,9 +436,25 @@ fn draw_geometry(RenderContext::Self& self, RenderContext::FrameData& frame, VkC
   // Draw meshes
   for (const auto& model_mesh : self.meshes) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, model_mesh.pipeline);
+    auto image_set = frame.desc_alloc.allocate(self.images.image_layout).value();
+    {
+      VkDescWriter writer(self.vk.device());
+      writer.write_combined_image(0, self.images.images[0].view(),
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                  self.images.sampler_nearest);
+      writer.update_set(image_set);
+    }
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, model_mesh.layout, 0, 1,
+                            &image_set, 0, nullptr);
 
     MeshConstants push_constants;
-    push_constants.world_mat = model_mesh.transform;
+    push_constants.world = model_mesh.transform;
+    push_constants.view = ran::Mat4f32::identity();
+    //  ran::translate(ran::Mat4f32::identity(), ran::Vec3f32(0.f, 0.f, -5.f));
+    push_constants.proj = ran::Mat4f32::identity();
+    //  ran::perspective(
+    //  ran::rad(70.f), (f32)draw_extent.width / (f32)draw_extent.height, 10000.f, .1f);
+    // push_constants.proj.y2 *= -1;
     push_constants.vertex_buffer = model_mesh.vertex_buffer.addr(self.vk.device());
     vkCmdPushConstants(cmd, model_mesh.layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(push_constants), &push_constants);
@@ -378,7 +500,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 2. Draw using graphics pipelines (we use a color attachment layout)
     layout = vkcmd_transition_image(cmd, self.target.color.image(), layout,
                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_geometry(self, ctx_frame, cmd);
+    draw_geometry(self, ctx_frame, self.target.extent, cmd);
 
     // 3. Prepare swapchain for copying
     layout = vkcmd_transition_image(cmd, self.target.color.image(), layout,
@@ -417,7 +539,7 @@ fn soa_to_aos(Span<const ran::Vec3f32> pos, Span<const ran::Vec2f32> uvs) -> Uni
   ka_assert(uvs.size() == count);
   auto out = make_array<Vertex>(uninitialized, count);
   for (usize i = 0; i < count; ++i) {
-    out[i].color = ran::Vec4f32(.25f, .25f, .25f, 1.f); // make something up
+    out[i].color = ran::Vec4f32(1.f, 1.f, 1.f, 1.f); // make something up
     out[i].uv_x = uvs[i].x;
     out[i].uv_y = uvs[i].y;
     out[i].pos = pos[i];
@@ -474,6 +596,7 @@ fn init_pipeline(RenderContext::Self& self) -> std::pair<VkPipeline, VkPipelineL
 
   VkPipelineLayoutBuilder layout_builder;
   layout = layout_builder.add_push_range(VK_SHADER_STAGE_VERTEX_BIT, sizeof(MeshConstants), 0)
+             .add_layout(self.images.image_layout)
              .build(self.vk)
              .value();
   self.delqueue.enqueue(layout, self.vk.device());
@@ -501,7 +624,7 @@ fn init_pipeline(RenderContext::Self& self) -> std::pair<VkPipeline, VkPipelineL
 fn RenderContext::add_mesh(const MeshData& mesh, std::string_view name) -> void {
   log_debug(" Adding mesh: {}", name);
   // Vertex buffer
-  const auto vertices = soa_to_aos(mesh.positions, mesh.uvs);
+  const auto vertices = soa_to_aos(mesh.positions, mesh.uvs); // commit a crime
   const auto vb_size = vertices.size() * sizeof(vertices[0]);
   const VkBufferArgs vb_args{
     .size = vb_size,
