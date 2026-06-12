@@ -4,6 +4,8 @@
 
 #include "../util/filesystem.hpp"
 #include "../util/logger.hpp"
+#include "vulkan/vk_common.hpp"
+#include "vulkan/vk_pipeline.hpp"
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -154,6 +156,29 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
 
   Vec<RenderContext::MeshAsset> meshes;
 
+  Vec<FrameData> frames;
+  frames.reserve(MAX_FRAMES_IN_FLIGHT);
+  static constexpr auto frame_sizes = std::to_array<VkDescPoolRatio>({
+    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
+    {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
+    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
+    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
+  });
+  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    auto alloc = VkDynDescAlloc::create(vk->device(), 1000, frame_sizes).value();
+    frames.emplace_back(VkDelQueue(), std::move(alloc));
+  }
+  const u32 frame_count = 0;
+
+  VkDescriptorSetLayout scene_layout{};
+  {
+    VkDescLayoutBuilder builder;
+    scene_layout = builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
+                     .build(*vk, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+                     .value();
+  }
+  delqueue.enqueue(scene_layout, vk->device());
+
   return {
     in_place,
     create_t(),
@@ -162,12 +187,19 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
     std::move(delqueue),
     std::move(desc_alloc),
     std::move(target),
+    std::move(frames),
+    frame_count,
     std::move(compute),
     std::move(meshes),
+    scene_layout,
   };
 }
 
 fn RenderContext::destroy() -> void {
+  for (auto& frame : self.frames) {
+    frame.delqueue.flush();
+    frame.desc_alloc.destroy();
+  }
   make_delqueue_defer(self.vk, self.delqueue)();
   self.desc_alloc.destroy();
   make_imgui_defer(self.glfw_imgui)();
@@ -243,7 +275,33 @@ fn draw_compute(const RenderContext::Self& self, VkCommandBuffer cmd) -> void {
                 std::ceil(self.target.extent.height / 16.f), 1);
 }
 
-fn draw_geometry(const RenderContext::Self& self, VkCommandBuffer cmd) -> void {
+struct SceneData {
+  ran::Mat4f32 view;
+  ran::Mat4f32 proj;
+  ran::Mat4f32 viewproj;
+  ran::Vec4f32 ambient_color;
+  ran::Vec4f32 sunlight_dir;
+  ran::Vec4f32 sunlight_color;
+};
+
+fn draw_geometry(RenderContext::Self& self, RenderContext::FrameData& frame, VkCommandBuffer cmd)
+  -> void {
+  const VkBufferArgs buff_args{
+    .size = sizeof(SceneData),
+    .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+    .mem_usage = KA_VK_MEM_USAGE_CPU_TO_GPU,
+  };
+  auto buff = VkAllocBuff::allocate(self.vk, buff_args).value();
+  frame.delqueue.enqueue(buff, self.vk.allocator());
+
+  auto* scene_data = (SceneData*)buff.mapped_data();
+  std::memset(scene_data, 0x00, sizeof(*scene_data));
+
+  auto global_desc = frame.desc_alloc.allocate(self.scene_layout).value();
+  VkDescWriter writer(self.vk.device());
+  writer.write_buffer(0, buff.buffer(), sizeof(SceneData), 0, KA_VK_DESC_BUFF_TYPE_UNIFORM);
+  writer.update_set(global_desc);
+
   const auto color_attachment =
     vkmk_attach_info(self.target.color.view(), nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   const auto depth_attachment =
@@ -293,12 +351,21 @@ fn update_draw_target_extent(RenderContext::Self& self, VkExtent2D swapchain_ext
     (u32)(std::min(swapchain_extent.height, actual_h) * self.target.scale);
 }
 
+fn initialize_frame(RenderContext::Self& self) -> RenderContext::FrameData& {
+  auto& ctx_frame = self.frames[self.frame_count++ % self.frames.size()];
+  ctx_frame.delqueue.flush();
+  ctx_frame.desc_alloc.clear();
+  return ctx_frame;
+}
+
 } // namespace
 
 fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
   KA_UNUSED(dt);
   KA_UNUSED(alpha);
   vk_draw_frame(self.vk, [&](const VkFrameContext& frame) -> void {
+    auto& ctx_frame = initialize_frame(self);
+
     const auto cmd = frame.cmd;
     update_draw_target_extent(self, frame.swapchain_extent);
 
@@ -311,7 +378,7 @@ fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
     // 2. Draw using graphics pipelines (we use a color attachment layout)
     layout = vkcmd_transition_image(cmd, self.target.color.image(), layout,
                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_geometry(self, cmd);
+    draw_geometry(self, ctx_frame, cmd);
 
     // 3. Prepare swapchain for copying
     layout = vkcmd_transition_image(cmd, self.target.color.image(), layout,

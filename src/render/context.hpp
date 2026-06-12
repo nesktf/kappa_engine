@@ -8,6 +8,8 @@
 #include "./glfw.hpp"
 
 #include "../util/string.hpp"
+#include "vulkan/vk_common.hpp"
+#include "vulkan/vk_pipeline.hpp"
 
 #include <ranmath/ran.hpp>
 
@@ -57,6 +59,13 @@ public:
     f32 scale;
   };
 
+  struct FrameData {
+    VkDelQueue delqueue;
+    VkDynDescAlloc desc_alloc;
+  };
+
+  using FrameArray = Vec<FrameData>; // We know the size but i can't be bothered right now
+
 public:
   struct Self {
     VkContext vk;
@@ -64,8 +73,11 @@ public:
     VkDelQueue delqueue;
     VkDynDescAlloc desc_alloc;
     DrawTarget target;
+    FrameArray frames;
+    u32 frame_count;
     ComputeRenderData compute;
     Vec<MeshAsset> meshes;
+    VkDescriptorSetLayout scene_layout;
   };
 
   KA_SELF_FORWARD(RenderContext);
