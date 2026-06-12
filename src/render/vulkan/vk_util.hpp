@@ -84,6 +84,9 @@ constexpr fn vkmk_zero(VkStructureType sType, void* pNext = nullptr) -> T {
   return info;
 }
 
+class VkAllocImage;
+class VkAllocBuff;
+
 class VkDelQueue {
 public:
   using DelFn = TrivFn<void(), 3 * sizeof(VkHandle), 8>;
@@ -138,8 +141,8 @@ public:
                     VkHandle other_parent = VK_NULL_HANDLE) -> void;
   fn flush() -> void;
 
-  fn enqueue(VkAllocImage_Impl& image, VkDevice device, VkMemAllocator alloc) -> void;
-  fn enqueue(VkAllocBuff_Impl& buffer, VkMemAllocator alloc) -> void;
+  fn enqueue(VkAllocImage& image, VkDevice device, VkMemAllocator alloc) -> void;
+  fn enqueue(VkAllocBuff& buffer, VkMemAllocator alloc) -> void;
 
   fn enqueue(VkSampler sampler, VkDevice device) -> void {
     enqueue_handle((VkHandle)sampler, (VkHandle)device, TYPE_SAMPLER);

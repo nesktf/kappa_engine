@@ -1,6 +1,7 @@
-#include "./vk_context.hpp"
-
+#define VMA_IMPLEMENTATION
 #include "./vk_private.hpp"
+
+#include "./vk_context.hpp"
 
 namespace kappa::render {
 
@@ -180,6 +181,22 @@ fn init_vk_instance(VkInstance* vk, VkDebugUtilsMessengerEXT* messenger, void* m
   return {};
 }
 
+fn create_vma_alloc(VkInstance vk, VkDevice device, VkPhysicalDevice physical_device)
+  -> VkExpect<VmaAllocator> {
+  VmaAllocatorCreateInfo vma_info{};
+  vma_info.instance = vk;
+  vma_info.device = device;
+  vma_info.physicalDevice = physical_device;
+  vma_info.vulkanApiVersion = KA_VULKAN_VERSION;
+  vma_info.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT |
+                   VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+  VmaAllocator vmalloc;
+  KA_VK_UNEX(vmaCreateAllocator(&vma_info, &vmalloc));
+
+  return {in_place, vmalloc};
+}
+
 fn make_swapchain_args(VkContextDevice& dev, VkSurfaceKHR surface, VkExtent2D surface_extent)
   -> VkSwapchainArgs {
   VkSwapchainArgs swargs{};
@@ -299,8 +316,7 @@ fn VkContext::create(const VkContextArgs& args) -> VkMsgExpect<VkContext> {
   KA_VK_UNEX_CODE_RET(device, VkContextDevice::create(vk, surface), "Failed to create device");
   device->add_to_delqueue(delqueue);
 
-  KA_VK_UNEX_CODE_RET(vmalloc,
-                      vk_create_vma_alloc(vk, device->device(), device->physical_device()),
+  KA_VK_UNEX_CODE_RET(vmalloc, create_vma_alloc(vk, device->device(), device->physical_device()),
                       "Failed to create buffer allocator");
   delqueue.enqueue((VkMemAllocator)*vmalloc, device->device());
   const u32 graphics_queue = device->queues().graphics;

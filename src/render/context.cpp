@@ -4,11 +4,6 @@
 
 #include "../util/filesystem.hpp"
 #include "../util/logger.hpp"
-#include "vulkan/vk_buffer.hpp"
-#include "vulkan/vk_common.hpp"
-#include "vulkan/vk_pipeline.hpp"
-#include "vulkan/vk_util.hpp"
-#include <vulkan/vulkan_core.h>
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -93,7 +88,7 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
     .usage = base_usage | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
     .mipmaps = KA_VK_DISABLE_MIPMAPS,
   };
-  auto color = VkAllocImage::allocate(vk, color_target_args).value();
+  auto color = VkAllocImage::create(vk.device(), vk.allocator(), color_target_args).value();
   delqueue.enqueue(color, vk.device(), vk.allocator());
   const VkImageArgs depth_target_args{
     .extent = {surface_extent.width, surface_extent.height, 1},
@@ -101,7 +96,7 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
     .usage = base_usage | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
     .mipmaps = KA_VK_DISABLE_MIPMAPS,
   };
-  auto depth = VkAllocImage::allocate(vk, depth_target_args).value();
+  auto depth = VkAllocImage::create(vk.device(), vk.allocator(), depth_target_args).value();
   delqueue.enqueue(depth, vk.device(), vk.allocator());
   return {std::move(color), std::move(depth), surface_extent, 1.f};
 }
@@ -115,12 +110,12 @@ fn create_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat forma
     .usage = flags | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
     .mipmaps = mips,
   };
-  auto imag = VkAllocImage::allocate(vk, image_args);
+  auto imag = VkAllocImage::create(vk.device(), vk.allocator(), image_args);
   if (!imag) {
     return imag;
   }
   DeferFn on_err = [&]() {
-    vk_dealloc_image(vk, *imag);
+    vk_destroy_image(vk.device(), vk.allocator(), *imag);
   };
 
   if (data) {
@@ -129,13 +124,13 @@ fn create_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat forma
       .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       .mem_usage = KA_VK_MEM_USAGE_CPU_TO_GPU,
     };
-    auto upload_buff = VkAllocBuff::allocate(vk, upload_args);
+    auto upload_buff = VkAllocBuff::create(vk.allocator(), upload_args);
     if (!upload_buff) {
       return {unexpect, upload_buff.error()};
     }
     std::memcpy(upload_buff->mapped_data(), data, data_size);
     const DeferFn buff_defer = [&]() {
-      vk_dealloc_buffer(vk, *upload_buff);
+      vk_destroy_buffer(vk.allocator(), *upload_buff);
     };
     vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
       auto layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -555,9 +550,9 @@ fn copy_buffers(RenderContext::Self& self, VkAllocBuff& vb, const void* vb_data,
     .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
     .mem_usage = KA_VK_MEM_USAGE_CPU_ONLY,
   };
-  auto staging = VkAllocBuff::allocate(self.vk, staging_args).value();
+  auto staging = VkAllocBuff::create(self.vk.allocator(), staging_args).value();
   const DeferFn staging_defer = [&]() {
-    vk_dealloc_buffer(self.vk, staging);
+    vk_destroy_buffer(self.vk.allocator(), staging);
   };
 
   void* data = staging.mapped_data();
@@ -632,7 +627,7 @@ fn RenderContext::add_mesh(const MeshData& mesh, std::string_view name) -> void 
              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
     .mem_usage = KA_VK_MEM_USAGE_GPU_ONLY,
   };
-  auto vb = VkAllocBuff::allocate(self.vk, vb_args).value();
+  auto vb = VkAllocBuff::create(self.vk.allocator(), vb_args).value();
   self.delqueue.enqueue(vb, self.vk.allocator());
 
   // Index buffer
@@ -642,7 +637,7 @@ fn RenderContext::add_mesh(const MeshData& mesh, std::string_view name) -> void 
     .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
     .mem_usage = KA_VK_MEM_USAGE_GPU_ONLY,
   };
-  auto ib = VkAllocBuff::allocate(self.vk, ib_args).value();
+  auto ib = VkAllocBuff::create(self.vk.allocator(), ib_args).value();
   self.delqueue.enqueue(ib, self.vk.allocator());
 
   const auto [pipeline, layout] = init_pipeline(self);

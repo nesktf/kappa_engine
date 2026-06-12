@@ -26,73 +26,31 @@ private:
   struct create_t {};
 
 public:
-  using opaque_type = TypeBuffer<VkAllocBuff_Impl, 72, 8>;
+  struct Self;
+  using opaque_type = TypeBuffer<Self, 72, 8>;
 
 public:
-  VkAllocBuff(create_t, VkAllocBuff_Impl&& data);
+  VkAllocBuff(create_t, Self&& data);
 
 public:
-  static fn allocate(VkContext_Impl& ctx, const VkBufferArgs& args) -> VkExpect<VkAllocBuff>;
+  static fn create(VkMemAllocator alloc, const VkBufferArgs& args) -> VkExpect<VkAllocBuff>;
 
 public:
   fn mapped_data() const -> void*;
   fn size() const -> VkDeviceSize;
   fn addr(VkDevice device) const -> VkDeviceAddress;
   fn buffer() const -> VkBuffer;
+  fn allocation() const -> VkAllocationMem;
 
 public:
-  operator VkAllocBuff_Impl&() { return *_data.get(); }
+  operator Self&() { return *self.get(); }
 
-  operator const VkAllocBuff_Impl&() const { return *_data.get(); }
+  operator const Self&() const { return *self.get(); }
 
 private:
-  opaque_type _data;
+  opaque_type self;
 };
 
-fn vk_dealloc_buffer(VkContext_Impl& vk, VkAllocBuff_Impl& buff) noexcept -> void;
-
-enum VkImageMipsFlag {
-  KA_VK_DISABLE_MIPMAPS = 0,
-  KA_VK_ENABLE_MIPMAPS = 1,
-};
-
-struct VkImageArgs {
-  VkExtent3D extent;
-  VkFormat format;
-  VkImageUsageFlags usage;
-  VkImageMipsFlag mipmaps;
-};
-
-class VkAllocImage {
-private:
-  struct create_t {};
-
-public:
-  using opaque_type = TypeBuffer<VkAllocImage_Impl, 40, 8>;
-
-public:
-  VkAllocImage(create_t, VkAllocImage_Impl&& data);
-
-public:
-  static fn allocate(VkContext_Impl& ctx, const VkImageArgs& args) -> VkExpect<VkAllocImage>;
-
-public:
-  fn extent() const -> VkExtent3D;
-  fn format() const -> VkFormat;
-  fn view() const -> VkImageView;
-  fn image() const -> VkImage;
-
-public:
-  operator VkAllocImage_Impl&() { return *_data.get(); }
-
-  operator const VkAllocImage_Impl&() const { return *_data.get(); }
-
-private:
-  opaque_type _data;
-};
-
-fn vk_dealloc_image(VkContext_Impl& vk, VkAllocImage_Impl& image) noexcept -> void;
-
-fn vk_create_sampler(VkDevice device, VkFilter mag, VkFilter min) -> VkExpect<VkSampler>;
+fn vk_destroy_buffer(VkMemAllocator alloc, VkAllocBuff::Self& buff) noexcept -> void;
 
 } // namespace kappa::render

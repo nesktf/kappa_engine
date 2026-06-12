@@ -7,11 +7,10 @@
 namespace kappa::render {
 
 struct VkContext_Impl;
-struct VkAllocBuff_Impl;
-struct VkAllocImage_Impl;
 
-typedef struct VkAllocator_Impl* VkMemAllocator;
-typedef struct VkHandle_Impl* VkHandle;
+typedef struct VkMemAllocator_T* VkMemAllocator;
+typedef struct VkHandle_T* VkHandle;
+typedef struct VkAllocationMem_T* VkAllocationMem;
 
 constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
 

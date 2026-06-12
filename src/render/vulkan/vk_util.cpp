@@ -2,6 +2,9 @@
 
 #include "./vk_private.hpp"
 
+#include "./vk_buffer.hpp"
+#include "./vk_image.hpp"
+
 namespace kappa::render {
 
 namespace {
@@ -50,10 +53,10 @@ fn destroy_handle(VkDelQueue::HandleType type, VkHandle parent, VkHandle other_p
   KA_VK_LOG(verbose, "Deleting {} {}", handle_name(type), fmt::ptr(handle));
   switch (type) {
     case TYPE_IMAGE: {
-      vk_dealloc_image((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
+      vmaDestroyImage((VmaAllocator)other_parent, (VkImage)handle, (VmaAllocation)parent);
     } break;
     case TYPE_BUFFER: {
-      vk_dealloc_buffer((VmaAllocator)other_parent, (VkBuffer)handle, (VmaAllocation)parent);
+      vmaDestroyBuffer((VmaAllocator)other_parent, (VkBuffer)handle, (VmaAllocation)parent);
     } break;
     case TYPE_SAMPLER: {
       vkDestroySampler((VkDevice)parent, (VkSampler)handle, vkalloc);
@@ -120,13 +123,14 @@ fn VkDelQueue::flush() -> void {
   _queue.clear();
 }
 
-fn VkDelQueue::enqueue(VkAllocImage_Impl& image, VkDevice device, VkMemAllocator vma) -> void {
-  enqueue(image.view, device);
-  enqueue_handle((VkHandle)image.image, (VkHandle)image.alloc, TYPE_IMAGE, (VkHandle)vma);
+fn VkDelQueue::enqueue(VkAllocImage& image, VkDevice device, VkMemAllocator vma) -> void {
+  enqueue(image.view(), device);
+  enqueue_handle((VkHandle)image.image(), (VkHandle)image.allocation(), TYPE_IMAGE, (VkHandle)vma);
 }
 
-fn VkDelQueue::enqueue(VkAllocBuff_Impl& buffer, VkMemAllocator vma) -> void {
-  enqueue_handle((VkHandle)buffer.buffer, (VkHandle)buffer.alloc, TYPE_BUFFER, (VkHandle)vma);
+fn VkDelQueue::enqueue(VkAllocBuff& buffer, VkMemAllocator vma) -> void {
+  enqueue_handle((VkHandle)buffer.buffer(), (VkHandle)buffer.allocation(), TYPE_BUFFER,
+                 (VkHandle)vma);
 }
 
 fn VkDelQueue::enqueue_deleter(DelFn func) -> void {

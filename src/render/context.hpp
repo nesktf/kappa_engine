@@ -2,14 +2,13 @@
 
 #include "./render/vulkan/vk_buffer.hpp"
 #include "./render/vulkan/vk_context.hpp"
+#include "./render/vulkan/vk_image.hpp"
 #include "./render/vulkan/vk_pipeline.hpp"
 #include "./render/vulkan/vk_util.hpp"
 
 #include "./glfw.hpp"
 
 #include "../util/string.hpp"
-#include "vulkan/vk_common.hpp"
-#include "vulkan/vk_pipeline.hpp"
 
 #include <ranmath/ran.hpp>
 
