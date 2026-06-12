@@ -1,6 +1,5 @@
 #include "./assets/model.hpp"
-#include "./render/context.hpp"
-#include "./render/glfw.hpp"
+#include "./kappa.hpp"
 
 #include "./util/logger.hpp"
 
@@ -11,7 +10,7 @@ using namespace kappa;
 constexpr u32 WINDOW_WIDTH = 1280;
 constexpr u32 WINDOW_HEIGHT = 720;
 
-fn extract_model_data(const assets::Model3DData& model) -> render::RenderContext::MeshData {
+fn extract_model_data(const assets::Model3DData& model) -> render::SceneData::MeshData {
   const auto& mesh = model.mesh_at(0);
   // FIXME: model.mesh_*(ArrayRange) doesn't work properly, doing this manually
   const auto [idx_start, idx_count] = mesh.indices();
@@ -41,27 +40,44 @@ fn extract_model_data(const assets::Model3DData& model) -> render::RenderContext
   };
 }
 
-fn run_engine() -> void {
-  auto glfw = render::GLFWContext::create(WINDOW_WIDTH, WINDOW_HEIGHT);
-  const DeferFn glfw_defer = [&]() {
-    glfw.destroy();
-  };
-  auto vk = render::RenderContext::create(glfw).value();
-  const DeferFn rctx_defer = [&]() {
-    vk.destroy();
-  };
+} // namespace
 
+fn KappaContext::init() -> void {
+  ka_assert(!_initialized);
+  render::GLFWContext::initialize(_glfw.get_dirty(), WINDOW_WIDTH, WINDOW_HEIGHT);
+  render::RenderContext::initialize(_renderer.get_dirty(), *_glfw);
+  render::SceneData::initialize(_scene.get_dirty(), *_renderer);
+  _initialized = true;
+}
+
+fn KappaContext::destroy() -> void {
+  ka_assert(_initialized);
+
+  _scene->clear();
+  _scene.reset();
+
+  _renderer->destroy();
+  _renderer.reset();
+
+  _glfw->destroy();
+  _glfw.reset();
+
+  _initialized = false;
+}
+
+fn KappaContext::start() -> void {
   auto suzanne = assets::Model3DLoader(KA_RES_DIR "/models/suzanne.glb", "suzanne")().value();
   const DeferFn suzanne_kill = [&]() {
     suzanne.destroy();
   };
   const auto model = extract_model_data(suzanne);
-  vk.add_mesh(model, suzanne.name().as_view());
-
-  render::render_loop<60>(glfw, vk);
+  _scene->add_mesh(model, suzanne.name().as_view());
+  render::render_loop<60>(*_glfw, *this);
 }
 
-} // namespace
+fn KappaContext::on_render(f64 dt, f64 alpha) -> void {}
+
+fn KappaContext::on_fixed_update(u32 ups) -> void {}
 
 int kappa::g_argc;
 char** kappa::g_argv;
@@ -70,8 +86,15 @@ int main(int argc, char* argv[]) {
   g_argc = argc;
   g_argv = argv;
   try {
-    run_engine();
+    KappaContext ka;
+    ka.init();
+    const DeferFn ka_defer = [&]() {
+      ka.destroy();
+    };
+    ka.start();
   } catch (const std::exception& ex) {
     log_error(" {}", ex.what());
+  } catch (...) {
+    log_error(" Caught unknown exception");
   }
 }

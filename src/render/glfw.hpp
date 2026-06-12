@@ -2,6 +2,7 @@
 
 #include "./vulkan/vk_common.hpp"
 
+#include "../util/buffer.hpp"
 #include "../util/ptr.hpp"
 
 #include <GLFW/glfw3.h>
@@ -32,7 +33,7 @@ public:
   GLFWContext(create_t, GLFWwindow* win) noexcept : _win(win) {}
 
 public:
-  static fn create(u32 width, u32 height) -> GLFWContext;
+  static fn initialize(Uninited<GLFWContext> glfw, u32 width, u32 height) -> void;
   fn destroy() -> void;
 
 public:

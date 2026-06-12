@@ -3,17 +3,20 @@
 #include "../core.hpp"
 
 #include <cstring>
+#include <memory>
 #include <type_traits>
 #include <utility>
 
 namespace kappa {
+
+using freelist_slot = u32;
 
 template<typename T, usize MaxElems>
 class FixedFreelist {
 public:
   static constexpr usize max_element_count = MaxElems;
   using value_type = T;
-  using element_slot = u32;
+  using element_slot = freelist_slot;
 
 private:
   struct slot_t {

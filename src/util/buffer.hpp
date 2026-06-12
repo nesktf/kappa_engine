@@ -5,7 +5,20 @@
 #include <memory>
 #include <utility>
 
+enum KA_PNEW_T {
+  KA_PNEW_TAG,
+};
+
+constexpr inline void* operator new(size_t, void* ptr, KA_PNEW_T) {
+  return ptr;
+}
+
+#define KA_PNEW(_ptr, ...) ::new (_ptr, KA_PNEW_TAG)
+
 namespace kappa {
+
+template<typename T>
+using Uninited = T*;
 
 template<typename T, usize Size, usize Align>
 struct TypeBuffer {
@@ -18,6 +31,10 @@ public:
   }
 
 public:
+  fn get_dirty() -> T* { return reinterpret_cast<T*>(_data); }
+
+  fn get_dirty() const -> const T* { return reinterpret_cast<const T*>(_data); }
+
   fn get() -> T* { return std::launder(reinterpret_cast<T*>(_data)); }
 
   fn get() const -> const T* { return std::launder(reinterpret_cast<const T*>(_data)); }
@@ -37,17 +54,21 @@ public:
 public:
   template<typename... Args>
   fn construct(Args&&... args) -> T& {
-    return *(new (reinterpret_cast<T*>(_data)) T(std::forward<Args>(args)...));
+    return *(KA_PNEW(reinterpret_cast<T*>(_data)) T(std::forward<Args>(args)...));
   }
 
   template<typename... Args>
   fn construct_offset(usize offset, Args&&... args) -> T& {
-    return *(new (reinterpret_cast<T*>(_data) + offset) T(std::forward<Args>(args)...));
+    return *(KA_PNEW(reinterpret_cast<T*>(_data) + offset) T(std::forward<Args>(args)...));
   }
 
   fn destroy() -> void { get()->~T(); }
 
+  fn reset() -> void { get()->~T(); }
+
   fn destroy_offset(usize offset) -> void { get()[offset].~T(); }
+
+  fn reset_offset(usize offset) -> void { get()[offset].~T(); }
 };
 
 template<typename T>

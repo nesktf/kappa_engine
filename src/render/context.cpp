@@ -2,7 +2,6 @@
 
 #include "./render/vulkan/vk_imgui.hpp"
 
-#include "../util/filesystem.hpp"
 #include "../util/logger.hpp"
 
 #define KA_APP_NAME    "Kappa"
@@ -31,51 +30,6 @@ fn make_delqueue_defer(VkContext& vk, VkDelQueue& delqueue) {
     vkDeviceWaitIdle(vk.device());
     delqueue.flush();
   };
-}
-
-fn init_compute(VkContext& vk, VkDelQueue& delqueue, VkDynDescAlloc& desc_alloc,
-                VkAllocImage& target, RenderContext::ComputeRenderData& compute) -> void {
-  VkShaderModule shader_gradient = VK_NULL_HANDLE, shader_sky = VK_NULL_HANDLE;
-  const DeferFn shader_defer = [&]() {
-    vk_destroy_shader(vk, shader_gradient);
-    vk_destroy_shader(vk, shader_sky);
-  };
-
-  const auto src_gradient = load_entire_file(KA_RES_DIR "/shaders/gradient_color.comp.spv");
-  shader_gradient = vk_create_shader(vk, {src_gradient.data(), src_gradient.size()}).value();
-
-  const auto src_sky = load_entire_file(KA_RES_DIR "/shaders/sky.comp.spv");
-  shader_sky = vk_create_shader(vk, {src_sky.data(), src_sky.size()}).value();
-
-  VkDescLayoutBuilder desc_layout_builder;
-  compute.image_desc_layout = desc_layout_builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-                                .build(vk, VK_SHADER_STAGE_COMPUTE_BIT)
-                                .value();
-  delqueue.enqueue(compute.image_desc_layout, vk.device());
-
-  compute.image_desc = desc_alloc.allocate(compute.image_desc_layout).value();
-
-  VkDescWriter writer(vk.device());
-  writer.write_storage_image(0, target.view(), VK_IMAGE_LAYOUT_GENERAL);
-  writer.update_set(compute.image_desc);
-
-  VkPipelineLayoutBuilder layout_builder;
-  compute.layout =
-    layout_builder.add_layout(compute.image_desc_layout)
-      .add_push_range(VK_SHADER_STAGE_COMPUTE_BIT, sizeof(RenderContext::ComputeConstants), 0)
-      .build(vk)
-      .value();
-  delqueue.enqueue(compute.layout, vk.device());
-
-  compute.pipelines[0] = vk_create_compute_pipeline(vk, compute.layout, shader_gradient).value();
-  delqueue.enqueue(compute.pipelines[0], vk.device());
-
-  compute.pipelines[1] = vk_create_compute_pipeline(vk, compute.layout, shader_sky).value();
-  delqueue.enqueue(compute.pipelines[1], vk.device());
-
-  compute.data[0].data1 = ran::Vec4f32(1.f, 0.f, 0.f, 1.f);
-  compute.data[0].data2 = ran::Vec4f32(0.f, 0.f, 1.f, 1.f);
-  compute.data[1].data1 = ran::Vec4f32(.1f, .2f, .4f, .97f);
 }
 
 fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_extent)
@@ -170,31 +124,39 @@ constexpr auto default_texture = []() {
   return pixels;
 }();
 
-fn init_images(VkContext& vk, VkDelQueue& delqueue, RenderContext::ImageData& images) -> void {
+fn init_images(VkContext& vk, VkDelQueue& delqueue)
+  -> std::pair<VkAllocImage, RenderContext::SamplerArray> {
   auto image =
     create_image(vk, default_texture.data(), VkExtent3D(16, 16, 1), VK_FORMAT_R8G8B8A8_UNORM,
                  VK_IMAGE_USAGE_SAMPLED_BIT, KA_VK_DISABLE_MIPMAPS)
       .value();
   delqueue.enqueue(image, vk.device(), vk.allocator());
-  images.images.emplace_back(std::move(image));
-  images.sampler_nearest =
-    vk_create_sampler(vk.device(), VK_FILTER_NEAREST, VK_FILTER_NEAREST).value();
-  delqueue.enqueue(images.sampler_nearest, vk.device());
-  images.sampler_linear =
+  RenderContext::SamplerArray samplers{};
+  samplers[RenderContext::SAMPLER_LINEAR] =
     vk_create_sampler(vk.device(), VK_FILTER_LINEAR, VK_FILTER_LINEAR).value();
-  delqueue.enqueue(images.sampler_linear, vk.device());
-  {
-    VkDescLayoutBuilder builder;
-    images.image_layout = builder.add_binding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-                            .build(vk, VK_SHADER_STAGE_FRAGMENT_BIT)
-                            .value();
-    delqueue.enqueue(images.image_layout, vk.device());
-  }
+  delqueue.enqueue(samplers[RenderContext::SAMPLER_LINEAR], vk.device());
+  samplers[RenderContext::SAMPLER_NEAREST] =
+    vk_create_sampler(vk.device(), VK_FILTER_NEAREST, VK_FILTER_NEAREST).value();
+  delqueue.enqueue(samplers[RenderContext::SAMPLER_NEAREST], vk.device());
+
+  return {std::move(image), std::move(samplers)};
 }
 
 } // namespace
 
-fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
+RenderContext::RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
+                             VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc,
+                             DrawTarget&& target, FrameData* frames, VkAllocImage&& default_image,
+                             SamplerArray&& samplers) :
+    _vk(std::move(vk)), _glfw_imgui(std::move(glfw_imgui)), _delqueue(std::move(delqueue)),
+    _desc_alloc(std::move(desc_alloc)), _target(std::move(target)),
+    _images(std::move(default_image), std::move(samplers)), _frame_count(0) {
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    _frames.construct_offset(i, std::move(frames[i]));
+  }
+}
+
+fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw) -> void {
   VkExtent2D surface_extent{};
   fn extent_updater = glfw.make_vk_extent_updater();
   extent_updater(&surface_extent);
@@ -209,11 +171,8 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
     .app_name = KA_APP_NAME,
     .app_ver = KA_APP_VERSION,
   };
-  auto vk = VkContext::create(vk_args);
-  if (!vk) {
-    return {unexpect, vk.error()};
-  }
-  DeferFn vk_defer = make_vk_defer(*vk);
+  auto vk = VkContext::create(vk_args).value();
+  DeferFn vk_defer = make_vk_defer(vk);
 
   fn glfw_imgui = glfw.make_imgui_handler();
   fn imgui_initer = [&]() {
@@ -224,31 +183,21 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
     glfw_imgui.init();
   };
-  vk_init_imgui(*vk, imgui_initer);
+  vk_init_imgui(vk, imgui_initer);
   DeferFn imgui_defer = make_imgui_defer(glfw_imgui);
 
   VkDelQueue delqueue;
-  DeferFn delqueue_defer = make_delqueue_defer(*vk, delqueue);
+  DeferFn delqueue_defer = make_delqueue_defer(vk, delqueue);
 
   static constexpr auto desc_pool_sizes = std::to_array<VkDescPoolRatio>({
     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
   });
   static constexpr u32 initial_sets = 10;
-  auto desc_alloc = VkDynDescAlloc::create(vk->device(), initial_sets, desc_pool_sizes).value();
+  auto desc_alloc = VkDynDescAlloc::create(vk.device(), initial_sets, desc_pool_sizes).value();
 
-  auto target = init_draw_target(*vk, delqueue, surface_extent);
+  auto target = init_draw_target(vk, delqueue, surface_extent);
 
-  ComputeRenderData compute{};
-  init_compute(*vk, delqueue, desc_alloc, target.color, compute);
-
-  delqueue_defer.disengage();
-  imgui_defer.disengage();
-  vk_defer.disengage();
-
-  Vec<RenderContext::MeshAsset> meshes;
-
-  Vec<FrameData> frames;
-  frames.reserve(MAX_FRAMES_IN_FLIGHT);
+  RenderContext::FrameArray frames;
   static constexpr auto frame_sizes = std::to_array<VkDescPoolRatio>({
     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
     {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
@@ -256,397 +205,112 @@ fn RenderContext::create(GLFWContext& glfw) -> VkMsgExpect<RenderContext> {
     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
   });
   for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    auto alloc = VkDynDescAlloc::create(vk->device(), 1000, frame_sizes).value();
-    frames.emplace_back(VkDelQueue(), std::move(alloc));
+    auto alloc = VkDynDescAlloc::create(vk.device(), 1000, frame_sizes).value();
+    frames.construct_offset(i, VkDelQueue(), std::move(alloc));
   }
-  const u32 frame_count = 0;
 
   VkDescriptorSetLayout scene_layout{};
   {
     VkDescLayoutBuilder builder;
     scene_layout = builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
-                     .build(*vk, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+                     .build(vk, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
                      .value();
   }
-  delqueue.enqueue(scene_layout, vk->device());
+  delqueue.enqueue(scene_layout, vk.device());
 
-  ImageData images;
-  init_images(*vk, delqueue, images);
+  auto [default_image, samplers] = init_images(vk, delqueue);
 
-  return {
-    in_place,
-    create_t(),
-    *std::move(vk),
-    std::move(glfw_imgui),
-    std::move(delqueue),
-    std::move(desc_alloc),
-    std::move(target),
-    std::move(frames),
-    frame_count,
-    std::move(compute),
-    std::move(meshes),
-    std::move(images),
-    scene_layout,
-  };
+  delqueue_defer.disengage();
+  imgui_defer.disengage();
+  vk_defer.disengage();
+
+  KA_PNEW(renderer)
+  RenderContext(create_t(), std::move(vk), std::move(glfw_imgui), std::move(delqueue),
+                std::move(desc_alloc), std::move(target), frames.get(), std::move(default_image),
+                std::move(samplers));
 }
 
 fn RenderContext::destroy() -> void {
-  for (auto& frame : self.frames) {
-    make_delqueue_defer(self.vk, frame.delqueue)();
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    auto& frame = _frames[i];
+    make_delqueue_defer(_vk, frame.delqueue)();
     frame.desc_alloc.destroy();
   }
-  make_delqueue_defer(self.vk, self.delqueue)();
-  self.desc_alloc.destroy();
-  make_imgui_defer(self.glfw_imgui)();
-  make_vk_defer(self.vk)();
+  make_delqueue_defer(_vk, _delqueue)();
+  _desc_alloc.destroy();
+  make_imgui_defer(_glfw_imgui)();
+  make_vk_defer(_vk)();
 }
 
 namespace {
 
-struct MeshConstants {
-  ran::Mat4f32 world;
-  ran::Mat4f32 proj;
-  ran::Mat4f32 view;
-  VkDeviceAddress vertex_buffer;
-};
-
-struct Vertex {
-  ran::Vec3f32 pos;
-  f32 uv_x;
-  ran::Vec3f32 normal;
-  f32 uv_y;
-  ran::Vec4f32 color;
-};
-
-fn draw_imgui(RenderContext::Self& self, VkCommandBuffer cmd, VkImageView swapchain_view,
-              VkExtent2D swapchain_extent) -> void {
-  static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
-  self.glfw_imgui.new_frame();
-  ImGui::NewFrame();
-
-  ImGui::ShowDemoWindow();
-
-  if (ImGui::Begin("background")) {
-    ImGui::Text("Selected effect: %s", compute_names[self.compute.effect_idx]);
-    ImGui::SliderInt("Effect Index", &self.compute.effect_idx, 0, 1);
-    ImGui::InputFloat4("data1", self.compute.data[self.compute.effect_idx].data1.data());
-    ImGui::InputFloat4("data2", self.compute.data[self.compute.effect_idx].data2.data());
-    ImGui::InputFloat4("data3", self.compute.data[self.compute.effect_idx].data3.data());
-    ImGui::InputFloat4("data4", self.compute.data[self.compute.effect_idx].data4.data());
-  }
-  ImGui::End();
-
-  if (ImGui::Begin("render options")) {
-    ImGui::InputFloat("Render scale", &self.target.scale, .3f, 1.f);
-    ImGui::Text("Render Extent: (%u x %u)", self.target.extent.width, self.target.extent.height);
-    ImGui::Text("Swapchain Extent: (%u x %u)", swapchain_extent.width, swapchain_extent.height);
-  }
-  ImGui::End();
-
-  if (ImGui::Begin("meshes")) {
-    for (const auto& mesh : self.meshes) {
-      ImGui::Text("Mesh: %s", mesh.name.c_str());
-    }
-  }
-  ImGui::End();
-
-  ImGui::Render();
-
-  const auto color_attachment =
-    vkmk_attach_info(swapchain_view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto render_info = vkmk_render_info(swapchain_extent, &color_attachment, nullptr);
-  vkCmdBeginRendering(cmd, &render_info);
-  vk_draw_imgui(cmd, ImGui::GetDrawData());
-  vkCmdEndRendering(cmd);
-}
-
-fn draw_compute(const RenderContext::Self& self, VkCommandBuffer cmd) -> void {
-  const auto& data = self.compute.data[self.compute.effect_idx];
-  const auto pipeline = self.compute.pipelines[self.compute.effect_idx];
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, self.compute.layout, 0, 1,
-                          &self.compute.image_desc, 0, nullptr);
-  vkCmdPushConstants(cmd, self.compute.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(data),
-                     &data);
-  vkCmdDispatch(cmd, std::ceil(self.target.extent.width / 16.f),
-                std::ceil(self.target.extent.height / 16.f), 1);
-}
-
-#if 0
-struct SceneData {
-  ran::Mat4f32 view;
-  ran::Mat4f32 proj;
-  ran::Mat4f32 viewproj;
-  ran::Vec4f32 ambient_color;
-  ran::Vec4f32 sunlight_dir;
-  ran::Vec4f32 sunlight_color;
-};
-#endif
-
-fn draw_geometry(RenderContext::Self& self, RenderContext::FrameData& frame,
-                 VkExtent2D draw_extent, VkCommandBuffer cmd) -> void {
-#if 0
-  const VkBufferArgs buff_args{
-    .size = sizeof(SceneData),
-    .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-    .mem_usage = KA_VK_MEM_USAGE_CPU_TO_GPU,
-  };
-  auto buff = VkAllocBuff::allocate(self.vk, buff_args).value();
-  frame.delqueue.enqueue(buff, self.vk.allocator());
-
-  auto* scene_data = (SceneData*)buff.mapped_data();
-  std::memset(scene_data, 0x00, sizeof(*scene_data));
-
-  auto global_desc = frame.desc_alloc.allocate(self.scene_layout).value();
-  VkDescWriter writer(self.vk.device());
-  writer.write_buffer(0, buff.buffer(), sizeof(SceneData), 0, KA_VK_DESC_BUFF_TYPE_UNIFORM);
-  writer.update_set(global_desc);
-#endif
-
-  const auto color_attachment =
-    vkmk_attach_info(self.target.color.view(), nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-  const auto depth_attachment =
-    vkmk_depth_attach_info(self.target.depth.view(), VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-  const auto render_info =
-    vkmk_render_info(self.target.extent, &color_attachment, &depth_attachment);
-
-  // Dynamic state
-  VkViewport viewport{};
-  viewport.x = 0;
-  viewport.y = 0;
-  viewport.width = self.target.extent.width;
-  viewport.height = self.target.extent.height;
-  viewport.minDepth = 0.f;
-  viewport.maxDepth = 1.f;
-  vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-  VkRect2D scissor{};
-  scissor.offset.x = 0;
-  scissor.offset.y = 0;
-  scissor.extent = self.target.extent;
-  vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-  vkCmdBeginRendering(cmd, &render_info);
-
-  // Draw meshes
-  for (const auto& model_mesh : self.meshes) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, model_mesh.pipeline);
-    auto image_set = frame.desc_alloc.allocate(self.images.image_layout).value();
-    {
-      VkDescWriter writer(self.vk.device());
-      writer.write_combined_image(0, self.images.images[0].view(),
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                  self.images.sampler_nearest);
-      writer.update_set(image_set);
-    }
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, model_mesh.layout, 0, 1,
-                            &image_set, 0, nullptr);
-
-    MeshConstants push_constants;
-    push_constants.world = model_mesh.transform;
-    push_constants.view = ran::Mat4f32::identity();
-    //  ran::translate(ran::Mat4f32::identity(), ran::Vec3f32(0.f, 0.f, -5.f));
-    push_constants.proj = ran::Mat4f32::identity();
-    //  ran::perspective(
-    //  ran::rad(70.f), (f32)draw_extent.width / (f32)draw_extent.height, 10000.f, .1f);
-    // push_constants.proj.y2 *= -1;
-    push_constants.vertex_buffer = model_mesh.vertex_buffer.addr(self.vk.device());
-    vkCmdPushConstants(cmd, model_mesh.layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                       sizeof(push_constants), &push_constants);
-    vkCmdBindIndexBuffer(cmd, model_mesh.index_buffer.buffer(), model_mesh.index_start,
-                         VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, model_mesh.index_count, 1, 0, 0, 0);
-  }
-
-  vkCmdEndRendering(cmd);
-}
-
-fn update_draw_target_extent(RenderContext::Self& self, VkExtent2D swapchain_extent) -> void {
-  const auto [actual_w, actual_h, _] = self.target.color.extent();
-  self.target.extent.width = (u32)(std::min(swapchain_extent.width, actual_w) * self.target.scale);
-  self.target.extent.height =
-    (u32)(std::min(swapchain_extent.height, actual_h) * self.target.scale);
-}
-
-fn initialize_frame(RenderContext::Self& self) -> RenderContext::FrameData& {
-  auto& ctx_frame = self.frames[self.frame_count++ % self.frames.size()];
-  ctx_frame.delqueue.flush();
-  ctx_frame.desc_alloc.clear();
-  return ctx_frame;
+fn update_draw_target_extent(RenderContext::DrawTarget& target, VkExtent2D swapchain_extent)
+  -> void {
+  const auto [actual_w, actual_h, _] = target.color.extent();
+  target.extent.width = (u32)(std::min(swapchain_extent.width, actual_w) * target.scale);
+  target.extent.height = (u32)(std::min(swapchain_extent.height, actual_h) * target.scale);
 }
 
 } // namespace
 
-fn RenderContext::on_render(f64 dt, f64 alpha) -> void {
-  KA_UNUSED(dt);
-  KA_UNUSED(alpha);
-  vk_draw_frame(self.vk, [&](const VkFrameContext& frame) -> void {
-    auto& ctx_frame = initialize_frame(self);
+fn RenderContext::draw_things(IDrawAction& draw) {
+  vk_draw_frame(_vk, [&](const VkFrameContext& frame) -> void {
+    auto& ctx_frame = get_frame();
+    ctx_frame.delqueue.flush();
+    ctx_frame.desc_alloc.clear();
 
     const auto cmd = frame.cmd;
-    update_draw_target_extent(self, frame.swapchain_extent);
+    update_draw_target_extent(_target, frame.swapchain_extent);
 
-    // 1. Draw using compute pipeline (we use a general layout)
-    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED; // Don't care about the older layout
-    layout =
-      vkcmd_transition_image(cmd, self.target.color.image(), layout, VK_IMAGE_LAYOUT_GENERAL);
-    draw_compute(self, cmd);
+    VkImageLayout target_layout = VK_IMAGE_LAYOUT_UNDEFINED; // Don't care about the older layout
 
-    // 2. Draw using graphics pipelines (we use a color attachment layout)
-    layout = vkcmd_transition_image(cmd, self.target.color.image(), layout,
-                                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_geometry(self, ctx_frame, self.target.extent, cmd);
+    // Draw our things
+    draw.render_geometry(target_layout, cmd);
 
-    // 3. Prepare swapchain for copying
-    layout = vkcmd_transition_image(cmd, self.target.color.image(), layout,
-                                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // Prepare swapchain for copying
+    target_layout = vkcmd_transition_image(cmd, _target.color.image(), target_layout,
+                                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkImageLayout sw_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     sw_layout = vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // 4. Do the copy
-    vkcmd_transfer_image(cmd, self.target.color.image(), frame.swapchain_image, self.target.extent,
+    // Do the copy
+    vkcmd_transfer_image(cmd, _target.color.image(), frame.swapchain_image, _target.extent,
                          frame.swapchain_extent);
 
-    // 5. Draw ImGui ontop of the swapchain image (not the render image!!!)
+    // Draw ImGui ontop of the swapchain image (not the render image!!!)
     sw_layout = vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    draw_imgui(self, cmd, frame.swapchain_view, frame.swapchain_extent);
 
-    // 6. Prepare swapchain image for presenting
+    // Draw imgui
+    {
+      _glfw_imgui.new_frame();
+      ImGui::NewFrame();
+      draw.render_imgui(frame);
+      ImGui::Render();
+
+      const auto color_attachment =
+        vkmk_attach_info(frame.swapchain_view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+      const auto render_info =
+        vkmk_render_info(frame.swapchain_extent, &color_attachment, nullptr);
+      vkCmdBeginRendering(cmd, &render_info);
+      vk_draw_imgui(cmd, ImGui::GetDrawData());
+      vkCmdEndRendering(cmd);
+    }
+
+    // Prepare swapchain image for presenting
     sw_layout = vkcmd_transition_image(cmd, frame.swapchain_image, sw_layout,
                                        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    ++_frame_count;
   }).value();
 }
 
+#if 0
 fn RenderContext::on_fixed_update(u32 ups) -> void {
   KA_UNUSED(ups);
-#if 0
   static constexpr auto delta = ran::pi<f32> / 60.f;
   _mesh.quad_transform = ran::rotate(_mesh.quad_transform, delta, ran::Vec3f32(0.f, 0.f, 1.f));
+}
 #endif
-}
-
-namespace {
-
-fn soa_to_aos(Span<const ran::Vec3f32> pos, Span<const ran::Vec2f32> uvs) -> UniqueArray<Vertex> {
-  const usize count = pos.size();
-  ka_assert(uvs.size() == count);
-  auto out = make_array<Vertex>(uninitialized, count);
-  for (usize i = 0; i < count; ++i) {
-    out[i].color = ran::Vec4f32(1.f, 1.f, 1.f, 1.f); // make something up
-    out[i].uv_x = uvs[i].x;
-    out[i].uv_y = uvs[i].y;
-    out[i].pos = pos[i];
-  }
-  return out;
-}
-
-fn copy_buffers(RenderContext::Self& self, VkAllocBuff& vb, const void* vb_data,
-                VkDeviceSize vb_size, VkAllocBuff& ib, const void* ib_data, VkDeviceSize ib_size)
-  -> void {
-  const VkBufferArgs staging_args{
-    .size = vb_size + ib_size,
-    .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-    .mem_usage = KA_VK_MEM_USAGE_CPU_ONLY,
-  };
-  auto staging = VkAllocBuff::create(self.vk.allocator(), staging_args).value();
-  const DeferFn staging_defer = [&]() {
-    vk_destroy_buffer(self.vk.allocator(), staging);
-  };
-
-  void* data = staging.mapped_data();
-  std::memcpy(data, vb_data, vb_size);
-  std::memcpy(((u8*)data) + vb_size, ib_data, ib_size);
-
-  vk_submit_immediate(self.vk, [&](VkCommandBuffer cmd) -> void {
-    VkBufferCopy vertex_copy{};
-    vertex_copy.dstOffset = 0;
-    vertex_copy.srcOffset = 0;
-    vertex_copy.size = vb_size;
-    vkCmdCopyBuffer(cmd, staging.buffer(), vb.buffer(), 1, &vertex_copy);
-
-    VkBufferCopy index_copy{};
-    index_copy.dstOffset = 0;
-    index_copy.srcOffset = vb_size;
-    index_copy.size = ib_size;
-    vkCmdCopyBuffer(cmd, staging.buffer(), ib.buffer(), 1, &index_copy);
-  });
-}
-
-fn init_pipeline(RenderContext::Self& self) -> std::pair<VkPipeline, VkPipelineLayout> {
-  VkShaderModule frag = VK_NULL_HANDLE, vert = VK_NULL_HANDLE;
-  const DeferFn shader_defer = [&]() {
-    vk_destroy_shader(self.vk, frag);
-    vk_destroy_shader(self.vk, vert);
-  };
-  VkPipelineLayout layout = VK_NULL_HANDLE;
-  VkPipeline pipeline = VK_NULL_HANDLE;
-
-  const auto mesh_vert_src = load_entire_file(KA_RES_DIR "/shaders/colored_mesh.vert.spv");
-  vert = vk_create_shader(self.vk, {mesh_vert_src.data(), mesh_vert_src.size()}).value();
-
-  const auto frag_src = load_entire_file(KA_RES_DIR "/shaders/colored_triangle.frag.spv");
-  frag = vk_create_shader(self.vk, {frag_src.data(), frag_src.size()}).value();
-
-  VkPipelineLayoutBuilder layout_builder;
-  layout = layout_builder.add_push_range(VK_SHADER_STAGE_VERTEX_BIT, sizeof(MeshConstants), 0)
-             .add_layout(self.images.image_layout)
-             .build(self.vk)
-             .value();
-  self.delqueue.enqueue(layout, self.vk.device());
-
-  VkGfxPipelineBuilder pipeline_builder;
-  pipeline = pipeline_builder.set_layout(layout)
-               .add_module(VK_SHADER_STAGE_VERTEX_BIT, vert)
-               .add_module(VK_SHADER_STAGE_FRAGMENT_BIT, frag)
-               .set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
-               .set_poly_mode(VK_POLYGON_MODE_FILL)
-               .set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE)
-               .set_color_format(self.target.color.format())
-               .set_depth_format(self.target.depth.format())
-               .enable_depth_test(KA_VK_DEPTH_WRITE_ENABLE, VK_COMPARE_OP_GREATER_OR_EQUAL)
-               .disable_multisampling()
-               .disable_blending()
-               .build(self.vk)
-               .value();
-  self.delqueue.enqueue(pipeline, self.vk.device());
-  return {pipeline, layout};
-}
-
-} // namespace
-
-fn RenderContext::add_mesh(const MeshData& mesh, std::string_view name) -> void {
-  log_debug(" Adding mesh: {}", name);
-  // Vertex buffer
-  const auto vertices = soa_to_aos(mesh.positions, mesh.uvs); // commit a crime
-  const auto vb_size = vertices.size() * sizeof(vertices[0]);
-  const VkBufferArgs vb_args{
-    .size = vb_size,
-    .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-    .mem_usage = KA_VK_MEM_USAGE_GPU_ONLY,
-  };
-  auto vb = VkAllocBuff::create(self.vk.allocator(), vb_args).value();
-  self.delqueue.enqueue(vb, self.vk.allocator());
-
-  // Index buffer
-  const auto ib_size = mesh.indices.size_bytes();
-  const VkBufferArgs ib_args{
-    .size = ib_size,
-    .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-    .mem_usage = KA_VK_MEM_USAGE_GPU_ONLY,
-  };
-  auto ib = VkAllocBuff::create(self.vk.allocator(), ib_args).value();
-  self.delqueue.enqueue(ib, self.vk.allocator());
-
-  const auto [pipeline, layout] = init_pipeline(self);
-  BuffStr<256> mesh_name;
-  mesh_name.copy_from(name.data(), name.size());
-
-  copy_buffers(self, vb, vertices.data(), vb_size, ib, mesh.indices.data(), ib_size);
-  self.meshes.emplace_back(pipeline, layout, ran::Mat4f32::identity(), std::move(vb),
-                           std::move(ib), 0, (u32)mesh.indices.size(), mesh_name);
-}
 
 } // namespace kappa::render

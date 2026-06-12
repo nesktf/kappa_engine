@@ -8,59 +8,19 @@
 
 #include "./glfw.hpp"
 
+#include "../util/freelist.hpp"
 #include "../util/string.hpp"
+#include "render/vulkan/vk_common.hpp"
 
 #include <ranmath/ran.hpp>
 
 namespace kappa::render {
 
 class RenderContext {
+private:
+  struct create_t {};
+
 public:
-  using Image = u32;
-  using Sampler = u32;
-  static constexpr Image DEFAULT_IMAGE = (Image)0;
-
-  struct ImageData {
-    Vec<VkAllocImage> images;
-    VkSampler sampler_nearest, sampler_linear;
-    VkDescriptorSetLayout image_layout;
-  };
-
-  struct ComputeConstants {
-    ran::Vec4f32 data1;
-    ran::Vec4f32 data2;
-    ran::Vec4f32 data3;
-    ran::Vec4f32 data4;
-  };
-
-  struct ComputeRenderData {
-    VkDescriptorSetLayout image_desc_layout;
-    VkDescriptorSet image_desc;
-    VkPipelineLayout layout;
-    VkPipeline pipelines[2];
-    ComputeConstants data[2];
-    s32 effect_idx;
-  };
-
-  struct MeshData {
-    Span<const u32> indices;
-    Span<const ran::Vec3f32> positions;
-    Span<const ran::Vec3f32> normals;
-    Span<const ran::Vec2f32> uvs;
-    Span<const ran::Vec3f32> tangents;
-    Span<const ran::Vec3f32> bitangents;
-  };
-
-  struct MeshAsset {
-    VkPipeline pipeline;
-    VkPipelineLayout layout;
-    ran::Mat4f32 transform;
-    VkAllocBuff vertex_buffer;
-    VkAllocBuff index_buffer;
-    u32 index_start, index_count;
-    BuffStr<256> name;
-  };
-
   struct DrawTarget {
     VkAllocImage color;
     VkAllocImage depth;
@@ -73,35 +33,69 @@ public:
     VkDynDescAlloc desc_alloc;
   };
 
-  using FrameArray = Vec<FrameData>; // We know the size but i can't be bothered right now
+  using FrameArray = TypeBufferForArray<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
-public:
-  struct Self {
-    VkContext vk;
-    GLFWContext::ImGuiHandler glfw_imgui;
-    VkDelQueue delqueue;
-    VkDynDescAlloc desc_alloc;
-    DrawTarget target;
-    FrameArray frames;
-    u32 frame_count;
-    ComputeRenderData compute;
-    Vec<MeshAsset> meshes;
-    ImageData images;
-    VkDescriptorSetLayout scene_layout;
+  using Image = u32;
+  static constexpr Image DEFAULT_IMAGE = (Image)0;
+  static constexpr u32 MAX_IMAGES = 512;
+
+  enum SamplerType {
+    SAMPLER_NEAREST = 0,
+    SAMPLER_LINEAR,
+    SAMPLER_COUNT,
   };
 
-  KA_SELF_FORWARD(RenderContext);
+  using SamplerArray = std::array<VkSampler, SAMPLER_COUNT>;
+
+  struct ImageData {
+    ImageData(VkAllocImage&& image, SamplerArray&& samplers_) :
+        default_image(std::move(image)), samplers(std::move(samplers_)), images() {}
+
+    VkAllocImage default_image;
+    SamplerArray samplers;
+    FixedFreelist<VkAllocImage, MAX_IMAGES> images;
+  };
 
 public:
-  static fn create(GLFWContext& glfw) -> VkMsgExpect<RenderContext>;
+  RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
+                VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc, DrawTarget&& target,
+                FrameData* frames, VkAllocImage&& default_image, SamplerArray&& samplers);
+
+public:
+  static fn initialize(Uninited<RenderContext> renderer, GLFWContext& glfw) -> void;
   fn destroy() -> void;
 
 public:
-  fn add_mesh(const MeshData& mesh, std::string_view name) -> void;
+  fn create_image(VkExtent3D size, VkFormat format, VkImageUsageFlags flags, VkImageMipsFlag mips,
+                  const void* data = nullptr) -> Image;
+  fn destroy_image(Image image) -> void;
+  fn submit_image_data(Image image, const void* data) -> void;
+  fn get_image(Image image) -> VkAllocImage&;
+  fn get_sampler(SamplerType type) -> VkSampler;
 
 public:
-  fn on_render(f64 dt, f64 alpha) -> void;
-  fn on_fixed_update(u32 ups) -> void;
+  fn draw_things(IDrawAction& on_draw);
+
+public:
+  fn get_vk() -> VkContext& { return _vk; }
+
+  fn get_delqueue() -> VkDelQueue& { return _delqueue; }
+
+  fn get_desc_alloc() -> VkDynDescAlloc& { return _desc_alloc; }
+
+  fn get_target() -> DrawTarget& { return _target; }
+
+  fn get_frame() -> FrameData& { return _frames[_frame_count % MAX_FRAMES_IN_FLIGHT]; }
+
+private:
+  VkContext _vk;
+  GLFWContext::ImGuiHandler _glfw_imgui;
+  VkDelQueue _delqueue;
+  VkDynDescAlloc _desc_alloc;
+  DrawTarget _target;
+  ImageData _images;
+  FrameArray _frames;
+  u32 _frame_count;
 };
 
 } // namespace kappa::render
