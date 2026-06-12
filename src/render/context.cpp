@@ -54,17 +54,10 @@ fn init_compute(VkContext& vk, VkDelQueue& delqueue, VkDynDescAlloc& desc_alloc,
   delqueue.enqueue(compute.image_desc_layout, vk.device());
 
   compute.image_desc = desc_alloc.allocate(compute.image_desc_layout).value();
-  VkDescriptorImageInfo img_info{};
-  img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  img_info.imageView = target.view();
-  VkWriteDescriptorSet draw_image_write{};
-  draw_image_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  draw_image_write.dstSet = compute.image_desc;
-  draw_image_write.dstBinding = 0;
-  draw_image_write.descriptorCount = 1;
-  draw_image_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  draw_image_write.pImageInfo = &img_info;
-  vkUpdateDescriptorSets(vk.device(), 1, &draw_image_write, 0, nullptr);
+
+  VkDescWriter writer(vk.device());
+  writer.write_storage_image(0, target.view(), VK_IMAGE_LAYOUT_GENERAL);
+  writer.update_set(compute.image_desc);
 
   VkPipelineLayoutBuilder layout_builder;
   compute.layout =

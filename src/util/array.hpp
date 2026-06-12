@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -17,6 +18,9 @@ constexpr inline uninitialized_t uninitialized;
 
 template<typename T>
 using Vec = std::vector<T>;
+
+template<typename T>
+using Deque = std::deque<T>;
 
 namespace impl {
 

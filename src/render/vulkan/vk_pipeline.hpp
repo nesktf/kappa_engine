@@ -3,6 +3,7 @@
 #include "./vk_util.hpp"
 
 #include "../../util/ptr.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace kappa::render {
 
@@ -68,6 +69,67 @@ public:
   fn allocate(VkDescriptorSetLayout layout, void* pNext = nullptr) -> VkExpect<VkDescriptorSet>;
   fn clear() -> void;
   fn destroy() -> void;
+};
+
+enum VkDescImageType {
+  // Needs sampler
+  KA_VK_DESC_IMAG_TYPE_SAMPLER = VK_DESCRIPTOR_TYPE_SAMPLER,
+
+  // Needs image view and layout (accessed with different samplers in the shader)
+  KA_VK_DESC_IMAG_TYPE_SAMPLED_IMAGE = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+
+  // Needs image view, image layout and sampler
+  KA_VK_DESC_IMAGE_TYPE_COMBINED_IMAGE_SAMPLER = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+
+  // Needs image view and layout
+  KA_VK_DESC_IMAGE_TYPE_STORAGE_IMAGE = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+};
+
+enum VkDescBuffType {
+  KA_VK_DESC_BUFF_TYPE_UNIFORM = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+  KA_VK_DESC_BUFF_TYPE_STORAGE = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+  KA_VK_DESC_BUFF_TYPE_UNIFORM_DYN = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+  KA_VK_DESC_BUFF_TYPE_STORAGE_DYN = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+};
+
+class VkDescWriter {
+public:
+  VkDescWriter(VkDevice device);
+
+public:
+  fn write_buffer(s32 binding, VkBuffer buffer, usize size, usize offset, VkDescBuffType type)
+    -> void;
+
+  fn write_image(s32 binding, VkImageView view, VkImageLayout layout, VkSampler sampler,
+                 VkDescImageType type) -> void;
+
+  fn write_sampler(s32 binding, VkSampler sampler) -> void {
+    write_image(binding, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, sampler,
+                KA_VK_DESC_IMAG_TYPE_SAMPLER);
+  }
+
+  fn write_sampled_image(s32 binding, VkImageView view, VkImageLayout layout) -> void {
+    write_image(binding, view, layout, VK_NULL_HANDLE, KA_VK_DESC_IMAG_TYPE_SAMPLED_IMAGE);
+  }
+
+  fn write_combined_image(s32 binding, VkImageView view, VkImageLayout layout, VkSampler sampler)
+    -> void {
+    write_image(binding, view, layout, sampler, KA_VK_DESC_IMAGE_TYPE_COMBINED_IMAGE_SAMPLER);
+  }
+
+  fn write_storage_image(s32 binding, VkImageView view, VkImageLayout layout) -> void {
+    write_image(binding, view, layout, VK_NULL_HANDLE, KA_VK_DESC_IMAGE_TYPE_STORAGE_IMAGE);
+  }
+
+public:
+  fn clear() -> void;
+  fn update_set(VkDescriptorSet set) -> void;
+
+private:
+  VkDevice _device;
+  Deque<VkDescriptorImageInfo> _image_infos;
+  Deque<VkDescriptorBufferInfo> _buff_infos;
+  Vec<VkWriteDescriptorSet> _writes;
 };
 
 fn vk_create_shader(VkContext_Impl& vk, Span<const u8> src) -> VkExpect<VkShaderModule>;

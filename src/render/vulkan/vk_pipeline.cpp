@@ -172,6 +172,45 @@ VkGfxPipelineBuilder::VkGfxPipelineBuilder() {
   clear();
 }
 
+VkDescWriter::VkDescWriter(VkDevice device) : _device(device) {}
+
+fn VkDescWriter::write_image(s32 binding, VkImageView view, VkImageLayout layout,
+                             VkSampler sampler, VkDescImageType type) -> void {
+  auto& info = _image_infos.emplace_back(sampler, view, layout);
+  auto write = vkmk_zero<VkWriteDescriptorSet>();
+  write.dstBinding = binding;
+  write.dstSet = VK_NULL_HANDLE; // set on update_set()
+  write.descriptorCount = 1;
+  write.descriptorType = (VkDescriptorType)type;
+  write.pImageInfo = &info; // should be fine if we are using a deque (right?)
+  _writes.push_back(write);
+}
+
+fn VkDescWriter::write_buffer(s32 binding, VkBuffer buffer, usize size, usize offset,
+                              VkDescBuffType type) -> void {
+  auto& info = _buff_infos.emplace_back(buffer, offset, size);
+  auto write = vkmk_zero<VkWriteDescriptorSet>();
+  write.dstBinding = binding;
+  write.dstSet = VK_NULL_HANDLE; // set on update_set()
+  write.descriptorCount = 1;
+  write.descriptorType = (VkDescriptorType)type;
+  write.pBufferInfo = &info; // should be fine if we are using a deque (right?)
+  _writes.push_back(write);
+}
+
+fn VkDescWriter::clear() -> void {
+  _image_infos.clear();
+  _buff_infos.clear();
+  _writes.clear();
+}
+
+fn VkDescWriter::update_set(VkDescriptorSet set) -> void {
+  for (auto& write : _writes) {
+    write.dstSet = set;
+  }
+  vkUpdateDescriptorSets(_device, (u32)_writes.size(), _writes.data(), 0, nullptr);
+}
+
 namespace {
 
 fn stage_idx(VkShaderStageFlagBits stage) -> u32 {
