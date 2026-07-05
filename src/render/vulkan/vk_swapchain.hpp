@@ -1,9 +1,8 @@
 #pragma once
 
-#include "./vk_util.hpp"
+#include "render/vulkan/vk_util.hpp"
 
-#include "../../util/array.hpp"
-#include "../../util/ptr.hpp"
+#include <array>
 
 namespace kappa::render {
 

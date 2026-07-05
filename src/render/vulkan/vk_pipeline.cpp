@@ -174,7 +174,7 @@ VkGfxPipelineBuilder::VkGfxPipelineBuilder() {
 
 VkDescWriter::VkDescWriter(VkDevice device) : _device(device) {}
 
-fn VkDescWriter::write_image(s32 binding, VkImageView view, VkImageLayout layout,
+fn VkDescWriter::write_image(i32 binding, VkImageView view, VkImageLayout layout,
                              VkSampler sampler, VkDescImageType type) -> void {
   auto& info = _image_infos.emplace_back(sampler, view, layout);
   auto write = vkmk_zero<VkWriteDescriptorSet>();
@@ -186,7 +186,7 @@ fn VkDescWriter::write_image(s32 binding, VkImageView view, VkImageLayout layout
   _writes.push_back(write);
 }
 
-fn VkDescWriter::write_buffer(s32 binding, VkBuffer buffer, usize size, usize offset,
+fn VkDescWriter::write_buffer(i32 binding, VkBuffer buffer, size_t size, size_t offset,
                               VkDescBuffType type) -> void {
   auto& info = _buff_infos.emplace_back(buffer, offset, size);
   auto write = vkmk_zero<VkWriteDescriptorSet>();
@@ -243,7 +243,7 @@ fn collect_stages(
   });
   std::array<VkPipelineShaderStageCreateInfo, 5> shader_stages;
   u32 shader_count = 0;
-  for (usize i = 0; i < shaders.size(); ++i) {
+  for (size_t i = 0; i < shaders.size(); ++i) {
     if (shaders[i].shader != VK_NULL_HANDLE) {
       shader_stages[shader_count++] =
         vkmk_pipeline_stage_info(shader_usage[i], shaders[i].shader, shaders[i].entrypoint);

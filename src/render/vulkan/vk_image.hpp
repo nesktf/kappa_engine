@@ -1,8 +1,6 @@
 #pragma once
 
-#include "./vk_common.hpp"
-
-#include "../../util/buffer.hpp"
+#include "render/vulkan/vk_common.hpp"
 
 namespace kappa::render {
 
@@ -41,9 +39,9 @@ public:
   fn allocation() const -> VkAllocationMem;
 
 public:
-  operator Self&() { return *self.get(); }
+  operator Self&() { return *self; }
 
-  operator const Self&() const { return *self.get(); }
+  operator const Self&() const { return *self; }
 
 private:
   opaque_type self;

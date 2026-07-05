@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../util/expected.hpp"
+#include "core.hpp"
 
 #include <vulkan/vulkan_core.h>
 
@@ -12,7 +12,7 @@ typedef struct VkMemAllocator_T* VkMemAllocator;
 typedef struct VkHandle_T* VkHandle;
 typedef struct VkAllocationMem_T* VkAllocationMem;
 
-constexpr usize MAX_FRAMES_IN_FLIGHT = 2;
+constexpr size_t MAX_FRAMES_IN_FLIGHT = 2;
 
 fn vk_error_string(VkResult res) noexcept -> const char*;
 

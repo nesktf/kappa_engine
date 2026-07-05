@@ -1,9 +1,10 @@
 #pragma once
 
-#include "./vk_util.hpp"
+#include "render/vulkan/vk_common.hpp"
 
-#include "../../util/ptr.hpp"
 #include <vulkan/vulkan_core.h>
+
+#include <array>
 
 namespace kappa::render {
 
@@ -97,27 +98,27 @@ public:
   VkDescWriter(VkDevice device);
 
 public:
-  fn write_buffer(s32 binding, VkBuffer buffer, usize size, usize offset, VkDescBuffType type)
+  fn write_buffer(i32 binding, VkBuffer buffer, size_t size, size_t offset, VkDescBuffType type)
     -> void;
 
-  fn write_image(s32 binding, VkImageView view, VkImageLayout layout, VkSampler sampler,
+  fn write_image(i32 binding, VkImageView view, VkImageLayout layout, VkSampler sampler,
                  VkDescImageType type) -> void;
 
-  fn write_sampler(s32 binding, VkSampler sampler) -> void {
+  fn write_sampler(i32 binding, VkSampler sampler) -> void {
     write_image(binding, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, sampler,
                 KA_VK_DESC_IMAG_TYPE_SAMPLER);
   }
 
-  fn write_sampled_image(s32 binding, VkImageView view, VkImageLayout layout) -> void {
+  fn write_sampled_image(i32 binding, VkImageView view, VkImageLayout layout) -> void {
     write_image(binding, view, layout, VK_NULL_HANDLE, KA_VK_DESC_IMAG_TYPE_SAMPLED_IMAGE);
   }
 
-  fn write_combined_image(s32 binding, VkImageView view, VkImageLayout layout, VkSampler sampler)
+  fn write_combined_image(i32 binding, VkImageView view, VkImageLayout layout, VkSampler sampler)
     -> void {
     write_image(binding, view, layout, sampler, KA_VK_DESC_IMAGE_TYPE_COMBINED_IMAGE_SAMPLER);
   }
 
-  fn write_storage_image(s32 binding, VkImageView view, VkImageLayout layout) -> void {
+  fn write_storage_image(i32 binding, VkImageView view, VkImageLayout layout) -> void {
     write_image(binding, view, layout, VK_NULL_HANDLE, KA_VK_DESC_IMAGE_TYPE_STORAGE_IMAGE);
   }
 

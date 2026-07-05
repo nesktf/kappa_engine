@@ -124,11 +124,11 @@ fn VkSwapchain::create(const VkSwapchainArgs& args, VkSwapchainKHR old_swapchain
 
   vkGetSwapchainImagesKHR(args.device, swapchain, &image_count, nullptr);
   ka_assert(image_count > 0);
-  auto images = make_array<VkImage>(uninitialized, image_count);
-  auto image_views = make_array<VkImageView>(uninitialized, image_count);
+  auto images = make_unique_array<VkImage>(uninitialized, image_count);
+  auto image_views = make_unique_array<VkImageView>(uninitialized, image_count);
 
   vkGetSwapchainImagesKHR(args.device, swapchain, &image_count, images.data());
-  for (usize i = 0; i < images.size(); ++i) {
+  for (size_t i = 0; i < images.size(); ++i) {
     const auto create_info =
       vkmk_imageview_info(image_format, images[i], VK_IMAGE_ASPECT_COLOR_BIT);
     KA_VK_ASSERT(vkCreateImageView(args.device, &create_info, vkalloc, &image_views[i]));
@@ -145,7 +145,7 @@ fn VkSwapchain::create(const VkSwapchainArgs& args, VkSwapchainKHR old_swapchain
 }
 
 fn VkSwapchain::destroy(VkDevice device) -> void {
-  for (usize i = 0; i < _images.size(); ++i) {
+  for (size_t i = 0; i < _images.size(); ++i) {
     vkDestroyImageView(device, _image_views[i], vkalloc);
   }
   vkDestroySwapchainKHR(device, _swapchain, vkalloc);
@@ -160,10 +160,10 @@ VkFrameData::VkFrameData(create_t, std::array<FrameData, MAX_FRAMES_IN_FLIGHT>&&
 fn VkFrameData::create(VkDevice device, u32 graphics_queue) -> VkExpect<VkFrameData> {
 
   std::array<FrameData, MAX_FRAMES_IN_FLIGHT> vkdata{};
-  s32 curr_frame = 0;
+  i32 curr_frame = 0;
 
   DeferFn on_error = [&]() {
-    for (s32 frame = curr_frame; frame >= 0; --frame) {
+    for (i32 frame = curr_frame; frame >= 0; --frame) {
       auto& data = vkdata[frame];
       if (data.cmdpool != VK_NULL_HANDLE) {
         vkDestroyCommandPool(device, data.cmdpool, vkalloc);
@@ -191,7 +191,7 @@ fn VkFrameData::create(VkDevice device, u32 graphics_queue) -> VkExpect<VkFrameD
   const auto fence_create_info = vkmk_fence_info(VK_FENCE_CREATE_SIGNALED_BIT);
   const auto semaphore_create_info = vkmk_semaphore_info(0);
 
-  for (; curr_frame < (s32)MAX_FRAMES_IN_FLIGHT; ++curr_frame) {
+  for (; curr_frame < (i32)MAX_FRAMES_IN_FLIGHT; ++curr_frame) {
     auto& data = vkdata[curr_frame];
     KA_VK_UNEX(vkCreateCommandPool(device, &cmdpool_info, vkalloc, &data.cmdpool));
 
@@ -209,7 +209,7 @@ fn VkFrameData::create(VkDevice device, u32 graphics_queue) -> VkExpect<VkFrameD
 }
 
 fn VkFrameData::add_to_delqueue(VkDelQueue& queue) -> void {
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
     auto& frame = _frames[i];
     queue.enqueue(frame.cmdpool, _device);
     queue.enqueue(frame.render_fen, _device);
@@ -227,7 +227,7 @@ fn VkFrameData::curr_frame() -> FrameData& {
 }
 
 fn VkFrameData::frames() -> Span<FrameData, MAX_FRAMES_IN_FLIGHT> {
-  return {_frames};
+  return {_frames.data(), MAX_FRAMES_IN_FLIGHT};
 }
 
 } // namespace kappa::render

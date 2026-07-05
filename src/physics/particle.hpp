@@ -1,15 +1,10 @@
 #pragma once
 
-#include "../core.hpp"
+#include "core.hpp"
 
 #include <ranmath/ran.hpp>
 
-#include "../util/function.hpp"
-#include "../util/optional.hpp"
-#include "../util/ptr.hpp"
-
 #include <queue>
-#include <vector>
 
 namespace kappa::physics {
 
@@ -102,8 +97,8 @@ public:
         continue;
       }
       auto& [particle_handle, tag, generator] = *elem;
-      ParticleEntity& particle = std::invoke(func, particle_handle, tag);
-      std::invoke(generator, particle, dt);
+      ParticleEntity& particle = func(particle_handle, tag);
+      generator(particle, dt);
     }
   }
 

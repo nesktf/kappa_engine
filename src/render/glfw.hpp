@@ -1,9 +1,8 @@
 #pragma once
 
-#include "./vulkan/vk_common.hpp"
+#include "core.hpp"
 
-#include "../util/buffer.hpp"
-#include "../util/ptr.hpp"
+#include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
 
@@ -33,7 +32,7 @@ public:
   GLFWContext(create_t, GLFWwindow* win) noexcept : _win(win) {}
 
 public:
-  static fn initialize(Uninited<GLFWContext> glfw, u32 width, u32 height) -> void;
+  static fn initialize(GLFWContext* glfw, u32 width, u32 height) -> void;
   fn destroy() -> void;
 
 public:
@@ -59,7 +58,7 @@ public:
   static fn get_surface_extensions() -> Span<const char*> {
     u32 glfw_ext_count = 0;
     const char** glfw_exts_ptr = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
-    return {glfw_exts_ptr, glfw_ext_count};
+    return {glfw_exts_ptr, (size_t)glfw_ext_count};
   }
 
   fn make_imgui_handler() -> ImGuiHandler { return {create_t(), _win}; }

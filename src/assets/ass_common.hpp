@@ -1,10 +1,12 @@
 #pragma once
 
-#include "../core.hpp"
-#include "../util/expected.hpp"
-#include "../util/string.hpp"
+#include "core.hpp"
 
 namespace kappa::assets {
+
+struct Extent2D {
+  u32 width, height;
+};
 
 using BufferName = BuffStr<128>;
 using BufferPath = BuffStr<256>;

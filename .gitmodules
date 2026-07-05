@@ -13,3 +13,6 @@
 [submodule "lib/ranmath"]
 	path = lib/ranmath
 	url = https://github.com/nesktf/ranmath.git
+[submodule "lib/ntfstl"]
+	path = lib/ntfstl
+	url = https://github.com/nesktf/ntfstl.git

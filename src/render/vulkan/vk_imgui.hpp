@@ -1,8 +1,6 @@
 #pragma once
 
-#include "./vk_common.hpp"
-
-#include "../../util/function.hpp"
+#include "render/vulkan/vk_common.hpp"
 
 #include <imgui.h>
 

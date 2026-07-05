@@ -1,7 +1,5 @@
-#include "./assets/model.hpp"
-#include "./kappa.hpp"
-
-#include "./util/logger.hpp"
+#include "assets/model.hpp"
+#include "kappa.hpp"
 
 namespace {
 
@@ -44,9 +42,9 @@ fn extract_model_data(const assets::Model3DData& model) -> render::SceneData::Me
 
 fn KappaContext::init() -> void {
   ka_assert(!_initialized);
-  render::GLFWContext::initialize(_glfw.get_dirty(), WINDOW_WIDTH, WINDOW_HEIGHT);
-  render::RenderContext::initialize(_renderer.get_dirty(), *_glfw);
-  render::SceneData::initialize(_scene.get_dirty(), *_renderer);
+  render::GLFWContext::initialize(_glfw.raw_data(), WINDOW_WIDTH, WINDOW_HEIGHT);
+  render::RenderContext::initialize(_renderer.raw_data(), *_glfw);
+  render::SceneData::initialize(_scene.raw_data(), *_renderer);
   _initialized = true;
 }
 
@@ -54,13 +52,13 @@ fn KappaContext::destroy() -> void {
   ka_assert(_initialized);
 
   _scene->clear();
-  _scene.reset();
+  _scene.destroy();
 
   _renderer->destroy();
-  _renderer.reset();
+  _renderer.destroy();
 
   _glfw->destroy();
-  _glfw.reset();
+  _glfw.destroy();
 
   _initialized = false;
 }

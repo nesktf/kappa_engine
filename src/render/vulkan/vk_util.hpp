@@ -1,9 +1,7 @@
 #pragma once
 
-#include "./vk_common.hpp"
+#include "render/vulkan/vk_common.hpp"
 
-#include "../../util/array.hpp"
-#include "../../util/function.hpp"
 #include <vulkan/vulkan_core.h>
 
 #define KA_VK_STRUCT(_typename, _sType)                                  \

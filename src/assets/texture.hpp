@@ -35,7 +35,7 @@ public:
 
 public:
   ImageLoader(std::string_view texture_path, std::string_view texture_name,
-              bits32 flags = FLAGS_NONE);
+              u32 flags = FLAGS_NONE);
 
 public:
   // Should be only called ONCE, preferably in a threadpool

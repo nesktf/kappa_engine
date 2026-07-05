@@ -57,7 +57,7 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
 
 fn create_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat format,
                 VkImageUsageFlags flags, VkImageMipsFlag mips) -> VkExpect<VkAllocImage> {
-  const usize data_size = size.depth * size.width * size.height * 4;
+  const size_t data_size = size.depth * size.width * size.height * 4;
   const VkImageArgs image_args{
     .extent = size,
     .format = format,
@@ -204,7 +204,7 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
   });
-  for (usize i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
     auto alloc = VkDynDescAlloc::create(vk.device(), 1000, frame_sizes).value();
     frames.construct_offset(i, VkDelQueue(), std::move(alloc));
   }
@@ -224,7 +224,7 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
   imgui_defer.disengage();
   vk_defer.disengage();
 
-  KA_PNEW(renderer)
+  KA_PNEW(renderer);
   RenderContext(create_t(), std::move(vk), std::move(glfw_imgui), std::move(delqueue),
                 std::move(desc_alloc), std::move(target), frames.get(), std::move(default_image),
                 std::move(samplers));

@@ -270,7 +270,7 @@ fn VkContext::create(const VkContextArgs& args) -> VkMsgExpect<VkContext> {
     extension_count += (u32)surface_data.extensions.size();
     extensions.reserve(extension_count);
     KA_VK_LOG(debug, "Required Vulkan surface extensions ({}):", surface_data.extensions.size());
-    for (usize i = 0; i < surface_data.extensions.size(); ++i) {
+    for (size_t i = 0; i < surface_data.extensions.size(); ++i) {
       KA_VK_LOG(debug, "- {}", surface_data.extensions[i]);
       extensions.push_back(surface_data.extensions[i]);
     }

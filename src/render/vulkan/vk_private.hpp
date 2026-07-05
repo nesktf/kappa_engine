@@ -32,13 +32,10 @@
     return {unexpect, ::fmt::format(_fmt __VA_OPT__(, ) __VA_ARGS__), _vkret}; \
   }
 
-#include "./vk_buffer.hpp"
-#include "./vk_context.hpp"
-#include "./vk_device.hpp"
-#include "./vk_swapchain.hpp"
-#include "./vk_util.hpp"
-
-#include "../../util/logger.hpp"
+#include "render/vulkan/vk_context.hpp"
+#include "render/vulkan/vk_device.hpp"
+#include "render/vulkan/vk_swapchain.hpp"
+#include "render/vulkan/vk_util.hpp"
 
 #include <vk_mem_alloc.h>
 
@@ -70,8 +67,8 @@ public:
                  VkFrameData&& framedata_, ImDrawData&& imdrawdata_, VkDelQueue&& delqueue_,
                  Optional<VkUpdateSurfExtFn>&& update_surf_);
   ~VkContext_Impl();
-  KA_NO_MOVE(VkContext_Impl);
-  KA_NO_COPY(VkContext_Impl);
+  NTF_NO_MOVE(VkContext_Impl);
+  NTF_NO_COPY(VkContext_Impl);
 
 public:
   VkInstance vk;

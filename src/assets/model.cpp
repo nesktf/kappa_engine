@@ -1,8 +1,5 @@
 #include "./internal.hpp"
 
-#include "../util/function.hpp"
-#include "../util/logger.hpp"
-
 #define MODEL_LOG(_level, _fmt, ...) \
   ::kappa::log_##_level("[MODEL_IMPORT] " _fmt __VA_OPT__(, ) __VA_ARGS__)
 
@@ -11,12 +8,12 @@ namespace kappa::assets {
 namespace {
 
 template<typename T>
-constexpr void zeroinit(T* ptr, usize sz) {
+constexpr void zeroinit(T* ptr, size_t sz) {
   std::memset((void*)ptr, 0x00, sizeof(T) * sz);
 };
 
 template<typename T>
-void alloc_init(model_allocator& al, T** ptr, usize sz) {
+void alloc_init(model_allocator& al, T** ptr, size_t sz) {
   *ptr = al.alloc<T>(sz);
   zeroinit(*ptr, sz);
 }
@@ -92,20 +89,20 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
   auto ptr = std::make_unique<Model3DData::ModelInternal>(name, path);
   auto& data = *ptr;
   auto& al = ptr->alloc;
-  const auto maybe_alloc = [&]<typename T>(T** ptr, usize sz) {
+  const auto maybe_alloc = [&]<typename T>(T** ptr, size_t sz) {
     if (sz) {
       alloc_init(al, ptr, sz);
     }
   };
 
   // First mesh pass. Preallocate blend shapes, bones & meshes.
-  for (usize i = 0; i < scene.mNumMeshes; ++i) {
+  for (size_t i = 0; i < scene.mNumMeshes; ++i) {
     const aiMesh* mesh = scene.mMeshes[i];
     data.blend_shape_count += mesh->mNumAnimMeshes;
     ++data.mesh_count;
 
     // Store the inverse model matrix for each bone (if any)
-    for (usize j = 0; j < mesh->mNumBones; ++j) {
+    for (size_t j = 0; j < mesh->mNumBones; ++j) {
       const aiBone* bone = mesh->mBones[j];
       std::string_view name(bone->mName.data, bone->mName.length);
       if (bone_invs.find(name) != bone_invs.end()) {
@@ -127,10 +124,10 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
   // Second mesh pass. Count meshes and blend shapes for each mesh,
   // copy names & preallocate vertices
   {
-    usize anim_pos = 0;
-    for (usize i = 0; i < scene.mNumMeshes; ++i) {
+    size_t anim_pos = 0;
+    for (size_t i = 0; i < scene.mNumMeshes; ++i) {
       const aiMesh* mesh = scene.mMeshes[i];
-      const usize verts = mesh->mNumVertices;
+      const size_t verts = mesh->mNumVertices;
       if (!mesh->HasPositions()) {
         err.format_from("Invalid position data at mesh \"{}\"", mesh->mName.C_Str());
         return nullptr;
@@ -150,7 +147,7 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
       if (mesh->HasTangentsAndBitangents()) {
         data.mesh_tangent_count += verts;
       }
-      for (usize uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
+      for (size_t uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
         if (mesh->HasTextureCoords(uv)) {
           data.mesh_uv_count[uv] += verts;
         }
@@ -160,7 +157,7 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
           data.meshes[i].uv_name[uv].copy_from(name.data, name.length);
         }
       }
-      for (usize col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
+      for (size_t col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
         if (mesh->HasVertexColors(col)) {
           data.mesh_color_count[col] += verts;
         }
@@ -168,13 +165,13 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
       if (mesh->HasBones()) {
         data.mesh_bone_count += verts;
       }
-      for (usize j = 0; j < mesh->mNumFaces; ++j) {
+      for (size_t j = 0; j < mesh->mNumFaces; ++j) {
         data.mesh_index_count += mesh->mFaces[j].mNumIndices;
       }
 
-      for (usize j = 0; j < mesh->mNumAnimMeshes; ++j) {
+      for (size_t j = 0; j < mesh->mNumAnimMeshes; ++j) {
         const aiAnimMesh* ai_anim = mesh->mAnimMeshes[j];
-        const usize animverts = ai_anim->mNumVertices;
+        const size_t animverts = ai_anim->mNumVertices;
         auto& anim = data.blend_shapes[anim_pos++];
         anim.name.copy_from(ai_anim->mName.data, ai_anim->mName.length);
 
@@ -187,12 +184,12 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
         if (ai_anim->HasTangentsAndBitangents()) {
           data.blend_tangent_count += animverts;
         }
-        for (usize uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
+        for (size_t uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
           if (ai_anim->HasTextureCoords(uv)) {
             data.blend_uv_count[uv] += animverts;
           }
         }
-        for (usize col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
+        for (size_t col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
           if (ai_anim->HasVertexColors(col)) {
             data.blend_color_count[col] += animverts;
           }
@@ -224,11 +221,11 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
                   sizeof(data.mesh_bone_weights[0] * data.mesh_bone_count));
     }
 
-    for (usize uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
+    for (size_t uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
       maybe_alloc(data.mesh_uvs + uv, data.mesh_uv_count[uv]);
       maybe_alloc(data.blend_uvs + uv, data.blend_uv_count[uv]);
     }
-    for (usize col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
+    for (size_t col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
       maybe_alloc(data.mesh_colors + col, data.mesh_color_count[col]);
       maybe_alloc(data.blend_colors + col, data.blend_color_count[col]);
     }
@@ -240,7 +237,7 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
   maybe_alloc(&data.animations, data.animation_count);
   if (data.animation_count) {
     data.bone_anim_registry.reserve(data.animation_count);
-    for (usize i = 0; i < scene.mNumAnimations; ++i) {
+    for (size_t i = 0; i < scene.mNumAnimations; ++i) {
       const aiAnimation* ai_anim = scene.mAnimations[i];
       const aiString& anim_name = ai_anim->mName;
       auto& anim = data.animations[i];
@@ -251,7 +248,7 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
         return nullptr;
       }
 
-      for (usize j = 0; j < ai_anim->mNumChannels; ++j) {
+      for (size_t j = 0; j < ai_anim->mNumChannels; ++j) {
         const aiNodeAnim* node = ai_anim->mChannels[j];
         data.anim_bone_position_count += node->mNumPositionKeys;
         data.anim_bone_scale_count += node->mNumScalingKeys;
@@ -281,10 +278,10 @@ auto initialize_data(const BufferName& name, const BufferPath& path, const aiSce
 
 bool is_identity(const ran::Mat4f32& mat) {
   static constexpr ran::Mat4f32 id(1.f);
-  for (usize i = 0; i < 4; ++i) {
+  for (size_t i = 0; i < 4; ++i) {
     const auto col_a = mat.column_at(i);
     const auto col_b = id.column_at(i);
-    for (usize j = 0; j < 4; ++j) {
+    for (size_t j = 0; j < 4; ++j) {
       if (std::abs(col_a[j] - col_b[j]) > ran::epsilon<f32>) {
         return false;
       }
@@ -293,12 +290,12 @@ bool is_identity(const ran::Mat4f32& mat) {
   return true;
 }
 
-void parse_bone_nodes(const bone_inv_map& bone_invs, s32 parent, s32& bone_count,
+void parse_bone_nodes(const bone_inv_map& bone_invs, i32 parent, i32& bone_count,
                       const aiNode* node, Model3DData::ModelInternal& data) {
   assert(node);
   std::string_view name(node->mName.data, node->mName.length);
   const auto& inv_model = bone_invs.at(name);
-  const s32 this_bone = bone_count++;
+  const i32 this_bone = bone_count++;
 
   // Store meta info and transforms
   data.bones[this_bone].name.copy_from(name.data(), name.size());
@@ -310,7 +307,7 @@ void parse_bone_nodes(const bone_inv_map& bone_invs, s32 parent, s32& bone_count
   data.bone_registry.emplace(data.bones[this_bone].name.as_view(), this_bone);
 
   // Parse children
-  for (usize i = 0; i < node->mNumChildren; ++i) {
+  for (size_t i = 0; i < node->mNumChildren; ++i) {
     parse_bone_nodes(bone_invs, this_bone, bone_count, node->mChildren[i], data);
   }
 }
@@ -343,7 +340,7 @@ void parse_rigs(Model3DData::ModelInternal& data, const aiScene& scene,
   assert(root_bone_node);
   MODEL_LOG(debug, "Using node \"{}\" as armature root", root_bone_node->mName.C_Str());
 
-  s32 bone_count = 0;
+  i32 bone_count = 0;
   // Will set -1 as the parent index for the root bone
   parse_bone_nodes(bone_invs, -1, bone_count, root_bone_node, data);
 
@@ -364,22 +361,22 @@ ran::Vec4f32 asscast(const aiColor4D& col) {
 }
 
 void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
-  usize vertex_pos = 0, vertex_anim_pos = 0;
-  usize normal_pos = 0, normal_anim_pos = 0;
-  usize tangent_pos = 0, tangent_anim_pos = 0;
-  usize bone_pos = 0;
-  usize uv_pos[Model3DData::MAX_MESH_UVS] = {0};
-  usize uv_anim_pos[Model3DData::MAX_MESH_UVS] = {0};
-  usize color_pos[Model3DData::MAX_MESH_COLORS] = {0};
-  usize color_anim_pos[Model3DData::MAX_MESH_COLORS] = {0};
-  usize index_pos = 0;
-  usize shape_pos = 0;
+  size_t vertex_pos = 0, vertex_anim_pos = 0;
+  size_t normal_pos = 0, normal_anim_pos = 0;
+  size_t tangent_pos = 0, tangent_anim_pos = 0;
+  size_t bone_pos = 0;
+  size_t uv_pos[Model3DData::MAX_MESH_UVS] = {0};
+  size_t uv_anim_pos[Model3DData::MAX_MESH_UVS] = {0};
+  size_t color_pos[Model3DData::MAX_MESH_COLORS] = {0};
+  size_t color_anim_pos[Model3DData::MAX_MESH_COLORS] = {0};
+  size_t index_pos = 0;
+  size_t shape_pos = 0;
 
-  const auto try_place_weight = [&](s32 bone_idx, const aiVertexWeight& weight) {
-    const usize offset = bone_pos + weight.mVertexId;
+  const auto try_place_weight = [&](i32 bone_idx, const aiVertexWeight& weight) {
+    const size_t offset = bone_pos + weight.mVertexId;
     assert(offset < data.mesh_bone_count);
 
-    for (usize i = 0; i < 4; ++i) {
+    for (size_t i = 0; i < 4; ++i) {
       if (weight.mWeight == 0.f) {
         return;
       }
@@ -392,9 +389,9 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
     MODEL_LOG(warn, "Bone weights out of range in vertex index {}", vertex_pos);
   };
 
-  const auto do_attrib = [&](bool cond, usize count, usize& pos, u32& target_start, auto&& f) {
+  const auto do_attrib = [&](bool cond, size_t count, size_t& pos, u32& target_start, auto&& f) {
     if (cond) {
-      for (usize i = 0; i < count; ++i) {
+      for (size_t i = 0; i < count; ++i) {
         f(pos + i, i);
       }
       target_start = static_cast<u32>(pos);
@@ -405,14 +402,14 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
   };
 
   const auto& bone_reg = data.bone_registry;
-  for (usize mesh_idx = 0; mesh_idx < scene.mNumMeshes; ++mesh_idx) {
+  for (size_t mesh_idx = 0; mesh_idx < scene.mNumMeshes; ++mesh_idx) {
     const aiMesh* ai_mesh = scene.mMeshes[mesh_idx];
     auto& mesh = data.meshes[mesh_idx];
     mesh.nverts = ai_mesh->mNumVertices;
 
     // Positions. Always present but use HasPositions for consistency.
     do_attrib(ai_mesh->HasPositions(), mesh.nverts, vertex_pos, mesh.positions_start,
-              [&](usize pos, usize vert) {
+              [&](size_t pos, size_t vert) {
                 assert(pos < data.mesh_position_count);
                 assert(vert < ai_mesh->mNumVertices);
                 data.mesh_positions[pos] = asscast(ai_mesh->mVertices[vert]);
@@ -420,7 +417,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
 
     // Normals
     do_attrib(ai_mesh->HasNormals(), mesh.nverts, normal_pos, mesh.normals_start,
-              [&](usize pos, usize vert) {
+              [&](size_t pos, size_t vert) {
                 assert(pos < data.mesh_normal_count);
                 assert(vert < ai_mesh->mNumVertices);
                 data.mesh_normals[pos] = asscast(ai_mesh->mNormals[vert]);
@@ -428,7 +425,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
 
     // Tangents & bitangents
     do_attrib(ai_mesh->HasTangentsAndBitangents(), mesh.nverts, tangent_pos, mesh.tangents_start,
-              [&](usize pos, usize vert) {
+              [&](size_t pos, size_t vert) {
                 assert(pos < data.mesh_tangent_count);
                 assert(vert < ai_mesh->mNumVertices);
                 data.mesh_tangents[pos] = asscast(ai_mesh->mTangents[vert]);
@@ -436,9 +433,9 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
               });
 
     // UVs
-    for (usize uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
+    for (size_t uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
       do_attrib(ai_mesh->HasTextureCoords(uv), mesh.nverts, uv_pos[uv], mesh.uvs_start[uv],
-                [&](usize pos, usize vert) {
+                [&](size_t pos, size_t vert) {
                   assert(pos < data.mesh_uv_count[uv]);
                   assert(vert < ai_mesh->mNumVertices);
                   const auto& uv_vec = ai_mesh->mTextureCoords[uv][vert];
@@ -448,9 +445,9 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
     };
 
     // Colors
-    for (usize col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
+    for (size_t col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
       do_attrib(ai_mesh->HasVertexColors(col), mesh.nverts, color_pos[col], mesh.colors_start[col],
-                [&](usize pos, usize vert) {
+                [&](size_t pos, size_t vert) {
                   assert(pos < data.mesh_color_count[col]);
                   assert(vert < ai_mesh->mNumVertices);
                   data.mesh_colors[col][pos] = asscast(ai_mesh->mColors[col][vert]);
@@ -460,7 +457,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
     // Bone indices & weights
     if (!bone_reg.empty() && ai_mesh->HasBones()) {
       // Special iteration here, can't use do_attrib directly
-      for (usize bone = 0; bone < ai_mesh->mNumBones; ++bone) {
+      for (size_t bone = 0; bone < ai_mesh->mNumBones; ++bone) {
         const aiBone* ai_bone = ai_mesh->mBones[bone];
         std::string_view bone_name(ai_bone->mName.data, ai_bone->mName.length);
         // At this point every name *should* be valid
@@ -469,25 +466,25 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
           MODEL_LOG(error, "Bone out of hierarchy \"{}\"", bone_name);
           continue;
         }
-        const s32 bone_idx = static_cast<s32>(it->second);
-        for (usize weight = 0; weight < ai_bone->mNumWeights; ++weight) {
+        const i32 bone_idx = static_cast<i32>(it->second);
+        for (size_t weight = 0; weight < ai_bone->mNumWeights; ++weight) {
           try_place_weight(bone_idx, ai_bone->mWeights[weight]);
         }
       }
       mesh.bones_start = static_cast<u32>(bone_pos);
       bone_pos += mesh.nverts;
     } else {
-      mesh.bones_start = static_cast<s32>(-1);
+      mesh.bones_start = static_cast<i32>(-1);
     }
 
     // Face indices
     {
       mesh.face_count = ai_mesh->mNumFaces;
       u32 index_count = 0u;
-      for (usize face_idx = 0; face_idx < ai_mesh->mNumFaces; ++face_idx) {
+      for (size_t face_idx = 0; face_idx < ai_mesh->mNumFaces; ++face_idx) {
         const aiFace& face = ai_mesh->mFaces[face_idx];
-        for (usize i = 0; i < face.mNumIndices; ++i) {
-          const usize pos = index_pos + index_count + i;
+        for (size_t i = 0; i < face.mNumIndices; ++i) {
+          const size_t pos = index_pos + index_count + i;
           assert(pos < data.mesh_index_count);
           data.mesh_indices[pos] = face.mIndices[i];
         }
@@ -505,7 +502,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
     } else {
       mesh.blend_start = static_cast<u32>(-1);
     }
-    for (usize j = 0; j < ai_mesh->mNumAnimMeshes; ++j) {
+    for (size_t j = 0; j < ai_mesh->mNumAnimMeshes; ++j) {
       const aiAnimMesh* ai_anim = ai_mesh->mAnimMeshes[j];
       auto& anim = data.blend_shapes[shape_pos++];
       anim.nverts = ai_anim->mNumVertices;
@@ -513,7 +510,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
 
       // Positions (can be absent this time)
       do_attrib(ai_anim->HasPositions(), anim.nverts, vertex_anim_pos, anim.positions_start,
-                [&](usize pos, usize vert) {
+                [&](size_t pos, size_t vert) {
                   assert(pos < data.blend_position_count);
                   assert(vert < ai_anim->mNumVertices);
                   data.blend_positions[pos] = asscast(ai_anim->mVertices[vert]);
@@ -521,7 +518,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
 
       // Normals
       do_attrib(ai_anim->HasNormals(), anim.nverts, normal_anim_pos, anim.normals_start,
-                [&](usize pos, usize vert) {
+                [&](size_t pos, size_t vert) {
                   assert(pos < data.blend_normal_count);
                   assert(vert < ai_anim->mNumVertices);
                   data.blend_normals[pos] = asscast(ai_anim->mNormals[vert]);
@@ -529,7 +526,7 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
 
       // Tangents & Bitangents
       do_attrib(ai_anim->HasTangentsAndBitangents(), anim.nverts, tangent_anim_pos,
-                anim.tangents_start, [&](usize pos, usize vert) {
+                anim.tangents_start, [&](size_t pos, size_t vert) {
                   assert(pos < data.blend_tangent_count);
                   assert(vert < ai_anim->mNumVertices);
                   data.blend_tangents[pos] = asscast(ai_anim->mTangents[vert]);
@@ -537,9 +534,9 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
                 });
 
       // UVs
-      for (usize uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
+      for (size_t uv = 0; uv < Model3DData::MAX_MESH_UVS; ++uv) {
         do_attrib(ai_anim->HasTextureCoords(uv), anim.nverts, uv_anim_pos[uv], anim.uvs_start[uv],
-                  [&](usize pos, usize vert) {
+                  [&](size_t pos, size_t vert) {
                     assert(pos < data.blend_uv_count[uv]);
                     assert(vert < ai_anim->mNumVertices);
                     const auto& uv_vec = ai_anim->mTextureCoords[uv][vert];
@@ -549,9 +546,9 @@ void parse_meshes(Model3DData::ModelInternal& data, const aiScene& scene) {
       }
 
       // Colors
-      for (usize col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
+      for (size_t col = 0; col < Model3DData::MAX_MESH_COLORS; ++col) {
         do_attrib(ai_anim->HasVertexColors(col), anim.nverts, color_anim_pos[col],
-                  anim.colors_start[col], [&](usize pos, usize vert) {
+                  anim.colors_start[col], [&](size_t pos, size_t vert) {
                     assert(pos < data.blend_color_count[col]);
                     assert(vert < ai_anim->mNumVertices);
                     data.blend_colors[col][pos] = asscast(ai_anim->mColors[col][vert]);
@@ -624,8 +621,8 @@ bool parse_materials(Model3DData::ModelInternal& data, const aiScene& scene,
     }
   };
   const auto parse_material_textures = [&](const aiMaterial& ai_mat, aiTextureType type) {
-    const usize count = ai_mat.GetTextureCount(type);
-    for (usize i = 0; i < count; ++i) {
+    const size_t count = ai_mat.GetTextureCount(type);
+    for (size_t i = 0; i < count; ++i) {
       aiString filename;
       ai_mat.GetTexture(type, i, &filename);
       std::string_view filename_view(filename.data, filename.length);
@@ -652,7 +649,7 @@ bool parse_materials(Model3DData::ModelInternal& data, const aiScene& scene,
   alloc_init(al, &data.materials, data.material_count);
   data.material_registry.reserve(data.material_count);
 
-  for (usize i = 0; i < data.material_count; ++i) {
+  for (size_t i = 0; i < data.material_count; ++i) {
     const aiMaterial* ai_mat = scene.mMaterials[i];
     const aiString mat_name = ai_mat->GetName();
     auto& mat = data.materials[i];
@@ -677,9 +674,9 @@ bool parse_materials(Model3DData::ModelInternal& data, const aiScene& scene,
   // Load images
   alloc_init(al, &data.textures, data.texture_count);
   alloc_init(al, &data.texture_images, data.texture_count);
-  usize image_idx = 0;
+  size_t image_idx = 0;
   DeferFn image_err_cleanup = [&]() {
-    for (usize i = 0; i < image_idx; ++i) {
+    for (size_t i = 0; i < image_idx; ++i) {
       chima::image::destroy(data.chima, data.texture_images[i]);
     }
   };
@@ -726,8 +723,8 @@ AssExpect<Model3DData> Model3DLoader::load() {
     delete _impl;
     _impl = nullptr;
   };
-  const auto assimpflags = [flags = _impl->importer_flags]() -> bits32 {
-    bits32 out = 0;
+  const auto assimpflags = [flags = _impl->importer_flags]() -> u32 {
+    u32 out = 0;
     if (flags & FLAG_TRIANGULATE) {
       out |= aiProcess_Triangulate;
     }
@@ -785,11 +782,11 @@ Model3DData::ModelInternal::~ModelInternal() {
   if (ptr && sz)         \
   alloc.dealloc(ptr, sz)
 
-  for (usize i = 0; i < MAX_MESH_COLORS; ++i) {
+  for (size_t i = 0; i < MAX_MESH_COLORS; ++i) {
     DEALLOC(mesh_colors[i], mesh_color_count[i]);
     DEALLOC(blend_colors[i], blend_color_count[i]);
   }
-  for (usize i = 0; i < MAX_MESH_UVS; ++i) {
+  for (size_t i = 0; i < MAX_MESH_UVS; ++i) {
     DEALLOC(mesh_uvs[i], mesh_uv_count[i]);
     DEALLOC(blend_uvs[i], blend_uv_count[i]);
   }
@@ -816,7 +813,7 @@ Model3DData::ModelInternal::~ModelInternal() {
   DEALLOC(bone_locals, bone_count);
   DEALLOC(bone_inv_models, bone_count);
 
-  for (usize i = 0; i < texture_count; ++i) {
+  for (size_t i = 0; i < texture_count; ++i) {
     chima::image::destroy(chima, texture_images[i]);
   }
   DEALLOC(textures, texture_count);
@@ -841,12 +838,12 @@ void Model3DData::destroy() noexcept {
 
 namespace {
 
-usize cap_range(usize max, usize count) {
+size_t cap_range(size_t max, size_t count) {
   return std::min(count, max - count);
 }
 
 template<typename T>
-Span<T> datarange(T* data, usize data_sz, ArrayRange range) {
+Span<T> datarange(T* data, size_t data_sz, ArrayRange range) {
   if (range.start == (u32)-1) {
     return Span<T>{};
   } else {
@@ -856,11 +853,11 @@ Span<T> datarange(T* data, usize data_sz, ArrayRange range) {
 }
 
 template<typename T>
-Span<T> datarange(T* data, usize data_sz) {
+Span<T> datarange(T* data, size_t data_sz) {
   return Span<T>{data, data_sz};
 }
 
-Optional<usize> find_map_idx(auto&& map, std::string_view name) {
+Optional<size_t> find_map_idx(auto&& map, std::string_view name) {
   auto it = map.find(name);
   if (it == map.end()) {
     return nullopt;
@@ -880,7 +877,7 @@ BufferPath& Model3DData::path() const {
   return _data->path;
 }
 
-Model3DData::MeshData& Model3DData::mesh_at(usize idx) const {
+Model3DData::MeshData& Model3DData::mesh_at(size_t idx) const {
   CHECK_DATA;
   assert(idx < _data->mesh_count);
   return _data->meshes[idx];
@@ -911,25 +908,25 @@ Span<ran::Vec3f32> Model3DData::mesh_normals(ArrayRange range) const {
   return datarange(_data->mesh_normals, _data->mesh_normal_count, range);
 }
 
-Span<ran::Vec2f32> Model3DData::mesh_uvs(usize idx) const {
+Span<ran::Vec2f32> Model3DData::mesh_uvs(size_t idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->mesh_uvs[idx], _data->mesh_uv_count[idx]);
 }
 
-Span<ran::Vec2f32> Model3DData::mesh_uvs(usize idx, ArrayRange range) const {
+Span<ran::Vec2f32> Model3DData::mesh_uvs(size_t idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->mesh_uvs[idx], _data->mesh_uv_count[idx], range);
 }
 
-Span<ran::Vec4f32> Model3DData::mesh_colors(usize idx) const {
+Span<ran::Vec4f32> Model3DData::mesh_colors(size_t idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   return datarange(_data->mesh_colors[idx], _data->mesh_color_count[idx]);
 }
 
-Span<ran::Vec4f32> Model3DData::mesh_colors(usize idx, ArrayRange range) const {
+Span<ran::Vec4f32> Model3DData::mesh_colors(size_t idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   assert(range.start != (u32)-1 && range.count);
@@ -991,12 +988,12 @@ Span<u32> Model3DData::mesh_indices(ArrayRange range) const {
   return datarange(_data->mesh_indices, _data->mesh_index_count, range);
 }
 
-usize Model3DData::mesh_count() const {
+size_t Model3DData::mesh_count() const {
   CHECK_DATA;
   return _data->mesh_count;
 }
 
-Model3DData::BlendShapeData& Model3DData::blend_shape_at(usize idx) const {
+Model3DData::BlendShapeData& Model3DData::blend_shape_at(size_t idx) const {
   CHECK_DATA;
   assert(idx < _data->blend_shape_count);
   return _data->blend_shapes[idx];
@@ -1027,25 +1024,25 @@ Span<ran::Vec3f32> Model3DData::blend_normals(ArrayRange range) const {
   return datarange(_data->blend_normals, _data->blend_normal_count, range);
 }
 
-Span<ran::Vec2f32> Model3DData::blend_uvs(usize idx) const {
+Span<ran::Vec2f32> Model3DData::blend_uvs(size_t idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->blend_uvs[idx], _data->blend_uv_count[idx]);
 }
 
-Span<ran::Vec2f32> Model3DData::blend_uvs(usize idx, ArrayRange range) const {
+Span<ran::Vec2f32> Model3DData::blend_uvs(size_t idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_UVS);
   return datarange(_data->blend_uvs[idx], _data->blend_uv_count[idx], range);
 }
 
-Span<ran::Vec4f32> Model3DData::blend_colors(usize idx) const {
+Span<ran::Vec4f32> Model3DData::blend_colors(size_t idx) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   return datarange(_data->blend_colors[idx], _data->blend_color_count[idx]);
 }
 
-Span<ran::Vec4f32> Model3DData::blend_colors(usize idx, ArrayRange range) const {
+Span<ran::Vec4f32> Model3DData::blend_colors(size_t idx, ArrayRange range) const {
   CHECK_DATA;
   assert(idx < MAX_MESH_COLORS);
   return datarange(_data->blend_colors[idx], _data->blend_color_count[idx], range);
@@ -1071,12 +1068,12 @@ Span<ran::Vec3f32> Model3DData::blend_bitangents(ArrayRange range) const {
   return datarange(_data->blend_bitangents, _data->blend_tangent_count, range);
 }
 
-usize Model3DData::blend_shape_count() const {
+size_t Model3DData::blend_shape_count() const {
   CHECK_DATA;
   return _data->blend_shape_count;
 }
 
-Model3DData::BoneData& Model3DData::bone_at(usize idx) const {
+Model3DData::BoneData& Model3DData::bone_at(size_t idx) const {
   CHECK_DATA;
   assert(idx < _data->bone_count);
   return _data->bones[idx];
@@ -1112,12 +1109,12 @@ Span<ran::Mat4f32> Model3DData::bone_inverse_models(ArrayRange range) const {
   return datarange(_data->bone_inv_models, _data->bone_count, range);
 }
 
-usize Model3DData::bone_count() const {
+size_t Model3DData::bone_count() const {
   CHECK_DATA;
   return _data->bone_count;
 }
 
-Model3DData::MaterialData& Model3DData::material_at(usize idx) const {
+Model3DData::MaterialData& Model3DData::material_at(size_t idx) const {
   CHECK_DATA;
   assert(idx < _data->material_count);
   return _data->materials[idx];
@@ -1128,12 +1125,12 @@ Span<Model3DData::MaterialData> Model3DData::materials() const {
   return datarange(_data->materials, _data->material_count);
 }
 
-usize Model3DData::material_count() const {
+size_t Model3DData::material_count() const {
   CHECK_DATA;
   return _data->material_count;
 }
 
-Model3DData::TextureData& Model3DData::texture_at(usize idx) const {
+Model3DData::TextureData& Model3DData::texture_at(size_t idx) const {
   CHECK_DATA;
   assert(idx < _data->texture_count);
   return _data->textures[idx];
@@ -1144,12 +1141,12 @@ Span<Model3DData::TextureData> Model3DData::textures() const {
   return datarange(_data->textures, _data->texture_count);
 }
 
-usize Model3DData::texture_count() const {
+size_t Model3DData::texture_count() const {
   CHECK_DATA;
   return _data->texture_count;
 }
 
-Span<u32> Model3DData::material_textures(usize idx) const {
+Span<u32> Model3DData::material_textures(size_t idx) const {
   CHECK_DATA;
   assert(idx < _data->material_count);
   const auto& mat = _data->materials[idx];
@@ -1167,7 +1164,7 @@ Span<u32> Model3DData::material_textures(usize idx) const {
   _data->texture_cache.clear();
   _data->texture_cache.resize(map_range.size());
 
-  for (usize i = 0; i < map_range.size(); ++i) {
+  for (size_t i = 0; i < map_range.size(); ++i) {
     _data->texture_cache[i] = _data->textures[map_range[i]];
   }
 
@@ -1175,22 +1172,22 @@ Span<u32> Model3DData::material_textures(usize idx) const {
 #endif
 }
 
-Optional<usize> Model3DData::find_mesh_idx(std::string_view mesh_name) const {
+Optional<size_t> Model3DData::find_mesh_idx(std::string_view mesh_name) const {
   CHECK_DATA;
   return find_map_idx(_data->mesh_registry, mesh_name);
 }
 
-Optional<usize> Model3DData::find_bone_idx(std::string_view bone_name) const {
+Optional<size_t> Model3DData::find_bone_idx(std::string_view bone_name) const {
   CHECK_DATA;
   return find_map_idx(_data->bone_registry, bone_name);
 }
 
-Optional<usize> Model3DData::find_material_idx(std::string_view material_name) const {
+Optional<size_t> Model3DData::find_material_idx(std::string_view material_name) const {
   CHECK_DATA;
   return find_map_idx(_data->material_registry, material_name);
 }
 
-Optional<usize> Model3DData::find_texture_idx(std::string_view texture_name) const {
+Optional<size_t> Model3DData::find_texture_idx(std::string_view texture_name) const {
   CHECK_DATA;
   return find_map_idx(_data->texture_registry, texture_name);
 }

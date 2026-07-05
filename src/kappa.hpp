@@ -1,10 +1,8 @@
 #pragma once
 
-#include "./render/context.hpp"
-#include "./render/glfw.hpp"
-#include "./render/scene.hpp"
-
-#include "./util/buffer.hpp"
+#include "render/context.hpp"
+#include "render/glfw.hpp"
+#include "render/scene.hpp"
 
 namespace kappa {
 
@@ -22,9 +20,9 @@ public:
   fn on_fixed_update(u32 ups) -> void;
 
 private:
-  TypeBufferFor<render::GLFWContext> _glfw;
-  TypeBufferFor<render::RenderContext> _renderer;
-  TypeBufferFor<render::SceneData> _scene;
+  TypeBuffer<render::GLFWContext> _glfw;
+  TypeBuffer<render::RenderContext> _renderer;
+  TypeBuffer<render::SceneData> _scene;
   bool _initialized = false;
 };
 

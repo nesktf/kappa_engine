@@ -1,20 +1,17 @@
 #pragma once
 
-#include "./render/vulkan/vk_buffer.hpp"
-#include "./render/vulkan/vk_context.hpp"
-#include "./render/vulkan/vk_image.hpp"
-#include "./render/vulkan/vk_pipeline.hpp"
-#include "./render/vulkan/vk_util.hpp"
+#include "render/vulkan/vk_context.hpp"
+#include "render/vulkan/vk_image.hpp"
+#include "render/vulkan/vk_pipeline.hpp"
+#include "render/vulkan/vk_util.hpp"
 
-#include "./glfw.hpp"
-
-#include "../util/freelist.hpp"
-#include "../util/string.hpp"
-#include "render/vulkan/vk_common.hpp"
+#include "render/glfw.hpp"
 
 #include <ranmath/ran.hpp>
 
 namespace kappa::render {
+
+class IDrawAction;
 
 class RenderContext {
 private:
@@ -33,7 +30,7 @@ public:
     VkDynDescAlloc desc_alloc;
   };
 
-  using FrameArray = TypeBufferForArray<FrameData, MAX_FRAMES_IN_FLIGHT>;
+  using FrameArray = TypeArrayBuffer<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
   using Image = u32;
   static constexpr Image DEFAULT_IMAGE = (Image)0;
@@ -62,7 +59,7 @@ public:
                 FrameData* frames, VkAllocImage&& default_image, SamplerArray&& samplers);
 
 public:
-  static fn initialize(Uninited<RenderContext> renderer, GLFWContext& glfw) -> void;
+  static fn initialize(RenderContext* renderer, GLFWContext& glfw) -> void;
   fn destroy() -> void;
 
 public:

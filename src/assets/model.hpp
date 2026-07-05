@@ -4,15 +4,12 @@
 
 #include <ranmath/ran.hpp>
 
-#include "../util/optional.hpp"
-#include "../util/ptr.hpp"
-
 namespace kappa::assets {
 
 struct Model3DData {
 public:
-  static constexpr usize MAX_MESH_UVS = 2;
-  static constexpr usize MAX_MESH_COLORS = 2;
+  static constexpr size_t MAX_MESH_UVS = 2;
+  static constexpr size_t MAX_MESH_COLORS = 2;
 
   enum MeshPrimitive : u32 {
     MESH_PRIMITIVE_POINT = 0,
@@ -68,19 +65,19 @@ public:
 
     bool has_tangents() const { return tangents_start != (u32)-1; }
 
-    ArrayRange uvs(usize idx) const {
+    ArrayRange uvs(size_t idx) const {
       assert(idx < MAX_MESH_UVS);
       return {uvs_start[idx], nverts};
     }
 
-    bool has_uvs(usize idx) const { return (idx >= MAX_MESH_UVS || uvs_start[idx] != (u32)-1); }
+    bool has_uvs(size_t idx) const { return (idx >= MAX_MESH_UVS || uvs_start[idx] != (u32)-1); }
 
-    ArrayRange colors(usize idx) const {
+    ArrayRange colors(size_t idx) const {
       assert(idx < MAX_MESH_COLORS);
       return {colors_start[idx], nverts};
     }
 
-    bool has_colors(usize idx) const {
+    bool has_colors(size_t idx) const {
       return (idx >= MAX_MESH_COLORS || colors_start[idx] != (u32)-1);
     }
 
@@ -132,19 +129,19 @@ public:
 
     bool has_tangents() const { return tangents_start != (u32)-1; }
 
-    ArrayRange uvs(usize idx) const {
+    ArrayRange uvs(size_t idx) const {
       assert(idx < MAX_MESH_UVS);
       return {uvs_start[idx], nverts};
     }
 
-    bool has_uvs(usize idx) const { return (idx >= MAX_MESH_UVS || uvs_start[idx] != (u32)-1); }
+    bool has_uvs(size_t idx) const { return (idx >= MAX_MESH_UVS || uvs_start[idx] != (u32)-1); }
 
-    ArrayRange colors(usize idx) const {
+    ArrayRange colors(size_t idx) const {
       assert(idx < MAX_MESH_COLORS);
       return {colors_start[idx], nverts};
     }
 
-    bool has_colors(usize idx) const {
+    bool has_colors(size_t idx) const {
       return (idx >= MAX_MESH_COLORS || colors_start[idx] != (u32)-1);
     }
 
@@ -176,7 +173,7 @@ public:
 
   struct BoneData {
     BufferName name;
-    s32 parent;
+    i32 parent;
   };
 
 #if 0
@@ -213,16 +210,16 @@ public:
   BufferName& name() const;
   BufferPath& path() const;
 
-  MeshData& mesh_at(usize idx) const;
+  MeshData& mesh_at(size_t idx) const;
   Span<MeshData> meshes() const;
   Span<ran::Vec3f32> mesh_positions() const;
   Span<ran::Vec3f32> mesh_positions(ArrayRange range) const;
   Span<ran::Vec3f32> mesh_normals() const;
   Span<ran::Vec3f32> mesh_normals(ArrayRange range) const;
-  Span<ran::Vec2f32> mesh_uvs(usize idx) const;
-  Span<ran::Vec2f32> mesh_uvs(usize idx, ArrayRange range) const;
-  Span<ran::Vec4f32> mesh_colors(usize idx) const;
-  Span<ran::Vec4f32> mesh_colors(usize idx, ArrayRange range) const;
+  Span<ran::Vec2f32> mesh_uvs(size_t idx) const;
+  Span<ran::Vec2f32> mesh_uvs(size_t idx, ArrayRange range) const;
+  Span<ran::Vec4f32> mesh_colors(size_t idx) const;
+  Span<ran::Vec4f32> mesh_colors(size_t idx, ArrayRange range) const;
   Span<ran::Vec3f32> mesh_tangents() const;
   Span<ran::Vec3f32> mesh_tangents(ArrayRange range) const;
   Span<ran::Vec3f32> mesh_bitangents() const;
@@ -233,81 +230,81 @@ public:
   Span<ran::Vec4f32> mesh_bone_weights(ArrayRange range) const;
   Span<u32> mesh_indices() const;
   Span<u32> mesh_indices(ArrayRange range) const;
-  usize mesh_count() const;
+  size_t mesh_count() const;
 
-  Nullable<usize> find_mesh_idx(std::string_view mesh_name) const;
+  Nullable<size_t> find_mesh_idx(std::string_view mesh_name) const;
 
   MeshData* find_mesh(std::string_view mesh_name) const {
     return find_mesh_idx(mesh_name)
-      .transform([this](usize idx) -> MeshData* { return &mesh_at(idx); })
-      .value_or(nullptr);
+      .transform([this](size_t idx) -> MeshData* { return &mesh_at(idx); })
+      .value_or((MeshData*)nullptr);
   }
 
-  BlendShapeData& blend_shape_at(usize idx) const;
+  BlendShapeData& blend_shape_at(size_t idx) const;
   Span<BlendShapeData> blend_shapes() const;
   Span<ran::Vec3f32> blend_positions() const;
   Span<ran::Vec3f32> blend_positions(ArrayRange range) const;
   Span<ran::Vec3f32> blend_normals() const;
   Span<ran::Vec3f32> blend_normals(ArrayRange range) const;
-  Span<ran::Vec2f32> blend_uvs(usize idx) const;
-  Span<ran::Vec2f32> blend_uvs(usize idx, ArrayRange range) const;
-  Span<ran::Vec4f32> blend_colors(usize idx) const;
-  Span<ran::Vec4f32> blend_colors(usize idx, ArrayRange range) const;
+  Span<ran::Vec2f32> blend_uvs(size_t idx) const;
+  Span<ran::Vec2f32> blend_uvs(size_t idx, ArrayRange range) const;
+  Span<ran::Vec4f32> blend_colors(size_t idx) const;
+  Span<ran::Vec4f32> blend_colors(size_t idx, ArrayRange range) const;
   Span<ran::Vec3f32> blend_tangents() const;
   Span<ran::Vec3f32> blend_tangents(ArrayRange range) const;
   Span<ran::Vec3f32> blend_bitangents() const;
   Span<ran::Vec3f32> blend_bitangents(ArrayRange range) const;
-  usize blend_shape_count() const;
+  size_t blend_shape_count() const;
 
   bool has_blend_shapes() const { return (blend_shape_count() > 0); }
 
-  BoneData& bone_at(usize idx) const;
+  BoneData& bone_at(size_t idx) const;
   Span<BoneData> bones() const;
   Span<BoneData> bones(ArrayRange range) const;
   Span<ran::Mat4f32> bone_locals() const;
   Span<ran::Mat4f32> bone_locals(ArrayRange range) const;
   Span<ran::Mat4f32> bone_inverse_models() const;
   Span<ran::Mat4f32> bone_inverse_models(ArrayRange range) const;
-  usize bone_count() const;
+  size_t bone_count() const;
 
   bool has_bones() const { return (bone_count() > 0); }
 
-  Optional<usize> find_bone_idx(std::string_view bone_name) const;
+  Optional<size_t> find_bone_idx(std::string_view bone_name) const;
 
   BoneData* find_bone(std::string_view bone_name) const {
     return find_bone_idx(bone_name)
-      .transform([this](usize idx) -> BoneData* { return &bone_at(idx); })
-      .value_or(nullptr);
+      .transform([this](size_t idx) -> BoneData* { return &bone_at(idx); })
+      .value_or((BoneData*)nullptr);
   }
 
-  MaterialData& material_at(usize idx) const;
+  MaterialData& material_at(size_t idx) const;
   Span<MaterialData> materials() const;
-  usize material_count() const;
+  size_t material_count() const;
 
   bool has_materials() const { return (material_count() > 0); }
 
   bool has_textures() const { return (texture_count() > 0); }
 
-  TextureData& texture_at(usize idx) const;
+  TextureData& texture_at(size_t idx) const;
   Span<TextureData> textures() const;
-  usize texture_count() const;
+  size_t texture_count() const;
 
-  Span<u32> material_textures(usize idx) const;
+  Span<u32> material_textures(size_t idx) const;
 
-  Optional<usize> find_material_idx(std::string_view material_name) const;
+  Optional<size_t> find_material_idx(std::string_view material_name) const;
 
   MaterialData* find_material(std::string_view material_name) const {
     return find_material_idx(material_name)
-      .transform([this](usize idx) -> MaterialData* { return &material_at(idx); })
-      .value_or(nullptr);
+      .transform([this](size_t idx) -> MaterialData* { return &material_at(idx); })
+      .value_or((MaterialData*)nullptr);
   }
 
-  Optional<usize> find_texture_idx(std::string_view texture_name) const;
+  Optional<size_t> find_texture_idx(std::string_view texture_name) const;
 
   TextureData* find_texture(std::string_view texture_name) const {
     return find_texture_idx(texture_name)
-      .transform([this](usize idx) -> TextureData* { return &texture_at(idx); })
-      .value_or(nullptr);
+      .transform([this](size_t idx) -> TextureData* { return &texture_at(idx); })
+      .value_or((TextureData*)nullptr);
   }
 
 private:
@@ -319,7 +316,7 @@ private:
   struct LoaderInternal;
 
 public:
-  enum LoadFlags : bits32 {
+  enum LoadFlags : u32 {
     FLAGS_NONE = 0x0000,
     FLAG_TRIANGULATE = 0x0001,
     FLAG_GEN_TANGENTS = 0x0002,
@@ -327,11 +324,11 @@ public:
     FLAG_GEN_NORMALS = 0x0008,
   };
 
-  static constexpr bits32 FLAGS_DEFAULT = FLAG_TRIANGULATE | FLAG_GEN_TANGENTS | FLAG_GEN_UVS;
+  static constexpr u32 FLAGS_DEFAULT = FLAG_TRIANGULATE | FLAG_GEN_TANGENTS | FLAG_GEN_UVS;
 
   struct LoadOpts {
     std::string_view texture_dir;
-    bits32 flags;
+    u32 flags;
   };
 
 public:

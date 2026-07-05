@@ -60,6 +60,10 @@ set(ASSIMP_WARNINGS_AS_ERRORS OFF)
 add_subdirectory("lib/assimp")
 list(APPEND LIB_LINK assimp)
 
+# ntfstl
+add_subdirectory("lib/ntfstl")
+list(APPEND LIB_LINK ntfstl::ntfstl)
+
 # Shaders
 file(GLOB_RECURSE GLSL_SOURCES
 	"${RES_DIR}/shaders/*.frag"

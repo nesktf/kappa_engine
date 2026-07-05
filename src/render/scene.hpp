@@ -1,12 +1,7 @@
 #pragma once
 
-#include "./render/vulkan/vk_buffer.hpp"
-#include "./render/vulkan/vk_context.hpp"
-
-#include "../util/array.hpp"
-#include "../util/freelist.hpp"
-#include "../util/ptr.hpp"
-#include "../util/string.hpp"
+#include "render/vulkan/vk_buffer.hpp"
+#include "render/vulkan/vk_context.hpp"
 
 #include <ranmath/ran.hpp>
 
@@ -30,7 +25,7 @@ private:
 
 public:
   static constexpr u32 MAX_MESHES = 128;
-  using Mesh = freelist_slot;
+  using Mesh = FreelistSlot;
 
   struct ComputeConstants {
     ran::Vec4f32 data1;
@@ -45,7 +40,7 @@ public:
     VkPipelineLayout layout;
     VkPipeline pipelines[2];
     ComputeConstants data[2];
-    s32 effect_idx;
+    i32 effect_idx;
   };
 
   struct MeshData {
@@ -66,7 +61,7 @@ public:
   SceneData(create_t, RenderContext& ctx, ComputeData&& compute, SceneLayouts&& layouts);
 
 public:
-  static fn initialize(Uninited<SceneData> scene, RenderContext& ctx) -> VkMsgExpect<void>;
+  static fn initialize(SceneData* scene, RenderContext& ctx) -> VkMsgExpect<void>;
 
 public:
   fn add_mesh(const MeshData& mesh, std::string_view name) -> Mesh;

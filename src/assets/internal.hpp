@@ -52,7 +52,7 @@ struct ImageData::ImageInternal {
 struct ImageLoader::LoaderInternal {
   BufferName texture_name;
   BufferPath texture_path;
-  bits32 chima_flags;
+  u32 chima_flags;
   Optional<TextureType> type;
 };
 
@@ -148,7 +148,7 @@ struct Model3DLoader::LoaderInternal {
   BufferName model_name;
   BufferPath model_path;
   BufferPath texture_dir;
-  bits32 importer_flags;
+  u32 importer_flags;
 };
 
 } // namespace kappa::assets

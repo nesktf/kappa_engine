@@ -1,15 +1,12 @@
 #include "./internal.hpp"
 
-#include "../util/function.hpp"
-#include "../util/logger.hpp"
-
 #define TEX_LOG(_level, _fmt, ...) \
   ::kappa::log_##_level("[TEXTURE_IMPORTER] " _fmt __VA_OPT__(, ) __VA_ARGS__)
 
 namespace kappa::assets {
 
-ImageLoader::ImageLoader(std::string_view texture_path, std::string_view texture_name,
-                         bits32 flags) : _impl(new ImageLoader::LoaderInternal()) {
+ImageLoader::ImageLoader(std::string_view texture_path, std::string_view texture_name, u32 flags) :
+    _impl(new ImageLoader::LoaderInternal()) {
   _impl->texture_path.copy_from(texture_path.data(), texture_path.size());
   _impl->texture_name.copy_from(texture_name.data(), texture_name.size());
   _impl->chima_flags = flags;
