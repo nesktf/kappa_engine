@@ -1,17 +1,18 @@
 #pragma once
 
+#include "render/glfw.hpp"
 #include "render/vulkan/vk_context.hpp"
 #include "render/vulkan/vk_image.hpp"
 #include "render/vulkan/vk_pipeline.hpp"
 #include "render/vulkan/vk_util.hpp"
-
-#include "render/glfw.hpp"
 
 #include <ranmath/ran.hpp>
 
 namespace kappa::render {
 
 class IDrawAction;
+
+enum class Image {};
 
 class RenderContext {
 private:
@@ -32,7 +33,6 @@ public:
 
   using FrameArray = TypeArrayBuffer<FrameData, MAX_FRAMES_IN_FLIGHT>;
 
-  using Image = u32;
   static constexpr Image DEFAULT_IMAGE = (Image)0;
   static constexpr u32 MAX_IMAGES = 512;
 
@@ -46,21 +46,22 @@ public:
 
   struct ImageData {
     ImageData(VkAllocImage&& image, SamplerArray&& samplers_) :
-        default_image(std::move(image)), samplers(std::move(samplers_)), images() {}
+        samplers(std::move(samplers_)), images() {
+      images.emplace(std::move(image));
+    }
 
-    VkAllocImage default_image;
     SamplerArray samplers;
     FixedFreelist<VkAllocImage, MAX_IMAGES> images;
   };
 
 public:
-  RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
-                VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc, DrawTarget&& target,
-                FrameData* frames, VkAllocImage&& default_image, SamplerArray&& samplers);
+  RenderContext(create_t, VkContext&& vk, GLFWImGuiHandler&& glfw_imgui, VkDelQueue&& delqueue,
+                VkDynDescAlloc&& desc_alloc, DrawTarget&& target, FrameData* frames,
+                VkAllocImage&& default_image, SamplerArray&& samplers);
+  ~RenderContext();
 
 public:
-  static fn initialize(RenderContext* renderer, GLFWContext& glfw) -> void;
-  fn destroy() -> void;
+  static fn initialize(TypeBufferRef<RenderContext> renderer, GLFWContext& glfw) -> void;
 
 public:
   fn create_image(VkExtent3D size, VkFormat format, VkImageUsageFlags flags, VkImageMipsFlag mips,
@@ -71,7 +72,7 @@ public:
   fn get_sampler(SamplerType type) -> VkSampler;
 
 public:
-  fn draw_things(IDrawAction& on_draw);
+  fn draw_things(IDrawAction& on_draw, f64 dt, f64 alpha) -> void;
 
 public:
   fn get_vk() -> VkContext& { return _vk; }
@@ -86,7 +87,7 @@ public:
 
 private:
   VkContext _vk;
-  GLFWContext::ImGuiHandler _glfw_imgui;
+  GLFWImGuiHandler _glfw_imgui;
   VkDelQueue _delqueue;
   VkDynDescAlloc _desc_alloc;
   DrawTarget _target;

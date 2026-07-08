@@ -1,8 +1,5 @@
-#include "./scene.hpp"
-#include "./context.hpp"
-
-#include "../util/filesystem.hpp"
-#include "../util/logger.hpp"
+#include "render/scene.hpp"
+#include "render/context.hpp"
 
 #include <imgui.h>
 
@@ -56,6 +53,7 @@ fn init_compute(RenderContext& ctx, SceneData::ComputeData& compute) -> void {
 
   compute.pipelines[1] = vk_create_compute_pipeline(vk, compute.layout, shader_sky).value();
   delqueue.enqueue(compute.pipelines[1], vk.device());
+  compute.effect_idx = 0;
 
   compute.data[0].data1 = ran::Vec4f32(1.f, 0.f, 0.f, 1.f);
   compute.data[0].data2 = ran::Vec4f32(0.f, 0.f, 1.f, 1.f);
@@ -81,15 +79,17 @@ fn init_layouts(RenderContext& ctx, SceneData::SceneLayouts& layouts) -> void {
 
 } // namespace
 
-fn SceneData::initialize(Uninited<SceneData> scene, RenderContext& ctx) -> VkMsgExpect<void> {
+fn SceneData::initialize(TypeBufferRef<SceneData> scene, RenderContext& ctx) -> void {
   ComputeData compute;
   init_compute(ctx, compute);
 
   SceneLayouts layouts;
   init_layouts(ctx, layouts);
+  scene->construct(create_t(), ctx, std::move(compute), std::move(layouts));
+}
 
-  KA_PNEW(scene) SceneData(create_t(), ctx, std::move(compute), std::move(layouts));
-  return {};
+SceneData::~SceneData() {
+  clear();
 }
 
 namespace {
@@ -103,10 +103,10 @@ struct Vertex {
 };
 
 fn soa_to_aos(Span<const ran::Vec3f32> pos, Span<const ran::Vec2f32> uvs) -> UniqueArray<Vertex> {
-  const usize count = pos.size();
+  const size_t count = pos.size();
   ka_assert(uvs.size() == count);
-  auto out = make_array<Vertex>(uninitialized, count);
-  for (usize i = 0; i < count; ++i) {
+  auto out = make_unique_array<Vertex>(uninitialized, count);
+  for (size_t i = 0; i < count; ++i) {
     out[i].color = ran::Vec4f32(1.f, 1.f, 1.f, 1.f); // make something up
     out[i].uv_x = uvs[i].x;
     out[i].uv_y = uvs[i].y;
@@ -269,7 +269,10 @@ fn draw_compute(const SceneData::ComputeData& compute, VkExtent2D target_extent,
 
 } // namespace
 
-fn SceneData::render_geometry(VkImageLayout& target_layout, VkCommandBuffer cmd) -> void {
+fn SceneData::render_geometry(VkImageLayout& target_layout, VkCommandBuffer cmd, f64 dt, f64 alpha)
+  -> void {
+  KA_UNUSED(dt);
+  KA_UNUSED(alpha);
   auto& vk = _ctx->get_vk();
   auto& target = _ctx->get_target();
   auto& frame = _ctx->get_frame();
@@ -311,7 +314,7 @@ fn SceneData::render_geometry(VkImageLayout& target_layout, VkCommandBuffer cmd)
     auto image_set = frame.desc_alloc.allocate(_layouts.image_layout).value();
     {
       VkDescWriter writer(vk.device());
-      writer.write_combined_image(0, _ctx->get_image(0).view(),
+      writer.write_combined_image(0, _ctx->get_image(RenderContext::DEFAULT_IMAGE).view(),
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                   _ctx->get_sampler(RenderContext::SAMPLER_NEAREST));
       writer.update_set(image_set);
@@ -338,8 +341,10 @@ fn SceneData::render_geometry(VkImageLayout& target_layout, VkCommandBuffer cmd)
   vkCmdEndRendering(cmd);
 }
 
-fn SceneData::render_imgui(const VkFrameContext& frame) -> void {
+fn SceneData::render_imgui(const VkFrameContext& frame, f64 dt, f64 alpha) -> void {
   KA_UNUSED(frame);
+  KA_UNUSED(dt);
+  KA_UNUSED(alpha);
   static constexpr const char* compute_names[2] = {"gradient_color", "sky"};
   ImGui::ShowDemoWindow();
 

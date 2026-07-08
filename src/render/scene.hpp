@@ -9,6 +9,13 @@ namespace kappa::render {
 
 class RenderContext;
 
+class IDrawAction {
+public:
+  virtual fn render_geometry(VkImageLayout& layout, VkCommandBuffer cmd, f64 dt, f64 alpha)
+    -> void = 0;
+  virtual fn render_imgui(const VkFrameContext& frame, f64 dt, f64 alpha) -> void = 0;
+};
+
 struct MeshAsset {
   VkPipeline pipeline;
   VkPipelineLayout layout;
@@ -19,7 +26,7 @@ struct MeshAsset {
   BuffStr<256> name;
 };
 
-class SceneData {
+class SceneData : public IDrawAction {
 private:
   struct create_t {};
 
@@ -59,17 +66,19 @@ public:
 
 public:
   SceneData(create_t, RenderContext& ctx, ComputeData&& compute, SceneLayouts&& layouts);
+  ~SceneData();
 
 public:
-  static fn initialize(SceneData* scene, RenderContext& ctx) -> VkMsgExpect<void>;
+  static fn initialize(TypeBufferRef<SceneData> scene, RenderContext& ctx) -> void;
 
 public:
   fn add_mesh(const MeshData& mesh, std::string_view name) -> Mesh;
   fn clear() -> void;
 
 public:
-  fn render_geometry(VkImageLayout& target_layout, VkCommandBuffer cmd) -> void;
-  fn render_imgui(const VkFrameContext& frame) -> void;
+  fn render_geometry(VkImageLayout& target_layout, VkCommandBuffer cmd, f64 dt, f64 alpha)
+    -> void override;
+  fn render_imgui(const VkFrameContext& frame, f64 dt, f64 alpha) -> void override;
 
 private:
   RenderContext* _ctx;

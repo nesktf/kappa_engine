@@ -4,68 +4,82 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <GLFW/glfw3.h>
-
 #include <chrono>
 
+typedef struct GLFWwindow GLFWwindow;
+
 namespace kappa::render {
+
+class GLFWImGuiHandler {
+private:
+  explicit GLFWImGuiHandler(GLFWwindow* win) noexcept;
+
+public:
+  void init();
+  void new_frame();
+  void destroy();
+
+private:
+  GLFWwindow* _win;
+  friend class GLFWContext;
+};
+
+class GLFWExtentUpdater {
+private:
+  explicit GLFWExtentUpdater(GLFWwindow* win) noexcept;
+
+public:
+  fn update_extent(VkExtent2D* ext) -> void;
+
+  fn operator()(VkExtent2D* ext)->void { update_extent(ext); }
+
+private:
+  GLFWwindow* _win;
+  friend class GLFWContext;
+};
+
+class GLFWSurfaceCreator {
+private:
+  explicit GLFWSurfaceCreator(GLFWwindow* win) noexcept;
+
+public:
+  fn create_surface(VkInstance vk, VkSurfaceKHR* surface, const VkAllocationCallbacks* vkalloc)
+    -> VkResult;
+
+  fn operator()(VkInstance vk, VkSurfaceKHR* surface, const VkAllocationCallbacks* vkalloc)
+    ->VkResult {
+    return create_surface(vk, surface, vkalloc);
+  }
+
+private:
+  GLFWwindow* _win;
+  friend class GLFWContext;
+};
 
 class GLFWContext {
 private:
   struct create_t {};
 
 public:
-  class ImGuiHandler {
-  public:
-    ImGuiHandler(create_t, GLFWwindow* win) noexcept : _win(win) {}
-
-  public:
-    void init();
-    void new_frame();
-    void destroy();
-
-  private:
-    GLFWwindow* _win;
-  };
+  static fn get_surface_extensions() -> Span<const char*>;
 
 public:
-  GLFWContext(create_t, GLFWwindow* win) noexcept : _win(win) {}
+  GLFWContext(create_t, GLFWwindow* win) noexcept;
+  ~GLFWContext();
 
 public:
-  static fn initialize(GLFWContext* glfw, u32 width, u32 height) -> void;
-  fn destroy() -> void;
+  static fn initialize(TypeBufferRef<GLFWContext> glfw, u32 width, u32 height) -> void;
 
 public:
   static fn fb_resize_fn(GLFWwindow* win, int w, int h) -> void;
 
 public:
-  fn make_vk_extent_updater() -> fn {
-    return [win = _win](VkExtent2D* ext) -> void {
-      int w, h;
-      glfwGetFramebufferSize(win, &w, &h);
-      ext->width = (u32)w;
-      ext->height = (u32)h;
-    };
-  }
-
-  fn make_vk_surface_creator() -> fn {
-    return [win = _win](VkInstance vk, VkSurfaceKHR* surface,
-                        const VkAllocationCallbacks* vkalloc) -> VkResult {
-      return glfwCreateWindowSurface(vk, win, vkalloc, surface);
-    };
-  }
-
-  static fn get_surface_extensions() -> Span<const char*> {
-    u32 glfw_ext_count = 0;
-    const char** glfw_exts_ptr = glfwGetRequiredInstanceExtensions(&glfw_ext_count);
-    return {glfw_exts_ptr, (size_t)glfw_ext_count};
-  }
-
-  fn make_imgui_handler() -> ImGuiHandler { return {create_t(), _win}; }
+  fn make_vk_extent_updater() const -> GLFWExtentUpdater;
+  fn make_vk_surface_creator() const -> GLFWSurfaceCreator;
+  fn make_imgui_handler() const -> GLFWImGuiHandler;
 
 public:
   fn poll_events() -> void;
-
   fn should_close() -> bool;
 
 private:

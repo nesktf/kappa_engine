@@ -1,8 +1,7 @@
-#include "./context.hpp"
-
-#include "./render/vulkan/vk_imgui.hpp"
-
-#include "../util/logger.hpp"
+#include "render/context.hpp"
+#include "render/scene.hpp"
+#include "render/vulkan/vk_buffer.hpp"
+#include "render/vulkan/vk_imgui.hpp"
 
 #define KA_APP_NAME    "Kappa"
 #define KA_APP_VERSION VK_MAKE_VERSION(KA_VER_MAJ, KA_VER_MIN, KA_VER_REV)
@@ -17,7 +16,7 @@ fn make_vk_defer(VkContext& vk) {
   };
 }
 
-fn make_imgui_defer(GLFWContext::ImGuiHandler& imgui) {
+fn make_imgui_defer(GLFWImGuiHandler& imgui) {
   return [&]() {
     vk_shutdown_imgui();
     imgui.destroy();
@@ -55,9 +54,48 @@ fn init_draw_target(VkContext& vk, VkDelQueue& delqueue, VkExtent2D surface_exte
   return {std::move(color), std::move(depth), surface_extent, 1.f};
 }
 
-fn create_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat format,
-                VkImageUsageFlags flags, VkImageMipsFlag mips) -> VkExpect<VkAllocImage> {
+fn upload_image_data(VkContext& vk, VkAllocImage& imag, const void* data) -> VkExpect<void> {
+  ka_assert(data);
+  const auto size = imag.extent();
   const size_t data_size = size.depth * size.width * size.height * 4;
+  const VkBufferArgs upload_args{
+    .size = data_size,
+    .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    .mem_usage = KA_VK_MEM_USAGE_CPU_TO_GPU,
+  };
+  auto upload_buff = VkAllocBuff::create(vk.allocator(), upload_args);
+  if (!upload_buff) {
+    return {unexpect, upload_buff.error()};
+  }
+  std::memcpy(upload_buff->mapped_data(), data, data_size);
+  const DeferFn buff_defer = [&]() {
+    vk_destroy_buffer(vk.allocator(), *upload_buff);
+  };
+  return vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
+    auto layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    layout =
+      vkcmd_transition_image(cmd, imag.image(), layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = size;
+
+    vkCmdCopyBufferToImage(cmd, upload_buff->buffer(), imag.image(),
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    layout =
+      vkcmd_transition_image(cmd, imag.image(), layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  });
+}
+
+fn create_actual_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat format,
+                       VkImageUsageFlags flags, VkImageMipsFlag mips) -> VkExpect<VkAllocImage> {
   const VkImageArgs image_args{
     .extent = size,
     .format = format,
@@ -71,42 +109,8 @@ fn create_image(VkContext& vk, const void* data, VkExtent3D size, VkFormat forma
   DeferFn on_err = [&]() {
     vk_destroy_image(vk.device(), vk.allocator(), *imag);
   };
-
   if (data) {
-    const VkBufferArgs upload_args{
-      .size = data_size,
-      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      .mem_usage = KA_VK_MEM_USAGE_CPU_TO_GPU,
-    };
-    auto upload_buff = VkAllocBuff::create(vk.allocator(), upload_args);
-    if (!upload_buff) {
-      return {unexpect, upload_buff.error()};
-    }
-    std::memcpy(upload_buff->mapped_data(), data, data_size);
-    const DeferFn buff_defer = [&]() {
-      vk_destroy_buffer(vk.allocator(), *upload_buff);
-    };
-    vk_submit_immediate(vk, [&](VkCommandBuffer cmd) -> void {
-      auto layout = VK_IMAGE_LAYOUT_UNDEFINED;
-      layout =
-        vkcmd_transition_image(cmd, imag->image(), layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-      VkBufferImageCopy region{};
-      region.bufferOffset = 0;
-      region.bufferRowLength = 0;
-      region.bufferImageHeight = 0;
-
-      region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      region.imageSubresource.mipLevel = 0;
-      region.imageSubresource.baseArrayLayer = 0;
-      region.imageSubresource.layerCount = 1;
-      region.imageExtent = size;
-
-      vkCmdCopyBufferToImage(cmd, upload_buff->buffer(), imag->image(),
-                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-      layout = vkcmd_transition_image(cmd, imag->image(), layout,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }).value();
+    upload_image_data(vk, *imag, data).value();
   }
   on_err.disengage();
   return imag;
@@ -126,10 +130,10 @@ constexpr auto default_texture = []() {
 
 fn init_images(VkContext& vk, VkDelQueue& delqueue)
   -> std::pair<VkAllocImage, RenderContext::SamplerArray> {
-  auto image =
-    create_image(vk, default_texture.data(), VkExtent3D(16, 16, 1), VK_FORMAT_R8G8B8A8_UNORM,
-                 VK_IMAGE_USAGE_SAMPLED_BIT, KA_VK_DISABLE_MIPMAPS)
-      .value();
+  auto image = create_actual_image(vk, default_texture.data(), VkExtent3D(16, 16, 1),
+                                   VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT,
+                                   KA_VK_DISABLE_MIPMAPS)
+                 .value();
   delqueue.enqueue(image, vk.device(), vk.allocator());
   RenderContext::SamplerArray samplers{};
   samplers[RenderContext::SAMPLER_LINEAR] =
@@ -144,7 +148,7 @@ fn init_images(VkContext& vk, VkDelQueue& delqueue)
 
 } // namespace
 
-RenderContext::RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler&& glfw_imgui,
+RenderContext::RenderContext(create_t, VkContext&& vk, GLFWImGuiHandler&& glfw_imgui,
                              VkDelQueue&& delqueue, VkDynDescAlloc&& desc_alloc,
                              DrawTarget&& target, FrameData* frames, VkAllocImage&& default_image,
                              SamplerArray&& samplers) :
@@ -152,13 +156,13 @@ RenderContext::RenderContext(create_t, VkContext&& vk, GLFWContext::ImGuiHandler
     _desc_alloc(std::move(desc_alloc)), _target(std::move(target)),
     _images(std::move(default_image), std::move(samplers)), _frame_count(0) {
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    _frames.construct_offset(i, std::move(frames[i]));
+    _frames.construct(i, std::move(frames[i]));
   }
 }
 
-fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw) -> void {
+fn RenderContext::initialize(TypeBufferRef<RenderContext> renderer, GLFWContext& glfw) -> void {
   VkExtent2D surface_extent{};
-  fn extent_updater = glfw.make_vk_extent_updater();
+  auto extent_updater = glfw.make_vk_extent_updater();
   extent_updater(&surface_extent);
   const VkSurfaceArgs vk_surface{
     .extensions = GLFWContext::get_surface_extensions(),
@@ -174,7 +178,7 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
   auto vk = VkContext::create(vk_args).value();
   DeferFn vk_defer = make_vk_defer(vk);
 
-  fn glfw_imgui = glfw.make_imgui_handler();
+  auto glfw_imgui = glfw.make_imgui_handler();
   fn imgui_initer = [&]() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -183,7 +187,7 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
     glfw_imgui.init();
   };
-  vk_init_imgui(vk, imgui_initer);
+  vk_init_imgui(vk, imgui_initer).value();
   DeferFn imgui_defer = make_imgui_defer(glfw_imgui);
 
   VkDelQueue delqueue;
@@ -193,7 +197,8 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
     {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
   });
   static constexpr u32 initial_sets = 10;
-  auto desc_alloc = VkDynDescAlloc::create(vk.device(), initial_sets, desc_pool_sizes).value();
+  Span<const VkDescPoolRatio> pool_sizes_span(desc_pool_sizes.data(), desc_pool_sizes.size());
+  auto desc_alloc = VkDynDescAlloc::create(vk.device(), initial_sets, pool_sizes_span).value();
 
   auto target = init_draw_target(vk, delqueue, surface_extent);
 
@@ -204,9 +209,10 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
   });
+  Span<const VkDescPoolRatio> frame_sizes_span(frame_sizes.data(), frame_sizes.size());
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-    auto alloc = VkDynDescAlloc::create(vk.device(), 1000, frame_sizes).value();
-    frames.construct_offset(i, VkDelQueue(), std::move(alloc));
+    auto alloc = VkDynDescAlloc::create(vk.device(), 1000, frame_sizes_span).value();
+    frames.construct(i, VkDelQueue(), std::move(alloc));
   }
 
   VkDescriptorSetLayout scene_layout{};
@@ -224,17 +230,17 @@ fn RenderContext::initialize(Uninited<RenderContext> renderer, GLFWContext& glfw
   imgui_defer.disengage();
   vk_defer.disengage();
 
-  KA_PNEW(renderer);
-  RenderContext(create_t(), std::move(vk), std::move(glfw_imgui), std::move(delqueue),
-                std::move(desc_alloc), std::move(target), frames.get(), std::move(default_image),
-                std::move(samplers));
+  renderer->construct(create_t(), std::move(vk), std::move(glfw_imgui), std::move(delqueue),
+                      std::move(desc_alloc), std::move(target), frames.data(),
+                      std::move(default_image), std::move(samplers));
 }
 
-fn RenderContext::destroy() -> void {
+RenderContext::~RenderContext() {
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
     auto& frame = _frames[i];
     make_delqueue_defer(_vk, frame.delqueue)();
     frame.desc_alloc.destroy();
+    _frames.destroy(i);
   }
   make_delqueue_defer(_vk, _delqueue)();
   _desc_alloc.destroy();
@@ -253,7 +259,7 @@ fn update_draw_target_extent(RenderContext::DrawTarget& target, VkExtent2D swapc
 
 } // namespace
 
-fn RenderContext::draw_things(IDrawAction& draw) {
+fn RenderContext::draw_things(IDrawAction& draw, f64 dt, f64 alpha) -> void {
   vk_draw_frame(_vk, [&](const VkFrameContext& frame) -> void {
     auto& ctx_frame = get_frame();
     ctx_frame.delqueue.flush();
@@ -265,7 +271,7 @@ fn RenderContext::draw_things(IDrawAction& draw) {
     VkImageLayout target_layout = VK_IMAGE_LAYOUT_UNDEFINED; // Don't care about the older layout
 
     // Draw our things
-    draw.render_geometry(target_layout, cmd);
+    draw.render_geometry(target_layout, cmd, dt, alpha);
 
     // Prepare swapchain for copying
     target_layout = vkcmd_transition_image(cmd, _target.color.image(), target_layout,
@@ -286,7 +292,7 @@ fn RenderContext::draw_things(IDrawAction& draw) {
     {
       _glfw_imgui.new_frame();
       ImGui::NewFrame();
-      draw.render_imgui(frame);
+      draw.render_imgui(frame, dt, alpha);
       ImGui::Render();
 
       const auto color_attachment =
@@ -303,6 +309,43 @@ fn RenderContext::draw_things(IDrawAction& draw) {
                                        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     ++_frame_count;
   }).value();
+}
+
+fn RenderContext::create_image(VkExtent3D size, VkFormat format, VkImageUsageFlags flags,
+                               VkImageMipsFlag mips, const void* data) -> Image {
+  if (_images.images.size() > MAX_IMAGES) {
+    return DEFAULT_IMAGE;
+  }
+  auto image = create_actual_image(_vk, data, size, format, flags, mips);
+  if (!image) {
+    return DEFAULT_IMAGE;
+  }
+  auto slot = _images.images.emplace(std::move(*image));
+  return (Image)slot;
+}
+
+fn RenderContext::destroy_image(Image image) -> void {
+  if ((u32)image == 0) {
+    return;
+  }
+  _images.images.remove((u32)image);
+}
+
+fn RenderContext::submit_image_data(Image image, const void* data) -> void {
+  if (!data || (u32)image == 0) {
+    return;
+  }
+  upload_image_data(_vk, get_image(image), data).value();
+}
+
+fn RenderContext::get_image(Image image) -> VkAllocImage& {
+  ka_assert(_images.images.has_element((u32)image));
+  return _images.images[(u32)image];
+}
+
+fn RenderContext::get_sampler(SamplerType type) -> VkSampler {
+  ka_assert((u32)type < SAMPLER_COUNT);
+  return _images.samplers[(u32)type];
 }
 
 #if 0

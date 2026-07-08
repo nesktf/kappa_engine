@@ -89,6 +89,32 @@ using ntf::nullopt;
 using ntf::unexpect;
 using ntf::uninitialized;
 
+template<typename T>
+struct TypeBufferRef {
+public:
+  template<size_t Size, size_t Align>
+  TypeBufferRef(TypeBuffer<T, Size, Align>& buffer) : _ref(&buffer) {}
+
+public:
+  template<size_t Size = sizeof(T), size_t Align = alignof(T)>
+  TypeBuffer<T, Size, Align>& get() const {
+    return *static_cast<TypeBuffer<T, Size, Align>*>(_ref);
+  }
+
+  template<size_t Size = sizeof(T), size_t Align = alignof(T)>
+  TypeBuffer<T, Size, Align>* operator->() const {
+    return &get<Size, Align>();
+  }
+
+  template<size_t Size = sizeof(T), size_t Align = alignof(T)>
+  TypeBuffer<T, Size, Align>& operator*() const {
+    return get<Size, Align>();
+  }
+
+private:
+  void* _ref;
+};
+
 enum class LogLevel : u32 {
   error = 0,
   warn,

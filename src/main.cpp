@@ -1,5 +1,7 @@
 #include "assets/model.hpp"
-#include "kappa.hpp"
+#include "render/context.hpp"
+#include "render/glfw.hpp"
+#include "render/scene.hpp"
 
 namespace {
 
@@ -38,29 +40,32 @@ fn extract_model_data(const assets::Model3DData& model) -> render::SceneData::Me
   };
 }
 
-} // namespace
+class KappaContext {
+public:
+  KappaContext();
+  ~KappaContext();
 
-fn KappaContext::init() -> void {
-  ka_assert(!_initialized);
-  render::GLFWContext::initialize(_glfw.raw_data(), WINDOW_WIDTH, WINDOW_HEIGHT);
-  render::RenderContext::initialize(_renderer.raw_data(), *_glfw);
-  render::SceneData::initialize(_scene.raw_data(), *_renderer);
-  _initialized = true;
+public:
+  fn start() -> void;
+  fn on_render(f64 dt, f64 alpha) -> void;
+  fn on_fixed_update(u32 ups) -> void;
+
+private:
+  TypeBuffer<render::GLFWContext> _glfw;
+  TypeBuffer<render::RenderContext> _renderer;
+  TypeBuffer<render::SceneData> _scene;
+};
+
+KappaContext::KappaContext() {
+  render::GLFWContext::initialize(_glfw, WINDOW_WIDTH, WINDOW_HEIGHT);
+  render::RenderContext::initialize(_renderer, *_glfw);
+  render::SceneData::initialize(_scene, *_renderer);
 }
 
-fn KappaContext::destroy() -> void {
-  ka_assert(_initialized);
-
-  _scene->clear();
+KappaContext::~KappaContext() {
   _scene.destroy();
-
-  _renderer->destroy();
   _renderer.destroy();
-
-  _glfw->destroy();
   _glfw.destroy();
-
-  _initialized = false;
 }
 
 fn KappaContext::start() -> void {
@@ -73,9 +78,15 @@ fn KappaContext::start() -> void {
   render::render_loop<60>(*_glfw, *this);
 }
 
-fn KappaContext::on_render(f64 dt, f64 alpha) -> void {}
+fn KappaContext::on_render(f64 dt, f64 alpha) -> void {
+  _renderer->draw_things(*_scene, dt, alpha);
+}
 
-fn KappaContext::on_fixed_update(u32 ups) -> void {}
+fn KappaContext::on_fixed_update(u32 ups) -> void {
+  KA_UNUSED(ups);
+}
+
+} // namespace
 
 int kappa::g_argc;
 char** kappa::g_argv;
@@ -85,10 +96,6 @@ int main(int argc, char* argv[]) {
   g_argv = argv;
   try {
     KappaContext ka;
-    ka.init();
-    const DeferFn ka_defer = [&]() {
-      ka.destroy();
-    };
     ka.start();
   } catch (const std::exception& ex) {
     log_error(" {}", ex.what());
